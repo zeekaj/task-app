@@ -2,10 +2,11 @@
 import React, { useEffect, useState } from "react";
 import { createProject } from "../services/projects";
 import { updateTask } from "../services/tasks";
+import type { WithId, Task } from "../types";
 
 export const PromotionModal: React.FC<{
   uid: string;
-  task: any;
+  task: WithId<Task>;
   onClose: () => void;
 }> = ({ uid, task, onClose }) => {
   const [projectName, setProjectName] = useState(task.title);

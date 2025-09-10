@@ -44,6 +44,24 @@ export interface Blocker {
 
 export type WithId<T> = T & { id: string };
 
+/** Entity types for modal operations */
+export interface BlockableEntity {
+  id: string;
+  title: string;
+  type: BlockerEntityType;
+}
+
+export interface PromotableTask {
+  id: string;
+  title: string;
+}
+
+/** Modal state types */
+export interface ModalState {
+  type: null | "block" | "manage_blockers";
+  target: BlockableEntity | null;
+}
+
 /** Filters */
 export type StatusFilter = "all" | "active" | "blocked" | "done" | "archived";
 export type DueFilter = "any" | "overdue" | "today" | "week";

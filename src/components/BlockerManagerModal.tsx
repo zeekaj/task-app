@@ -1,6 +1,6 @@
 // src/components/BlockerManagerModal.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import type { WithId, Blocker } from "../types";
+import type { WithId, Blocker, BlockableEntity } from "../types";
 import { resolveBlocker, updateBlocker } from "../services/blockers";
 
 const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = ({
@@ -147,7 +147,7 @@ const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = (
 
 export const BlockerManagerModal: React.FC<{
   uid: string;
-  entity: { id: string; title: string; type: "task" | "project" };
+  entity: BlockableEntity;
   allBlockers: WithId<Blocker>[];
   onClose: () => void;
 }> = ({ uid, entity, allBlockers, onClose }) => {

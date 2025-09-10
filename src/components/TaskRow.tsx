@@ -1,12 +1,12 @@
 import React from "react";
-import type { WithId, Task } from "/src/types";
+import type { WithId, Task, BlockableEntity } from "../types";
 
 type Props = {
   task: WithId<Task>;
   onEdit?: () => void;
   onPromote?: () => void;
-  openBlockerModal?: (item: WithId<Task>) => void;
-  setCurrentView?: (view: { type: string; id?: string }) => void;
+  openBlockerModal?: (target: BlockableEntity) => void;
+  setCurrentView?: (view: { type: "tasks" | "project" | "blocked"; id?: string | null }) => void;
 };
 
 function Dot({ className = "" }: { className?: string }) {
@@ -59,7 +59,7 @@ export const TaskRow: React.FC<Props> = ({
             <button
               className="text-xs border px-2 py-1 rounded hover:bg-gray-100"
               title="Manage blocker"
-              onClick={() => openBlockerModal(task)}
+              onClick={() => openBlockerModal({ ...task, type: "task" })}
             >
               Manage
             </button>

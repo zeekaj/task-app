@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import type { WithId, Project, Task } from "/src/types";
-import { createTask } from "/src/services/tasks";
+import type { WithId, Project, Task } from "../types";
+import { createTask } from "../services/tasks";
 
 type Props = {
   uid: string;

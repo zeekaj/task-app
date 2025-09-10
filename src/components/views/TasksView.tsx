@@ -1,6 +1,6 @@
 // src/components/views/TasksView.tsx
 import React, { useMemo, useState } from "react";
-import type { WithId, Task, Blocker, TaskFilters, Project } from "../../types";
+import type { WithId, Task, Blocker, TaskFilters, Project, BlockableEntity } from "../../types";
 import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
 import { createTask } from "../../services/tasks";
@@ -32,9 +32,9 @@ export const TasksView: React.FC<{
   allTasks: WithId<Task>[];
   allBlockers: WithId<Blocker>[];
   allProjects: WithId<Project>[];
-  openBlockerModal: (t: any) => void;
-  openBlockerManagerModal: (t: any) => void;
-  setPromotingTask: (t: any) => void;
+  openBlockerModal: (target: BlockableEntity) => void;
+  openBlockerManagerModal: (target: BlockableEntity) => void;
+  setPromotingTask: (task: WithId<Task>) => void;
 }> = ({ uid, allTasks, allBlockers, allProjects, openBlockerModal, openBlockerManagerModal, setPromotingTask }) => {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [quickAdd, setQuickAdd] = useState("");

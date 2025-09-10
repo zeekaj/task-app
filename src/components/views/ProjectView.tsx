@@ -1,25 +1,27 @@
 import React, { useState } from "react";
-import type { WithId, Project, ProjectStatus, Task } from "/src/types";
-import { updateProject } from "/src/services/projects";
-import { TaskRow } from "/src/components/TaskRow";
-import { TaskCreateForm } from "/src/components/TaskCreateForm";
-import { TaskEditForm } from "/src/components/TaskEditForm";
+import type { WithId, Project, ProjectStatus, Task, BlockableEntity, Blocker } from "../../types";
+import { updateProject } from "../../services/projects";
+import { TaskRow } from "../TaskRow";
+import { TaskCreateForm } from "../TaskCreateForm";
+import { TaskEditForm } from "../TaskEditForm";
 
 type Props = {
   uid: string;
   projectId: string;
   allTasks: WithId<Task>[];
+  allBlockers: WithId<Blocker>[];
   allProjects: WithId<Project>[];
-  openBlockerModal: (item: WithId<Project> | WithId<Task>) => void;
-  openBlockerManagerModal: (project: WithId<Project>) => void;
+  openBlockerModal: (target: BlockableEntity) => void;
+  openBlockerManagerModal: (target: BlockableEntity) => void;
   setPromotingTask: (task: WithId<Task>) => void;
-  setCurrentView: (view: { type: string; id?: string }) => void;
+  setCurrentView: (view: { type: "tasks" | "project" | "blocked"; id?: string | null }) => void;
 };
 
 export const ProjectView: React.FC<Props> = ({
   uid,
   projectId,
   allTasks,
+  allBlockers,
   allProjects,
   openBlockerModal,
   openBlockerManagerModal,
@@ -62,7 +64,7 @@ export const ProjectView: React.FC<Props> = ({
                 const val = e.target.value as ProjectStatus;
                 if (val === "blocked") {
                   // open project-level block modal
-                  openBlockerModal({ ...project, type: "project" } as any);
+                  openBlockerModal({ ...project, type: "project" });
                 } else {
                   await updateProject(uid, projectId, { status: val });
                 }
@@ -83,7 +85,7 @@ export const ProjectView: React.FC<Props> = ({
             <button
               type="button"
               className="text-xs ml-2 px-2 py-1 border rounded-md bg-white hover:bg-gray-50"
-              onClick={() => openBlockerManagerModal({ ...project })}
+              onClick={() => openBlockerManagerModal({ ...project, type: "project" })}
               title="Resolve specific blocking items to clear this project"
             >
               Manage blockers
