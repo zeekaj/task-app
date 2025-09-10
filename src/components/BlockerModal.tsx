@@ -1,11 +1,11 @@
 // src/components/BlockerModal.tsx
 import React, { useState } from "react";
 import { createBlocker } from "../services/blockers";
-import type { BlockerEntityType } from "../types";
+import type { BlockableEntity } from "../types";
 
 export const BlockerModal: React.FC<{
   uid: string;
-  entity: { id: string; title: string; type: BlockerEntityType };
+  entity: BlockableEntity;
   onClose: () => void;
 }> = ({ uid, entity, onClose }) => {
   const [reason, setReason] = useState("");

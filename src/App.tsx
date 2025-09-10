@@ -4,6 +4,7 @@ import { useAuth } from "./hooks/useAuth";
 import { useProjects } from "./hooks/useProjects";
 import { useTasks } from "./hooks/useTasks";
 import { useAllBlockers } from "./hooks/useBlockers";
+import type { WithId, Task, ModalState, BlockableEntity } from "./types";
 
 import { Header } from "./components/Header";
 import { Sidebar } from "./components/Sidebar";
@@ -15,9 +16,15 @@ import { BlockerManagerModal } from "./components/BlockerManagerModal";
 import { PromotionModal } from "./components/PromotionModal";
 import { signIn } from "./firebase";
 
+// Use Sidebar's View type definition
+type View =
+  | { type: "tasks"; id: null }
+  | { type: "blocked"; id: null }
+  | { type: "project"; id: string };
+
 const App: React.FC = () => {
   const user = useAuth();
-  const [currentView, setCurrentView] = useState<{ type: "tasks" | "project" | "blocked"; id: string | null }>({
+  const [currentView, setCurrentView] = useState<View>({
     type: "tasks",
     id: null,
   });
@@ -26,14 +33,14 @@ const App: React.FC = () => {
   const allTasks = useTasks(user?.uid);
   const allBlockers = useAllBlockers(user?.uid);
 
-  const [promotingTask, setPromotingTask] = useState<any | null>(null);
-  const [modalState, setModalState] = useState<{ type: null | "block" | "manage_blockers"; target: any }>({
+  const [promotingTask, setPromotingTask] = useState<WithId<Task> | null>(null);
+  const [modalState, setModalState] = useState<ModalState>({
     type: null,
     target: null,
   });
 
-  const openBlockerModal = (target: any) => setModalState({ type: "block", target });
-  const openBlockerManagerModal = (target: any) => setModalState({ type: "manage_blockers", target });
+  const openBlockerModal = (target: BlockableEntity) => setModalState({ type: "block", target });
+  const openBlockerManagerModal = (target: BlockableEntity) => setModalState({ type: "manage_blockers", target });
   const closeModal = () => setModalState({ type: null, target: null });
 
   if (!user) {
@@ -54,11 +61,14 @@ const App: React.FC = () => {
     <div className="flex h-screen bg-gray-100 font-sans">
       <Sidebar uid={user.uid} currentView={currentView} setCurrentView={setCurrentView} />
       <main className="flex-1 flex flex-col h-screen">
-        <Header uid={user.uid} user={user} />
+        <Header user={user} onAddTask={(title: string) => {
+          // Add quick task creation logic here if needed
+          console.log("Quick add task:", title);
+        }} />
         <div className="flex-1 p-6 overflow-y-auto">
           {promotingTask && <PromotionModal uid={user.uid} task={promotingTask} onClose={() => setPromotingTask(null)} />}
-          {modalState.type === "block" && <BlockerModal uid={user.uid} entity={modalState.target} onClose={closeModal} />}
-          {modalState.type === "manage_blockers" && (
+          {modalState.type === "block" && modalState.target && <BlockerModal uid={user.uid} entity={modalState.target} onClose={closeModal} />}
+          {modalState.type === "manage_blockers" && modalState.target && (
             <BlockerManagerModal uid={user.uid} entity={modalState.target} allBlockers={allBlockers} onClose={closeModal} />
           )}
 
@@ -84,6 +94,15 @@ const App: React.FC = () => {
               openBlockerModal={openBlockerModal}
               openBlockerManagerModal={openBlockerManagerModal}
               setPromotingTask={setPromotingTask}
+              setCurrentView={(view) => {
+                if (view.type === "tasks") {
+                  setCurrentView({ type: "tasks", id: null });
+                } else if (view.type === "blocked") {
+                  setCurrentView({ type: "blocked", id: null });
+                } else if (view.type === "project" && view.id) {
+                  setCurrentView({ type: "project", id: view.id });
+                }
+              }}
             />
           )}
 
@@ -95,7 +114,15 @@ const App: React.FC = () => {
               allProjects={allProjects}
               openBlockerManagerModal={openBlockerManagerModal}
               setPromotingTask={setPromotingTask}
-              setCurrentView={setCurrentView}
+              setCurrentView={(view) => {
+                if (view.type === "tasks") {
+                  setCurrentView({ type: "tasks", id: null });
+                } else if (view.type === "blocked") {
+                  setCurrentView({ type: "blocked", id: null });
+                } else if (view.type === "project" && view.id) {
+                  setCurrentView({ type: "project", id: view.id });
+                }
+              }}
             />
           )}
         </div>

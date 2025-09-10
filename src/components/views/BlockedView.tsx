@@ -1,6 +1,6 @@
 // src/components/views/BlockedView.tsx
 import React from "react";
-import type { WithId, Project, Task, Blocker } from "../../types";
+import type { WithId, Project, Task, Blocker, BlockableEntity } from "../../types";
 import { TaskItem } from "../TaskItem";
 
 export const BlockedView: React.FC<{
@@ -8,9 +8,9 @@ export const BlockedView: React.FC<{
   allProjects: WithId<Project>[];
   allTasks: WithId<Task>[];
   allBlockers: WithId<Blocker>[];
-  openBlockerManagerModal: (t: any) => void;
-  setPromotingTask: (t: any) => void;
-  setCurrentView: (v: any) => void;
+  openBlockerManagerModal: (target: BlockableEntity) => void;
+  setPromotingTask: (task: WithId<Task>) => void;
+  setCurrentView: (view: { type: "tasks" | "project" | "blocked"; id?: string | null }) => void;
 }> = ({ uid, allProjects, allTasks, allBlockers, openBlockerManagerModal, setPromotingTask, setCurrentView }) => {
   const blockedProjects = allProjects.filter((p) => p.status === "blocked");
   const blockedTasks = allTasks.filter((t) => t.status === "blocked");
