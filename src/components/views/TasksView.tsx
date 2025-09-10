@@ -100,26 +100,28 @@ export const TasksView: React.FC<{
       <ul className="space-y-2 mt-2">
         {tasksWithoutProject.map((t) =>
           editingTaskId === t.id ? (
-            <TaskEditForm
-              key={t.id}
-              uid={uid}
-              task={t}
-              onSave={() => setEditingTaskId(null)}
-              onCancel={() => setEditingTaskId(null)}
-              onStartPromote={() => setPromotingTask(t)}
-              onDelete={() => handleDeleteFromEdit(t.id)}
-            />
+            <li key={t.id}>
+              <TaskEditForm
+                uid={uid}
+                task={t}
+                onSave={() => setEditingTaskId(null)}
+                onCancel={() => setEditingTaskId(null)}
+                onStartPromote={() => setPromotingTask(t)}
+                onDelete={() => handleDeleteFromEdit(t.id)}
+              />
+            </li>
           ) : (
-            <TaskItem
-              key={t.id}
-              uid={uid}
-              task={t}
-              allBlockers={allBlockers}
-              onStartEdit={() => setEditingTaskId(t.id)}
-              onStartPromote={() => setPromotingTask(t)}
-              onManageBlockers={() => openBlockerManagerModal({ ...t, type: "task" })}
-              onStartBlock={() => openBlockerModal({ ...t, type: "task" })}
-            />
+            <li key={t.id}>
+              <TaskItem
+                uid={uid}
+                task={t}
+                allBlockers={allBlockers}
+                onStartEdit={() => setEditingTaskId(t.id)}
+                onStartPromote={() => setPromotingTask(t)}
+                onManageBlockers={() => openBlockerManagerModal({ ...t, type: "task" })}
+                onStartBlock={() => openBlockerModal({ ...t, type: "task" })}
+              />
+            </li>
           )
         )}
         {tasksWithoutProject.length === 0 && (
