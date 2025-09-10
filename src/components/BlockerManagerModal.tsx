@@ -11,8 +11,8 @@ const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = (
   const [reason, setReason] = useState(blocker.reason);
   const [waitingOn, setWaitingOn] = useState(blocker.waitingOn);
   const [expectedDate, setExpectedDate] = useState(
-    (blocker.expectedDate as any)?.toDate
-      ? (blocker.expectedDate as any).toDate().toISOString().split("T")[0]
+    blocker.expectedDate && typeof blocker.expectedDate === 'object' && 'toDate' in blocker.expectedDate
+      ? blocker.expectedDate.toDate().toISOString().split("T")[0]
       : ""
   );
   const [resolveReason, setResolveReason] = useState("");
@@ -21,8 +21,8 @@ const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = (
     setReason(blocker.reason);
     setWaitingOn(blocker.waitingOn);
     setExpectedDate(
-      (blocker.expectedDate as any)?.toDate
-        ? (blocker.expectedDate as any).toDate().toISOString().split("T")[0]
+      blocker.expectedDate && typeof blocker.expectedDate === 'object' && 'toDate' in blocker.expectedDate
+        ? blocker.expectedDate.toDate().toISOString().split("T")[0]
         : ""
     );
   }, [blocker]);
@@ -105,10 +105,10 @@ const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = (
               <strong>Waiting on:</strong> {blocker.waitingOn}
             </div>
           )}
-          {(blocker.expectedDate as any)?.toDate && (
+          {blocker.expectedDate && typeof blocker.expectedDate === 'object' && 'toDate' in blocker.expectedDate && (
             <div>
               <strong>Expected by:</strong>{" "}
-              {(blocker.expectedDate as any).toDate().toLocaleDateString()}
+              {blocker.expectedDate.toDate().toLocaleDateString()}
             </div>
           )}
         </div>
@@ -222,9 +222,9 @@ export const BlockerManagerModal: React.FC<{
                         <span className="font-semibold">Resolved:</span> {b.clearedReason}
                       </p>
                     )}
-                    {(b as any).clearedAt?.toDate && (
+                    {b.clearedAt && typeof b.clearedAt === 'object' && 'toDate' in b.clearedAt && (
                       <p className="text-xs text-gray-400 text-right">
-                        Cleared on {(b as any).clearedAt.toDate().toLocaleDateString()}
+                        Cleared on {b.clearedAt.toDate().toLocaleDateString()}
                       </p>
                     )}
                   </li>

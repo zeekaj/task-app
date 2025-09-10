@@ -1,7 +1,7 @@
 // src/components/TaskItem.tsx
 import React from "react";
 import { Icon } from "./shared/Icon";
-import type { WithId, Task, Blocker } from "../types";
+import type { WithId, Task, Blocker, TaskStatus } from "../types";
 import { removeTask, updateTask, archiveTask, unarchiveTask } from "../services/tasks";
 import { resolveBlocker } from "../services/blockers";
 
@@ -31,8 +31,8 @@ export const TaskItem: React.FC<{
   onStartBlock: () => void;
 }> = ({ uid, task, allBlockers, onStartEdit, onStartPromote, onManageBlockers, onStartBlock }) => {
   const dueDate = task.dueDate ? new Date(task.dueDate) : null;
-  const createdAtDate = (task as any).createdAt?.toDate ? (task as any).createdAt.toDate() : null;
-  const updatedAtDate = (task as any).updatedAt?.toDate ? (task as any).updatedAt.toDate() : null;
+  const createdAtDate = task.createdAt && typeof task.createdAt === 'object' && 'toDate' in task.createdAt ? task.createdAt.toDate() : null;
+  const updatedAtDate = task.updatedAt && typeof task.updatedAt === 'object' && 'toDate' in task.updatedAt ? task.updatedAt.toDate() : null;
   const isBlocked = task.status === "blocked";
   const isArchived = task.status === "archived";
   const activeTaskBlockers = isBlocked
@@ -46,13 +46,14 @@ export const TaskItem: React.FC<{
 
   const handleStatusChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
     e.stopPropagation();
-    const newStatus = e.target.value as Task["status"];
+    const newStatus = e.target.value as TaskStatus;
     if (newStatus === "blocked") {
       onStartBlock();
       return;
     }
     // If currently blocked, require clearing active blockers first
-    if (isBlocked && activeTaskBlockers.length > 0 && newStatus !== "blocked") {
+    // Note: newStatus will never be "blocked" due to select filtering, but keep for safety
+    if (isBlocked && activeTaskBlockers.length > 0) {
       const proceed = window.confirm(
         `This task has ${activeTaskBlockers.length} active blocker(s).\nYou need to resolve them before unblocking. Continue?`
       );

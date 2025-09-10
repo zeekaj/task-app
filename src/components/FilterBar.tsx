@@ -1,6 +1,6 @@
 // src/components/FilterBar.tsx
 import React from "react";
-import type { TaskFilters } from "../types";
+import type { TaskFilters, StatusFilter, DueFilter } from "../types";
 
 const priorities = [
   { value: 0, label: "Any" },
@@ -30,7 +30,7 @@ export const FilterBar: React.FC<{
         <select
           className="border rounded px-2 py-1 text-sm"
           value={filters.status}
-          onChange={(e) => onChange({ ...filters, status: e.target.value as any })}
+          onChange={(e) => onChange({ ...filters, status: e.target.value as StatusFilter })}
         >
           <option value="active">Active</option>
           <option value="blocked">Blocked</option>
@@ -46,7 +46,7 @@ export const FilterBar: React.FC<{
         <select
           className="border rounded px-2 py-1 text-sm"
           value={filters.minPriority}
-          onChange={(e) => onChange({ ...filters, minPriority: Number(e.target.value) as any })}
+          onChange={(e) => onChange({ ...filters, minPriority: Number(e.target.value) as 0 | 1 | 2 | 3 | 4 })}
         >
           {priorities.map((p) => (
             <option key={p.value} value={p.value}>
@@ -62,7 +62,7 @@ export const FilterBar: React.FC<{
         <select
           className="border rounded px-2 py-1 text-sm"
           value={filters.due}
-          onChange={(e) => onChange({ ...filters, due: e.target.value as any })}
+          onChange={(e) => onChange({ ...filters, due: e.target.value as DueFilter })}
         >
           <option value="any">Any</option>
           <option value="overdue">Overdue</option>

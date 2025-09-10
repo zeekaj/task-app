@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import type { WithId, Project, Task } from "../types";
+import type { WithId, Project } from "../types";
 import { createTask } from "../services/tasks";
 
 type Props = {
@@ -35,18 +35,9 @@ export const TaskCreateForm: React.FC<Props> = ({
     setError(null);
     setSaving(true);
     try {
-      const data: Partial<Task> = {
-        title: title.trim(),
-        description: description.trim() || undefined,
-        priority,
-        dueDate: dueDate || undefined,
-        projectId: proj || null,
-        status: "not_started",
-        blocked: false,
-        createdAt: new Date().toISOString(),
-      } as any;
-
-      const id = await createTask(uid, data);
+      const id = await createTask(uid, title.trim(), proj || null);
+      // TODO: If we need to support additional fields like priority, description, dueDate,
+      // we would need to update the task after creation or modify the createTask service
       setTitle("");
       setDescription("");
       setPriority(0);

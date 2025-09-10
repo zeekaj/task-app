@@ -1,8 +1,9 @@
 // src/components/Header.tsx
 import React, { useState } from "react";
 import { signOut } from "../firebase";
+import type { User } from "firebase/auth";
 
-export const Header: React.FC<{ user: any; onAddTask: (title: string) => void }> = ({
+export const Header: React.FC<{ user: User; onAddTask: (title: string) => void }> = ({
   user,
   onAddTask,
 }) => {

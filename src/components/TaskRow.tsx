@@ -19,10 +19,9 @@ export const TaskRow: React.FC<Props> = ({
   onPromote,
   openBlockerModal,
 }) => {
-  const blocked = Boolean((task as any).blocked);
+  const blocked = task.status === "blocked";
   const due = task.dueDate ? String(task.dueDate).slice(0, 10) : null;
-  const priority =
-    typeof (task as any).priority === "number" ? (task as any).priority : null;
+  const priority = typeof task.priority === "number" ? task.priority : null;
 
   return (
     <li className="px-2 py-1.5 hover:bg-gray-50 rounded-md transition-colors">
