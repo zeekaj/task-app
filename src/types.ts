@@ -20,6 +20,7 @@ export interface Task {
   status: TaskStatus;
   priority: number; // 0..4
   dueDate: string | null; // ISO string or null
+  order?: number; // for custom ordering
   createdAt?: Timestamp;
   updatedAt?: Timestamp;
 }

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import type { WithId, Project, Task } from "/src/types";
-import { createTask } from "/src/services/tasks";
+import type { WithId, Project } from "../types";
+import { createTask } from "../services/tasks";
 
 type Props = {
   uid: string;
@@ -35,18 +35,11 @@ export const TaskCreateForm: React.FC<Props> = ({
     setError(null);
     setSaving(true);
     try {
-      const data: Partial<Task> = {
-        title: title.trim(),
-        description: description.trim() || undefined,
-        priority,
-        dueDate: dueDate || undefined,
-        projectId: proj || null,
-        status: "not_started",
-        blocked: false,
-        createdAt: new Date().toISOString(),
-      } as any;
-
-      const id = await createTask(uid, data);
+      const id = await createTask(
+        uid,
+        title.trim(),
+        proj || null
+      );
       setTitle("");
       setDescription("");
       setPriority(0);

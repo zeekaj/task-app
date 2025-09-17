@@ -1,5 +1,108 @@
 // src/components/Sidebar.tsx
 import React, { useState } from "react";
+import { useDroppable } from "@dnd-kit/core";
+// Child component for sidebar droppable project
+
+type SidebarProjectDroppableProps = {
+  project: WithId<Project>;
+  currentView: View;
+  editingProjectId: string | null;
+  editingProjectTitle: string;
+  handleProjectClick: (p: WithId<Project>) => void;
+  handleDeleteProject: (id: string) => void;
+  handleSaveEdit: () => void;
+  handleCancelEdit: () => void;
+  setEditingProjectTitle: (title: string) => void;
+};
+
+function SidebarProjectDroppable({
+  project,
+  currentView,
+  editingProjectId,
+  editingProjectTitle,
+  handleProjectClick,
+  handleDeleteProject,
+  handleSaveEdit,
+  handleCancelEdit,
+  setEditingProjectTitle,
+}: SidebarProjectDroppableProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: `sidebar-project-${project.id}` });
+  return (
+    <li
+      ref={setNodeRef}
+      className={`group flex items-center pr-2 rounded-lg ${isOver ? "bg-blue-200" : "hover:bg-gray-200"}`}
+    >
+      {editingProjectId === project.id ? (
+        <input
+          type="text"
+          value={editingProjectTitle}
+          onChange={(e) => setEditingProjectTitle(e.target.value)}
+          onBlur={handleSaveEdit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSaveEdit();
+            if (e.key === "Escape") handleCancelEdit();
+          }}
+          className="flex-1 border-b m-2 p-1 bg-transparent"
+          autoFocus
+        />
+      ) : (
+        <button
+          onClick={() => handleProjectClick(project)}
+          className={`flex-1 text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm truncate ${
+            currentView.type === "project" && currentView.id === project.id
+              ? "bg-blue-100 text-blue-700"
+              : ""
+          }`}
+        >
+          <div
+            className={`w-2.5 h-2.5 ${
+              project.status === "blocked" ? "bg-red-500" : "bg-green-500"
+            } rounded-full flex-shrink-0`}
+          />
+          <span className="truncate">{project.title}</span>
+        </button>
+      )}
+
+      <div className="opacity-0 group-hover:opacity-100 flex items-center">
+        {editingProjectId !== project.id && (
+          <button
+            onClick={() => handleDeleteProject(project.id!)}
+            className="p-1 text-gray-500 hover:text-red-600"
+            title="Delete Project"
+          >
+            <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+          </button>
+        )}
+      </div>
+    </li>
+  );
+}
+
+// Child component for Quick Tasks droppable
+type SidebarQuickTasksDroppableProps = {
+  currentView: View;
+  setCurrentView: (v: View) => void;
+};
+
+function SidebarQuickTasksDroppable({ currentView, setCurrentView }: SidebarQuickTasksDroppableProps) {
+  const { setNodeRef, isOver } = useDroppable({ id: "sidebar-quicktasks" });
+  return (
+    <li
+      ref={setNodeRef}
+      className={isOver ? "bg-blue-200 rounded-lg" : ""}
+    >
+      <button
+        onClick={() => setCurrentView({ type: "tasks", id: null })}
+        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left ${
+          currentView.type === "tasks" ? "bg-blue-100 text-blue-700" : "hover:bg-gray-200"
+        }`}
+      >
+        <Icon path="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z" />
+        <span className="font-semibold">Quick Tasks</span>
+      </button>
+    </li>
+  );
+}
 import { useProjects } from "../hooks/useProjects";
 import { Icon } from "./shared/Icon";
 import { createProject, deleteProject, updateProject } from "../services/projects";
@@ -64,17 +167,7 @@ export const Sidebar: React.FC<{
     <nav className="w-64 bg-gray-50 border-r p-4 flex flex-col flex-shrink-0">
       <div className="font-bold text-lg mb-6">My App</div>
       <ul className="space-y-1">
-        <li>
-          <button
-            onClick={() => setCurrentView({ type: "tasks", id: null })}
-            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left ${
-              currentView.type === "tasks" ? "bg-blue-100 text-blue-700" : "hover:bg-gray-200"
-            }`}
-          >
-            <Icon path="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z" />
-            <span className="font-semibold">Quick Tasks</span>
-          </button>
-        </li>
+        <SidebarQuickTasksDroppable currentView={currentView} setCurrentView={setCurrentView} />
         <li>
           <button
             onClick={() => setCurrentView({ type: "blocked", id: null })}
@@ -84,7 +177,7 @@ export const Sidebar: React.FC<{
                 : "hover:bg-gray-200"
             }`}
           >
-            <Icon path="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8 0-1.85.63-3.55 1.69-4.9L16.9 18.31C15.55 19.37 13.85 20 12 20zm4.9-3.1L5.7 5.7C7.05 4.63 8.75 4 10.5 4c4.42 0 8 3.58 8 8 0 1.85-.63 3.55-1.69 4.9z" />
+            <Icon path="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8 0-1.85.63-3.55 1.69-4.9L16.9 18.31C15.55 19.37 13.85 20 12 20zm4.9-3.1L5.7 5.7C7.05 4.63 8.75 4 10.5 4c4.42 0 8 3.58 8 8 0 1.85-.63-3.55-1.69-4.9z" />
             <span className="font-semibold">Blocked</span>
           </button>
         </li>
@@ -117,50 +210,18 @@ export const Sidebar: React.FC<{
 
         <ul className="space-y-1">
           {projects.map((p) => (
-            <li key={p.id} className="group flex items-center pr-2 rounded-lg hover:bg-gray-200">
-              {editingProjectId === p.id ? (
-                <input
-                  type="text"
-                  value={editingProjectTitle}
-                  onChange={(e) => setEditingProjectTitle(e.target.value)}
-                  onBlur={handleSaveEdit}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSaveEdit();
-                    if (e.key === "Escape") handleCancelEdit();
-                  }}
-                  className="flex-1 border-b m-2 p-1 bg-transparent"
-                  autoFocus
-                />
-              ) : (
-                <button
-                  onClick={() => handleProjectClick(p)}
-                  className={`flex-1 text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm truncate ${
-                    currentView.type === "project" && currentView.id === p.id
-                      ? "bg-blue-100 text-blue-700"
-                      : ""
-                  }`}
-                >
-                  <div
-                    className={`w-2.5 h-2.5 ${
-                      p.status === "blocked" ? "bg-red-500" : "bg-green-500"
-                    } rounded-full flex-shrink-0`}
-                  />
-                  <span className="truncate">{p.title}</span>
-                </button>
-              )}
-
-              <div className="opacity-0 group-hover:opacity-100 flex items-center">
-                {editingProjectId !== p.id && (
-                  <button
-                    onClick={() => handleDeleteProject(p.id!)}
-                    className="p-1 text-gray-500 hover:text-red-600"
-                    title="Delete Project"
-                  >
-                    <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-                  </button>
-                )}
-              </div>
-            </li>
+            <SidebarProjectDroppable
+              key={p.id}
+              project={p}
+              currentView={currentView}
+              editingProjectId={editingProjectId}
+              editingProjectTitle={editingProjectTitle}
+              handleProjectClick={handleProjectClick}
+              handleDeleteProject={handleDeleteProject}
+              handleSaveEdit={handleSaveEdit}
+              handleCancelEdit={handleCancelEdit}
+              setEditingProjectTitle={setEditingProjectTitle}
+            />
           ))}
         </ul>
       </div>

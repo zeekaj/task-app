@@ -1,5 +1,5 @@
 import React from "react";
-import type { WithId, Task } from "/src/types";
+import type { WithId, Task } from "../types";
 
 type Props = {
   task: WithId<Task>;

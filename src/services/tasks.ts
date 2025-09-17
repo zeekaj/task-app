@@ -34,7 +34,7 @@ export async function createTask(uid: string, title: string, projectId?: string 
 export async function updateTask(
   uid: string,
   taskId: string,
-  data: Partial<Pick<Task, "title" | "description" | "priority" | "dueDate" | "projectId" | "status">>
+  data: Partial<Pick<Task, "title" | "description" | "priority" | "dueDate" | "projectId" | "status" | "order">>
 ) {
   const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
 
@@ -44,6 +44,7 @@ export async function updateTask(
   if (typeof data.dueDate !== "undefined") payload.dueDate = data.dueDate;
   if (typeof data.projectId !== "undefined") payload.projectId = data.projectId;
   if (typeof data.status !== "undefined") payload.status = data.status;
+  if (typeof data.order !== "undefined") payload.order = data.order;
 
   await updateDoc(doc(db, `users/${uid}/tasks/${taskId}`), payload);
 

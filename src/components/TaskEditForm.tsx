@@ -1,14 +1,14 @@
 // src/components/TaskEditForm.tsx
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import type { WithId, Task, Project } from "../types";
 import { updateTask } from "../services/tasks";
 
 const priorities: { value: number; label: string }[] = [
-  { value: 0, label: "P0 (Lowest)" },
-  { value: 1, label: "P1" },
-  { value: 2, label: "P2" },
-  { value: 3, label: "P3" },
-  { value: 4, label: "P4 (Highest)" },
+  { value: 0, label: "None" },
+  { value: 1, label: "Low" },
+  { value: 2, label: "Medium" },
+  { value: 3, label: "High" },
+  { value: 4, label: "Urgent" },
 ];
 
 type Props = {
@@ -19,6 +19,9 @@ type Props = {
   onCancel: () => void;
   onStartPromote: () => void;
   onDelete: () => void;
+  onArchive?: () => void;
+  onUnarchive?: () => void;
+  onStatusChange?: (newStatus: Task["status"]) => void;
 };
 
 export const TaskEditForm: React.FC<Props> = ({
@@ -29,12 +32,37 @@ export const TaskEditForm: React.FC<Props> = ({
   onCancel,
   onStartPromote,
   onDelete,
+  onArchive,
+  onUnarchive,
+  onStatusChange,
 }) => {
+  const formRef = useRef<HTMLFormElement>(null);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
   const [priority, setPriority] = useState<number>(task.priority ?? 0);
   const [dueDate, setDueDate] = useState<string>(task.dueDate ?? "");
-  const [projectId, setProjectId] = useState<string | null>(task.projectId);
+    const [projectId, setProjectId] = useState<string>(task.projectId ?? "");
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  // Escape closes immediately, clicking outside asks for confirmation
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setShowDiscardConfirm(false);
+        onCancel();
+      }
+    }
+    function handleClick(e: MouseEvent) {
+      if (formRef.current && !formRef.current.contains(e.target as Node)) {
+        setShowDiscardConfirm(true);
+      }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("mousedown", handleClick);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("mousedown", handleClick);
+    };
+  }, [onCancel]);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +81,7 @@ export const TaskEditForm: React.FC<Props> = ({
         description: description.trim() || undefined,
         priority,
         dueDate: dueDate || null,
-        projectId: projectId ?? null,
+          projectId: projectId || null,
       });
       onSave();
     } catch (err: any) {
@@ -65,8 +93,25 @@ export const TaskEditForm: React.FC<Props> = ({
   }
 
   return (
-    <li className="border rounded-xl p-4 bg-white shadow-sm">
-      <form onSubmit={handleSave} className="space-y-3">
+    <div className="border rounded-xl p-4 bg-white shadow-sm relative">
+      {showDiscardConfirm && (
+        <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-10">
+          <div className="bg-white rounded-lg shadow-lg p-6 text-center">
+            <div className="mb-4 text-lg">Discard changes?</div>
+            <div className="flex gap-4 justify-center">
+              <button
+                className="px-4 py-2 rounded bg-red-600 text-white"
+                onClick={() => { setShowDiscardConfirm(false); onCancel(); }}
+              >Discard</button>
+              <button
+                className="px-4 py-2 rounded bg-gray-200"
+                onClick={() => setShowDiscardConfirm(false)}
+              >Continue Editing</button>
+            </div>
+          </div>
+        </div>
+      )}
+      <form ref={formRef} onSubmit={handleSave} className="space-y-3">
         <div className="flex items-center gap-2">
           <input
             className="flex-1 border rounded-md px-3 py-2"
@@ -100,6 +145,20 @@ export const TaskEditForm: React.FC<Props> = ({
               ))}
             </select>
           </label>
+          <label className="flex flex-col text-sm">
+            <span className="mb-1 text-gray-600">Status</span>
+            <select
+              className="border rounded-md px-3 py-2"
+              value={task.status}
+              onChange={e => onStatusChange && onStatusChange(e.target.value as Task["status"])}
+            >
+              <option value="not_started">Not Started</option>
+              <option value="in_progress">In Progress</option>
+              <option value="done">Done</option>
+              <option value="blocked">Blocked</option>
+              <option value="archived">Archived</option>
+            </select>
+          </label>
 
           <label className="flex flex-col text-sm">
             <span className="mb-1 text-gray-600">Due Date</span>
@@ -115,8 +174,8 @@ export const TaskEditForm: React.FC<Props> = ({
             <span className="mb-1 text-gray-600">Project</span>
             <select
               className="border rounded-md px-3 py-2"
-              value={projectId ?? ""}
-              onChange={(e) => setProjectId(e.target.value || null)}
+                value={projectId}
+              onChange={(e) => setProjectId(e.target.value || "")}
             >
               <option value="">— None —</option>
               {allProjects.map((p) => (
@@ -160,8 +219,26 @@ export const TaskEditForm: React.FC<Props> = ({
           >
             Delete
           </button>
+          {task.status !== "archived" && onArchive && (
+            <button
+              type="button"
+              onClick={onArchive}
+              className="px-3 py-2 rounded-md border text-gray-600"
+            >
+              Archive
+            </button>
+          )}
+          {task.status === "archived" && onUnarchive && (
+            <button
+              type="button"
+              onClick={onUnarchive}
+              className="px-3 py-2 rounded-md border text-green-600"
+            >
+              Unarchive
+            </button>
+          )}
         </div>
       </form>
-    </li>
+  </div>
   );
 };

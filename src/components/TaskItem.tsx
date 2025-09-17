@@ -1,13 +1,13 @@
 // src/components/TaskItem.tsx
-import React from "react";
-import { Icon } from "./shared/Icon";
-import type { WithId, Task, Blocker } from "../types";
-import { removeTask, updateTask, archiveTask, unarchiveTask } from "../services/tasks";
-import { resolveBlocker } from "../services/blockers";
+import React, { useState, useRef } from "react";
+import type { Task, Blocker, WithId } from "../types";
+import { updateTask } from "../services/tasks";
+import Icon from "./Icon";
+// If you do not have an Icon component, create src/components/Icon.tsx with a default export.
 
 const taskStatusConfig: { [key in Task["status"]]: { label: string; classes: string } } = {
   not_started: { label: "Not Started", classes: "bg-white hover:bg-gray-50 border-gray-200" },
-  in_progress: { label: "In Progress", classes: "bg-yellow-50 hover:bg-yellow-100 border-yellow-200" },
+  in_progress: { label: "In Progress", classes: "bg-blue-50 hover:bg-blue-100 border-blue-200" },
   done: { label: "Done", classes: "bg-green-50 hover:bg-green-100 border-green-200" },
   blocked: { label: "Blocked", classes: "bg-red-50 hover:bg-red-100 border-red-300" },
   archived: { label: "Archived", classes: "bg-gray-100 border-gray-200 opacity-60" },
@@ -29,7 +29,14 @@ export const TaskItem: React.FC<{
   onStartPromote: () => void;
   onManageBlockers: () => void;
   onStartBlock: () => void;
-}> = ({ uid, task, allBlockers, onStartEdit, onStartPromote, onManageBlockers, onStartBlock }) => {
+  onArchive: () => void;
+  onDelete: () => void;
+  onUnarchive: () => void;
+  onStatusChange: (newStatus: Task["status"]) => void;
+  dragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
+  crossListDragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
+}> = ({ uid, task, allBlockers, onStartEdit, onStartPromote, onManageBlockers, dragHandleProps, onArchive, onDelete, onUnarchive, onStatusChange }) => {
+  // Debug: log when TaskItem is rendered and show props
   const dueDate = task.dueDate ? new Date(task.dueDate) : null;
   const createdAtDate = (task as any).createdAt?.toDate ? (task as any).createdAt.toDate() : null;
   const updatedAtDate = (task as any).updatedAt?.toDate ? (task as any).updatedAt.toDate() : null;
@@ -44,30 +51,10 @@ export const TaskItem: React.FC<{
   const latestDate = wasUpdated ? updatedAtDate : createdAtDate;
   const latestDateString = latestDate?.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
-  const handleStatusChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     e.stopPropagation();
     const newStatus = e.target.value as Task["status"];
-    if (newStatus === "blocked") {
-      onStartBlock();
-      return;
-    }
-    // If currently blocked, require clearing active blockers first
-    if (isBlocked && activeTaskBlockers.length > 0 && newStatus !== "blocked") {
-      const proceed = window.confirm(
-        `This task has ${activeTaskBlockers.length} active blocker(s).\nYou need to resolve them before unblocking. Continue?`
-      );
-      if (!proceed) return;
-      const reason = window.prompt("Briefly describe how this blocker was resolved (required):", "") || "";
-      if (!reason.trim()) {
-        alert("Resolution is required to clear blockers.");
-        (e.target as HTMLSelectElement).value = task.status; // reset select
-        return;
-      }
-      for (const b of activeTaskBlockers) {
-        await resolveBlocker(uid, { ...b, entityId: task.id, entityType: "task" }, reason);
-      }
-    }
-    await updateTask(uid, task.id, { status: newStatus });
+    onStatusChange(newStatus);
   };
 
   const handlePriorityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -79,30 +66,72 @@ export const TaskItem: React.FC<{
     taskStatusConfig[task.status as Task["status"]]?.classes ||
     taskStatusConfig.not_started.classes;
 
+  // Inline edit state
+  const [editingInline, setEditingInline] = useState(false);
+  const [inlineTitle, setInlineTitle] = useState(task.title);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Commit inline edit
+  const commitInlineEdit = async () => {
+    if (typeof inlineTitle === "string" && inlineTitle.trim() && inlineTitle !== task.title) {
+      await updateTask(uid, task.id, { title: inlineTitle.trim() });
+    }
+    setEditingInline(false);
+  };
+
+  // Handle click outside
+  React.useEffect(() => {
+    if (!editingInline) return;
+    function handleClick(e: MouseEvent) {
+      if (inputRef.current && !inputRef.current.contains(e.target as Node)) {
+        commitInlineEdit();
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [editingInline]);
+
   return (
-    <li className={`flex items-stretch border rounded-lg shadow-sm transition-shadow group ${statusClasses}`}>
-      {/* Left cell: status / blockers */}
       <div
-        className={`flex-shrink-0 flex items-center justify-center w-48 bg-black bg-opacity-5 rounded-l-lg p-2 ${
-          isBlocked ? "cursor-pointer hover:bg-red-200" : ""
-        }`}
-        onClick={isBlocked ? onManageBlockers : undefined}
+        className={`flex items-stretch border rounded-lg shadow-sm transition-shadow group ${statusClasses}`}
+        onClick={e => {
+          // Only open edit if clicking the container itself, not a child button/input
+          if (!isArchived && !editingInline && e.target === e.currentTarget) onStartEdit();
+        }}
       >
-        {isBlocked ? (
-          <div className="text-left w-full">
-            <div className="text-sm font-bold text-red-700 mb-1">BLOCKED</div>
-            <ul className="space-y-1 text-xs text-red-900 list-disc list-inside">
-              {activeTaskBlockers.slice(0, 2).map((b) => (
-                <li key={b.id} className="truncate" title={b.reason}>
-                  {b.reason}
-                </li>
-              ))}
-              {activeTaskBlockers.length > 2 && (
-                <li className="font-semibold">...and {activeTaskBlockers.length - 2} more</li>
-              )}
-            </ul>
-          </div>
-        ) : (
+        {/* Single drag handle for both sorting and cross-list moves */}
+        <span
+          {...dragHandleProps}
+          className="flex items-center px-2 cursor-grab select-none text-gray-400 hover:text-blue-500"
+          title="Drag to reorder or move"
+          tabIndex={-1}
+        >
+          <Icon path="M4 9h16M4 15h16" className="w-5 h-5" />
+        </span>
+        {/* Main content in a single flex container */}
+        <div className="flex flex-1 items-stretch">
+          {/* Left cell: status / blockers */}
+          <div
+            className={`flex-shrink-0 flex items-center justify-center w-48 bg-black bg-opacity-5 rounded-l-lg p-2 ${
+              isBlocked ? "cursor-pointer hover:bg-red-200" : ""
+            }`}
+            onClick={isBlocked ? onManageBlockers : undefined}
+          >
+          {isBlocked ? (
+            <div className="text-left w-full">
+              <div className="text-sm font-bold text-red-700 mb-1">BLOCKED</div>
+              <div className="space-y-1 text-xs text-red-900">
+                {activeTaskBlockers.slice(0, 2).map((b) => (
+                  <span key={b.id} className="block truncate" title={typeof b.reason === "object" ? JSON.stringify(b.reason) : b.reason}>
+                    {typeof b.reason === "object" ? JSON.stringify(b.reason) : b.reason}
+                  </span>
+                ))}
+                {activeTaskBlockers.length > 2 && (
+                  <span className="block font-semibold">...and {activeTaskBlockers.length - 2} more</span>
+                )}
+              </div>
+            </div>
+          ) : (
           <select
             value={task.status}
             onChange={handleStatusChange}
@@ -123,35 +152,72 @@ export const TaskItem: React.FC<{
         )}
       </div>
 
-      {/* Middle: title/description */}
-      <div
-        onClick={!isArchived ? onStartEdit : undefined}
-        className={`flex-grow flex items-center gap-2 p-3 ${
-          isArchived ? "cursor-default" : "cursor-pointer"
-        } min-w-0`}
-      >
+          {/* Middle: title/description */}
+          <div
+            className={`flex-grow flex items-center gap-2 p-3 min-w-0`}
+            onClick={e => {
+              // Only open full edit if not clicking the text itself or inline input
+              if (!isArchived && !editingInline && e.target === e.currentTarget) {
+                onStartEdit();
+              }
+            }}
+          >
         {task.description && (
           <div
             className="w-1 h-6 bg-gray-300 rounded-full flex-shrink-0"
             title="This task has a description"
           />
         )}
-        <p className={`truncate ${task.status === "done" ? "line-through text-gray-500" : ""}`}>
-          {task.title}
-        </p>
+        {editingInline ? (
+          <input
+            ref={inputRef}
+            className="truncate border rounded px-2 py-1 text-base"
+            value={typeof inlineTitle === "string" ? inlineTitle : String(inlineTitle)}
+            onChange={e => setInlineTitle(e.target.value)}
+            onBlur={commitInlineEdit}
+            onKeyDown={e => {
+              if (e.key === "Enter") commitInlineEdit();
+              if (e.key === "Escape") setEditingInline(false);
+            }}
+            autoFocus
+            onClick={e => e.stopPropagation()}
+          />
+        ) : (
+          <p
+            className={`truncate ${task.status === "done" ? "line-through text-gray-500" : ""} cursor-pointer`}
+            onClick={e => {
+              e.stopPropagation();
+              if (!isArchived) setEditingInline(true);
+            }}
+            title="Click to edit title"
+          >
+            {typeof task.title === "object" ? JSON.stringify(task.title) : task.title}
+          </p>
+        )}
       </div>
 
       {/* Right tools */}
       <div className="flex-shrink-0 flex items-center gap-x-3 p-3 text-sm">
+        {/* Edit button moved here, before priority selector */}
+        {!isArchived && (
+          <button
+            type="button"
+            className="px-2 py-1 text-xs border rounded bg-gray-100 hover:bg-blue-100"
+            onClick={e => { e.stopPropagation(); onStartEdit(); }}
+            title="Open full edit window"
+          >
+            Edit
+          </button>
+        )}
+
+        {/* Priority selector */}
         {!isArchived && task.priority !== 0 && (
           <select
             value={task.priority}
             onChange={handlePriorityChange}
             onClick={(e) => e.stopPropagation()}
             title="Priority"
-            className={`text-xs font-semibold border border-transparent rounded-lg px-2 py-1 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer ${
-              priorities[task.priority]?.color || "bg-gray-200 text-gray-700"
-            }`}
+            className={`text-xs font-semibold border border-transparent rounded-lg px-2 py-1 appearance-none focus:outline-none focus:ring-2 focus:ring-blue-400 cursor-pointer ${priorities[task.priority]?.color || "bg-gray-200 text-gray-700"}`}
           >
             {Object.entries(priorities).map(([key, val]) => (
               <option key={key} value={key} className="bg-white text-black">
@@ -182,27 +248,27 @@ export const TaskItem: React.FC<{
         </span>
 
         <div
-          onClick={(e) => e.stopPropagation()}
+          onClick={e => e.stopPropagation()}
           className="flex opacity-0 group-hover:opacity-100 transition-opacity"
         >
           {!isArchived ? (
             <>
               <button
-                onClick={onStartPromote}
+                onClick={e => { e.stopPropagation(); console.log('Promote clicked', task.id); onStartPromote(); }}
                 className="p-1 text-gray-400 hover:text-blue-500"
                 title="Promote to Project"
               >
                 <Icon path="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" />
               </button>
               <button
-                onClick={() => archiveTask(uid, task.id)}
+                onClick={e => { e.stopPropagation(); console.log('Archive clicked', task.id); onArchive(); }}
                 className="p-1 text-gray-400 hover:text-gray-900"
                 title="Archive Task"
               >
                 <Icon path="M5 5h14v2H5zM7 9h10v10H7z" />
               </button>
               <button
-                onClick={() => removeTask(uid, task.id)}
+                onClick={e => { e.stopPropagation(); console.log('Delete clicked', task.id); onDelete(); }}
                 className="p-1 text-gray-400 hover:text-red-500"
                 title="Delete Task"
               >
@@ -211,7 +277,7 @@ export const TaskItem: React.FC<{
             </>
           ) : (
             <button
-              onClick={() => unarchiveTask(uid, task.id)}
+              onClick={e => { e.stopPropagation(); console.log('Unarchive clicked', task.id); onUnarchive(); }}
               className="p-1 text-gray-400 hover:text-green-600"
               title="Unarchive Task"
             >
@@ -220,6 +286,7 @@ export const TaskItem: React.FC<{
           )}
         </div>
       </div>
-    </li>
+        </div>
+  </div>
   );
 };

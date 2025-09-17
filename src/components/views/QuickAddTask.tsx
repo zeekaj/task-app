@@ -1,0 +1,44 @@
+import React, { useState } from "react";
+import { createTask } from "../../services/tasks";
+
+export const QuickAddTask: React.FC<{ uid: string; projectId: string }> = ({ uid, projectId }) => {
+  const [title, setTitle] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleAdd = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+    setLoading(true);
+    setError(null);
+    try {
+  await createTask(uid, title.trim(), projectId);
+  setTitle("");
+  // Optionally, you could trigger a callback to refresh tasks if needed
+    } catch (err: any) {
+      setError(err?.message || "Failed to add task.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleAdd} className="flex gap-2 mb-3">
+      <input
+        className="flex-1 border rounded-lg px-3 py-2 text-base"
+        placeholder="Add a new task to this project..."
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        disabled={loading}
+      />
+      <button
+        type="submit"
+        className="px-4 py-2 rounded-lg bg-blue-600 text-white disabled:opacity-60"
+        disabled={loading || !title.trim()}
+      >
+        Add
+      </button>
+      {error && <span className="text-sm text-red-600 ml-2">{error}</span>}
+    </form>
+  );
+};

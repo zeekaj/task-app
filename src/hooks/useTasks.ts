@@ -22,12 +22,18 @@ export function useTasks(uid?: string) {
       return;
     }
 
-    const constraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
+  // Only order by createdAt to ensure all tasks are returned, sort by 'order' in JS if needed
+  const constraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
     const ref = collection(db, `users/${uid}/tasks`);
     const q = query(ref, ...constraints);
 
     const unsub = onSnapshot(q, (snap) => {
-      setTasks(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Task) })));
+      let tasks = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Task) }));
+      // If all tasks have an order, sort by order ascending
+      if (tasks.length > 0 && tasks.every(t => typeof t.order === "number")) {
+        tasks = tasks.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+      }
+      setTasks(tasks);
     });
 
     return () => unsub();
