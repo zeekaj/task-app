@@ -14,33 +14,29 @@ export const BlockedView: React.FC<{
 }> = ({ uid, allProjects, allTasks, allBlockers, openBlockerManagerModal, setPromotingTask, setCurrentView }) => {
   const blockedProjects = allProjects.filter((p) => p.status === "blocked");
   const blockedTasks = allTasks.filter((t) => t.status === "blocked");
-  const byProject = (allBlockers ?? []).reduce((map, t) => {
-    const pid = t.projectId ?? "__none__";
-    (map[pid] ||= []).push(t);
-    return map;
-  }, {} as Record<string, WithId<Task>[]>);
+  // Removed unused 'byProject' and related type issues
   
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">All Blocked Items</h1>
+    <div className="dark:bg-background bg-white rounded-xl p-6 shadow-lg transition-colors duration-200">
+      <h1 className="text-2xl font-bold mb-6 dark:text-accent text-gray-900">All Blocked Items</h1>
 
-      <h2 className="text-lg font-semibold mb-3 border-b pb-2">Blocked Projects</h2>
+      <h2 className="text-lg font-semibold mb-3 border-b pb-2 dark:text-red-400 text-red-800">Blocked Projects</h2>
       {blockedProjects.length > 0 ? (
         <ul className="space-y-2 mb-6">
           {blockedProjects.map((p) => (
-            <li key={p.id} className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between">
-              <span className="font-semibold text-red-800">{p.title}</span>
-              <button onClick={() => setCurrentView({ type: "project", id: p.id })} className="text-sm text-blue-600 hover:underline">
+            <li key={p.id} className="p-3 dark:bg-red-900 bg-red-50 dark:border-red-800 border-red-200 rounded-lg flex items-center justify-between">
+              <span className="font-semibold dark:text-red-300 text-red-800">{p.title}</span>
+              <button onClick={() => setCurrentView({ type: "project", id: p.id })} className="text-sm dark:text-accent text-blue-600 hover:underline">
                 Go to project
               </button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="text-gray-500 mb-6">No projects are blocked. Great!</p>
+        <p className="dark:text-gray-500 text-gray-500 mb-6">No projects are blocked. Great!</p>
       )}
 
-      <h2 className="text-lg font-semibold mb-3 border-b pb-2">Blocked Tasks</h2>
+      <h2 className="text-lg font-semibold mb-3 border-b pb-2 dark:text-accent text-gray-900">Blocked Tasks</h2>
       {blockedTasks.length > 0 ? (
         <ul className="space-y-2">
           {blockedTasks.map((t) => (
@@ -53,11 +49,15 @@ export const BlockedView: React.FC<{
               onStartPromote={() => setPromotingTask(t)}
               onManageBlockers={() => openBlockerManagerModal({ ...t, type: "task" })}
               onStartBlock={() => {}}
+              onArchive={() => {}}
+              onDelete={() => {}}
+              onUnarchive={() => {}}
+              onStatusChange={() => {}}
             />
           ))}
         </ul>
       ) : (
-        <p className="text-gray-500">No tasks are blocked. Keep it up!</p>
+        <p className="dark:text-gray-500 text-gray-500">No tasks are blocked. Keep it up!</p>
       )}
     </div>
   );

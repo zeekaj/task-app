@@ -188,7 +188,7 @@ const App: React.FC = () => {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="flex h-screen bg-gray-100 font-sans">
+  <div className="flex h-screen font-sans">
         <Sidebar uid={user.uid} currentView={currentView} setCurrentView={setCurrentView} />
         <main className="flex-1 flex flex-col h-screen">
           <Header

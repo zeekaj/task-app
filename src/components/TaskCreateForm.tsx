@@ -19,9 +19,8 @@ export const TaskCreateForm: React.FC<Props> = ({
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<number>(0);
   const [dueDate, setDueDate] = useState<string>("");
-  const [proj, setProj] = useState<string | "">(
-    projectId ?? ""
-  );
+  const [proj, setProj] = useState<string | "">(projectId ?? "");
+  const [assignee, setAssignee] = useState<string>(""); // New assignee state
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,12 +37,19 @@ export const TaskCreateForm: React.FC<Props> = ({
       const id = await createTask(
         uid,
         title.trim(),
-        proj || null
+        proj || null,
+        {
+          description: description.trim() || undefined,
+          priority,
+          dueDate: dueDate || null,
+          assignee: assignee || undefined,
+        }
       );
       setTitle("");
       setDescription("");
       setPriority(0);
       setDueDate("");
+      setAssignee("");
       if (!projectId) setProj("");
 
       onCreated?.(id);
@@ -82,7 +88,7 @@ export const TaskCreateForm: React.FC<Props> = ({
         placeholder="Description (optional)"
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <label className="flex flex-col text-sm">
           <span className="mb-1 text-gray-600">Priority</span>
           <select
@@ -97,6 +103,15 @@ export const TaskCreateForm: React.FC<Props> = ({
             <option value={4}>P4 (Highest)</option>
           </select>
         </label>
+          <label className="flex flex-col text-sm">
+            <span className="mb-1 text-gray-600">Assignee</span>
+            <input
+              className="border rounded-md px-3 py-2"
+              value={assignee}
+              onChange={e => setAssignee(e.target.value)}
+              placeholder="User ID or name"
+            />
+          </label>
 
         <label className="flex flex-col text-sm">
           <span className="mb-1 text-gray-600">Due Date</span>

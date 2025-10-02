@@ -3,11 +3,8 @@ import {
   addDoc,
   doc,
   getDoc,
-  getDocs,
-  query,
   serverTimestamp,
   updateDoc,
-  where,
   writeBatch,
 } from "firebase/firestore";
 import { db, col } from "../firebase";
@@ -15,14 +12,20 @@ import type { Task, TaskStatus } from "../types";
 import { logActivity } from "./activity";
 import { reevaluateProjectBlockedState } from "./projects";
 
-export async function createTask(uid: string, title: string, projectId?: string | null) {
+export async function createTask(
+  uid: string,
+  title: string,
+  projectId?: string | null,
+  options?: Partial<Pick<Task, "description" | "priority" | "dueDate" | "assignee">>
+) {
   const ref = await addDoc(col(uid, "tasks"), {
     title,
-    description: "",
+    description: options?.description ?? "",
     projectId: projectId ?? null,
     status: "not_started" as TaskStatus,
-    priority: 2,
-    dueDate: null,
+    priority: typeof options?.priority === "number" ? options.priority : 2,
+    dueDate: options?.dueDate ?? null,
+    assignee: options?.assignee ?? undefined,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   } satisfies Task);
@@ -34,7 +37,7 @@ export async function createTask(uid: string, title: string, projectId?: string 
 export async function updateTask(
   uid: string,
   taskId: string,
-  data: Partial<Pick<Task, "title" | "description" | "priority" | "dueDate" | "projectId" | "status" | "order">>
+  data: Partial<Pick<Task, "title" | "description" | "priority" | "dueDate" | "projectId" | "status" | "order" | "assignee">>
 ) {
   const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
 
@@ -45,6 +48,7 @@ export async function updateTask(
   if (typeof data.projectId !== "undefined") payload.projectId = data.projectId;
   if (typeof data.status !== "undefined") payload.status = data.status;
   if (typeof data.order !== "undefined") payload.order = data.order;
+  if (typeof data.assignee !== "undefined") payload.assignee = data.assignee;
 
   await updateDoc(doc(db, `users/${uid}/tasks/${taskId}`), payload);
 

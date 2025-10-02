@@ -1,8 +1,19 @@
+/* App container dark mode */
+
+body {
+  background-image: url('/texture-bg.jpg');
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+
 #root {
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
   text-align: center;
+  /* Removed background-color so texture image is visible */
+  @apply text-gray-900 transition-colors duration-300;
 }
 
 .logo {

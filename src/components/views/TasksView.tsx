@@ -1,16 +1,5 @@
 // src/components/views/TasksView.tsx
-import React, { useState, useRef } from "react";
-import {
-  // DndContext,
-  // closestCenter,
-  // DragOverlay,
-} from "@dnd-kit/core";
-import { useDraggable, useDroppable } from "@dnd-kit/core";
-import {
-  // arrayMove,
-  SortableContext,
-  verticalListSortingStrategy,
-} from "@dnd-kit/sortable";
+import React, { useState } from "react";
 import type { WithId, Task, Blocker, TaskFilters, Project } from "../../types";
 import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
@@ -18,64 +7,7 @@ import { createTask } from "../../services/tasks";
 import { FilterBar, defaultFilters } from "../FilterBar";
 
 // Draggable wrapper for dnd-kit
-type QuickTaskDraggableProps = {
-  task: WithId<Task>;
-  setEditingTaskId: (id: string) => void;
-  allBlockers: WithId<Blocker>[];
-  setPromotingTask: (t: WithId<Task>) => void;
-  openBlockerManagerModal: (t: any) => void;
-  openBlockerModal: (t: any) => void;
-  uid: string;
-  setDragList: React.Dispatch<React.SetStateAction<WithId<Task>[]>>;
-};
 
-function QuickTaskDraggable({ task, setEditingTaskId, allBlockers, setPromotingTask, openBlockerManagerModal, openBlockerModal, uid, setDragList }: QuickTaskDraggableProps) {
-  const draggable = useDraggable({ id: task.id });
-  const droppable = useDroppable({ id: task.id });
-  const isDragging = draggable.isDragging;
-  const style = {
-    opacity: isDragging ? 0.5 : 1,
-    transform: draggable.transform ? `translate3d(${draggable.transform.x}px, ${draggable.transform.y}px, 0)` : undefined,
-    // dnd-kit draggable does not have transition property
-    background: droppable.isOver ? "#e0f2fe" : undefined, // highlight when hovered
-  };
-  return (
-    <li ref={node => { draggable.setNodeRef(node); droppable.setNodeRef(node); }} style={style} {...draggable.attributes}>
-      <TaskItem
-        uid={uid}
-        task={task}
-        allBlockers={allBlockers}
-        onStartEdit={() => setEditingTaskId(task.id)}
-        onStartPromote={() => setPromotingTask(task)}
-        onManageBlockers={() => openBlockerManagerModal({ ...task, type: "task" })}
-        onStartBlock={() => openBlockerModal({ ...task, type: "task" })}
-        dragHandleProps={draggable.listeners}
-        onArchive={async () => {
-          console.log('TasksView: archive', task.id);
-          const { archiveTask } = await import("../../services/tasks");
-          await archiveTask(uid, task.id);
-        }}
-        onDelete={async () => {
-          console.log('TasksView: delete', task.id);
-          const { removeTask } = await import("../../services/tasks");
-          await removeTask(uid, task.id);
-        }}
-        onUnarchive={async () => {
-          console.log('TasksView: unarchive', task.id);
-          const { unarchiveTask } = await import("../../services/tasks");
-          await unarchiveTask(uid, task.id);
-        }}
-        onStatusChange={async (newStatus) => {
-          console.log('TasksView: status change', task.id, newStatus);
-          const { updateTask } = await import("../../services/tasks");
-          await updateTask(uid, task.id, { status: newStatus });
-          // Optimistically update dragList so UI reflects new status immediately
-          setDragList(prev => prev.map(t => t.id === task.id ? { ...t, status: newStatus } : t));
-        }}
-      />
-    </li>
-  );
-}
 
 function isWithinDueFilter(dueISO: string | null, filter: TaskFilters["due"]) {
   if (!dueISO) return filter === "any";
@@ -103,6 +35,7 @@ const arrangeOptions = [
   { value: "title", label: "Title" },
   { value: "dueDate", label: "Due Date" },
   { value: "priority", label: "Priority" },
+  { value: "assigned", label: "Assigned" },
   { value: "age", label: "Age" },
 ];
 
@@ -117,14 +50,19 @@ export const TasksView: React.FC<{
 }> = ({ uid, allTasks, allBlockers, allProjects, openBlockerModal, openBlockerManagerModal, setPromotingTask }) => {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [quickAdd, setQuickAdd] = useState("");
-  // Removed unused quickAddProjectId state
   const [filters, setFilters] = useState<TaskFilters>(defaultFilters);
   const [arrangeBy, setArrangeBy] = useState<string>("age");
   const [reverseOrder, setReverseOrder] = useState<boolean>(false);
+  // Remove dragList; use computeTasksWithoutProject directly
 
-  // Stable state for drag-and-drop list
-  const [dragList, setDragList] = useState<WithId<Task>[]>([]);
-  const isDragging = useRef(false);
+  // ...existing code...
+
+  // ...existing code...
+  // ...existing code...
+  // ...existing code...
+  // ...existing code...
+  // ...existing code...
+  // ...existing code...
 
   // Compute filtered/sorted list for display and drag
   const computeTasksWithoutProject = () => {
@@ -141,7 +79,19 @@ export const TasksView: React.FC<{
     }
     list = list.filter((t) => t.priority >= filters.minPriority);
     list = list.filter((t) => isWithinDueFilter(t.dueDate, filters.due));
-    if (list.length > 0 && list.every(t => typeof t.order === "number")) {
+    // Filter by assigned
+    if (filters.assigned) {
+      list = list.filter((t: any) => {
+        if (typeof t.assignee === "object" && t.assignee !== null) {
+          return (
+            t.assignee.name === filters.assigned ||
+            t.assignee.id === filters.assigned
+          );
+        }
+        return t.assignee === filters.assigned;
+      });
+    }
+    if (arrangeBy === "order" && list.length > 0 && list.every(t => typeof t.order === "number")) {
       list = [...list].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
       if (reverseOrder) list.reverse();
       return list;
@@ -165,11 +115,26 @@ export const TasksView: React.FC<{
       case "priority":
         list.sort((a, b) => b.priority - a.priority);
         break;
+      case "assigned":
+        list.sort((a: any, b: any) => {
+          const aAssignee = typeof a.assignee === "object" && a.assignee !== null
+            ? a.assignee.name || a.assignee.id || JSON.stringify(a.assignee)
+            : a.assignee || "";
+          const bAssignee = typeof b.assignee === "object" && b.assignee !== null
+            ? b.assignee.name || b.assignee.id || JSON.stringify(b.assignee)
+            : b.assignee || "";
+          return String(aAssignee).localeCompare(String(bAssignee));
+        });
+        break;
       case "age":
       default:
         list.sort((a, b) => {
-          const aTime = a.createdAt?.toDate ? a.createdAt.toDate().getTime() : 0;
-          const bTime = b.createdAt?.toDate ? b.createdAt.toDate().getTime() : 0;
+          const aTime = (a.createdAt && typeof (a.createdAt as any).toDate === "function")
+            ? (a.createdAt as any).toDate().getTime()
+            : 0;
+          const bTime = (b.createdAt && typeof (b.createdAt as any).toDate === "function")
+            ? (b.createdAt as any).toDate().getTime()
+            : 0;
           return aTime - bTime;
         });
         break;
@@ -178,20 +143,7 @@ export const TasksView: React.FC<{
     return list;
   };
 
-  // Optimistic UI: Only update dragList from backend if it differs from current dragList
-  React.useEffect(() => {
-    if (!isDragging.current) {
-      const computed = computeTasksWithoutProject();
-      // Only update if the order or ids differ
-      if (
-        dragList.length !== computed.length ||
-        dragList.some((t, i) => t.id !== computed[i]?.id)
-      ) {
-        setDragList(computed);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allTasks, filters, arrangeBy, reverseOrder]);
+  // Remove effect that updates dragList from backend unless a drag is in progress
 
 
 
@@ -203,15 +155,16 @@ export const TasksView: React.FC<{
     // Do not manually set dragList here; let Firestore update allTasks and drive dragList
   };
 
+  // ...existing code...
   return (
-    <div>
+  <div className="rounded-xl p-6 shadow-lg transition-colors duration-200">
       <div className="flex items-end justify-between">
-        <h1 className="text-2xl font-bold">Quick Tasks</h1>
+        <h1 className="text-2xl font-bold dark:text-accent text-gray-900">Quick Tasks</h1>
       </div>
 
       <form onSubmit={handleQuickAdd} className="mt-3">
         <input
-          className="w-full border rounded-lg px-3 py-2 text-base"
+          className="w-full border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-2 text-base !bg-white dark:bg-surface dark:text-gray-100"
           placeholder="✨ Add a new task..."
           value={quickAdd}
           onChange={(e) => setQuickAdd(e.target.value)}
@@ -219,12 +172,25 @@ export const TasksView: React.FC<{
       </form>
 
       <div className="mt-4 flex flex-col md:flex-row md:items-center md:gap-4">
-        <FilterBar filters={filters} onChange={setFilters} />
-        <div className="mt-2 md:mt-0 flex items-center gap-2">
-          <label htmlFor="arrangeBy" className="text-sm text-gray-600">Arrange by:</label>
+        <FilterBar
+          filters={filters}
+          onChange={setFilters}
+          allAssignees={Array.from(new Set(
+            allTasks
+              .filter((t: any) => t.assignee)
+              .map((t: any) =>
+                typeof t.assignee === "object" && t.assignee !== null
+                  ? t.assignee.name || t.assignee.id || JSON.stringify(t.assignee)
+                  : t.assignee
+              )
+              .filter(Boolean)
+          ))}
+        />
+        <div className="mt-2 md:mt-0 flex items-center gap-2 bg-surface rounded-lg p-2">
+          <label htmlFor="arrangeBy" className="text-sm dark:text-gray-300 text-gray-600">Arrange by:</label>
           <select
             id="arrangeBy"
-            className="border rounded px-2 py-1 text-sm"
+            className="border dark:border-gray-700 border-gray-300 rounded px-2 py-1 text-sm dark:bg-surface dark:text-gray-100"
             value={arrangeBy}
             onChange={e => setArrangeBy(e.target.value)}
           >
@@ -234,7 +200,7 @@ export const TasksView: React.FC<{
           </select>
           <button
             type="button"
-            className={`ml-2 px-2 py-1 rounded border text-xs ${reverseOrder ? "bg-gray-200" : "bg-white"}`}
+            className={`ml-2 px-2 py-1 rounded border text-xs dark:bg-surface ${reverseOrder ? "bg-gray-200" : "bg-white"}`}
             title={reverseOrder ? "Descending" : "Ascending"}
             onClick={() => setReverseOrder(r => !r)}
           >
@@ -244,54 +210,79 @@ export const TasksView: React.FC<{
       </div>
 
       {/* Quick Tasks sortable list only */}
-      <div style={{ minHeight: 200 }}>
-        <SortableContext items={dragList.map(t => t.id)} strategy={verticalListSortingStrategy}>
-          <ul className="space-y-2 mt-2">
-            {dragList.length > 0
-              ? dragList.map((t) => <QuickTaskDraggable key={t.id} task={t} setEditingTaskId={setEditingTaskId} allBlockers={allBlockers} setPromotingTask={setPromotingTask} openBlockerManagerModal={openBlockerManagerModal} openBlockerModal={openBlockerModal} uid={uid} setDragList={setDragList} />)
-              : <li className="text-sm text-gray-500 py-6 text-center">No tasks match your filters.</li>
-            }
-          </ul>
-        </SortableContext>
+      <div className="bg-surface rounded-lg p-4 mt-2" style={{ minHeight: 200 }}>
+        <ul className="space-y-2">
+          {computeTasksWithoutProject().length > 0
+            ? computeTasksWithoutProject().map((t) => (
+                <li
+                  key={t.id}
+                >
+                  {editingTaskId === t.id ? (
+                    <div className="mt-2">
+                      <TaskEditForm
+                        uid={uid}
+                        task={t}
+                        allProjects={allProjects}
+                        onSave={() => setEditingTaskId(null)}
+                        onCancel={() => setEditingTaskId(null)}
+                        onStartPromote={() => setPromotingTask(t)}
+                        onDelete={async () => {
+                          if (window.confirm("Delete this task?")) {
+                            const { removeTask } = await import("../../services/tasks");
+                            await removeTask(uid, t.id);
+                            setEditingTaskId(null);
+                          }
+                        }}
+                        onArchive={async () => {
+                          const { archiveTask } = await import("../../services/tasks");
+                          await archiveTask(uid, t.id);
+                        }}
+                        onUnarchive={async () => {
+                          const { unarchiveTask } = await import("../../services/tasks");
+                          await unarchiveTask(uid, t.id);
+                        }}
+                        onStatusChange={async (newStatus) => {
+                          const { updateTask } = await import("../../services/tasks");
+                          await updateTask(uid, t.id, { status: newStatus });
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <TaskItem
+                      uid={uid}
+                      task={t}
+                      allBlockers={allBlockers}
+                      onStartEdit={() => setEditingTaskId(t.id)}
+                      onStartPromote={() => setPromotingTask(t)}
+                      onManageBlockers={() => openBlockerManagerModal({ ...t, type: "task" })}
+                      onStartBlock={() => openBlockerModal({ ...t, type: "task" })}
+                      onArchive={async () => {
+                        const { archiveTask } = await import("../../services/tasks");
+                        await archiveTask(uid, t.id);
+                      }}
+                      onDelete={async () => {
+                        const { removeTask } = await import("../../services/tasks");
+                        await removeTask(uid, t.id);
+                      }}
+                      onUnarchive={async () => {
+                        const { unarchiveTask } = await import("../../services/tasks");
+                        await unarchiveTask(uid, t.id);
+                      }}
+                      onStatusChange={async (newStatus) => {
+                        const { updateTask } = await import("../../services/tasks");
+                        await updateTask(uid, t.id, { status: newStatus });
+                      }}
+                      onPriorityChange={() => {}}
+                    />
+                  )}
+                </li>
+              ))
+            : <li className="text-sm dark:text-gray-500 text-gray-500 py-6 text-center">No tasks match your filters.</li>
+          }
+        </ul>
       </div>
       {/* Render TaskEditForm below the list if editingTaskId is set */}
-      {editingTaskId && (
-        (() => {
-          const task = dragList.find(t => t.id === editingTaskId) || allTasks.find(t => t.id === editingTaskId);
-          if (!task) return null;
-          return (
-            <div className="mt-4">
-              <TaskEditForm
-                uid={uid}
-                task={task}
-                allProjects={allProjects}
-                onSave={() => setEditingTaskId(null)}
-                onCancel={() => setEditingTaskId(null)}
-                onStartPromote={() => setPromotingTask(task)}
-                onDelete={async () => {
-                  if (window.confirm("Delete this task?")) {
-                    const { removeTask } = await import("../../services/tasks");
-                    await removeTask(uid, task.id);
-                    setEditingTaskId(null);
-                  }
-                }}
-                onArchive={async () => {
-                  const { archiveTask } = await import("../../services/tasks");
-                  await archiveTask(uid, task.id);
-                }}
-                onUnarchive={async () => {
-                  const { unarchiveTask } = await import("../../services/tasks");
-                  await unarchiveTask(uid, task.id);
-                }}
-                onStatusChange={async (newStatus) => {
-                  const { updateTask } = await import("../../services/tasks");
-                  await updateTask(uid, task.id, { status: newStatus });
-                }}
-              />
-            </div>
-          );
-        })()
-      )}
+      {/* Edit form is now rendered inline in the list above */}
     </div>
   );
 };

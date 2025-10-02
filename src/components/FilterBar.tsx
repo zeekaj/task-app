@@ -21,10 +21,11 @@ export const FilterBar: React.FC<{
   filters: TaskFilters;
   onChange: (f: TaskFilters) => void;
   compact?: boolean;
-}> = ({ filters, onChange, compact }) => {
+  allAssignees?: string[];
+}> = ({ filters, onChange, compact, allAssignees }) => {
   return (
     <div className={`flex flex-wrap gap-3 items-center ${compact ? "" : "mb-4"}`}>
-      {/* Status */}
+  {/* Status */}
       <label className="text-sm">
         <span className="mr-2 text-gray-500">Status</span>
         <select
@@ -40,7 +41,7 @@ export const FilterBar: React.FC<{
         </select>
       </label>
 
-      {/* Priority */}
+  {/* Priority */}
       <label className="text-sm">
         <span className="mr-2 text-gray-500">Priority</span>
         <select
@@ -56,7 +57,7 @@ export const FilterBar: React.FC<{
         </select>
       </label>
 
-      {/* Due */}
+  {/* Due */}
       <label className="text-sm">
         <span className="mr-2 text-gray-500">Due</span>
         <select
@@ -68,6 +69,21 @@ export const FilterBar: React.FC<{
           <option value="overdue">Overdue</option>
           <option value="today">Today</option>
           <option value="week">This week</option>
+        </select>
+      </label>
+
+      {/* Assigned */}
+      <label className="text-sm">
+        <span className="mr-2 text-gray-500">Assigned</span>
+        <select
+          className="border rounded px-2 py-1 text-sm"
+          value={filters.assigned || ""}
+          onChange={e => onChange({ ...filters, assigned: e.target.value })}
+        >
+          <option value="">Any</option>
+          {Array.isArray(allAssignees) && allAssignees.map((assignee) => (
+            <option key={assignee} value={assignee}>{assignee}</option>
+          ))}
         </select>
       </label>
 

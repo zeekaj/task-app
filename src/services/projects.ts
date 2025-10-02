@@ -1,12 +1,9 @@
 // src/services/projects.ts
 import {
   addDoc,
-  collection,
-  deleteDoc,
   doc,
   getDoc,
   getDocs,
-  orderBy,
   query,
   serverTimestamp,
   updateDoc,
@@ -14,7 +11,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { db, col } from "../firebase";
-import type { Project, ProjectStatus } from "../types";
+import type { Project } from "../types";
 import { logActivity } from "./activity";
 
 /** Create a new project. */
@@ -22,6 +19,7 @@ export async function createProject(uid: string, title: string) {
   const ref = await addDoc(col(uid, "projects"), {
     title,
     status: "in_progress" as ProjectStatus,
+    assignee: undefined,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   } satisfies Project);
@@ -33,11 +31,12 @@ export async function createProject(uid: string, title: string) {
 export async function updateProject(
   uid: string,
   projectId: string,
-  data: Partial<Pick<Project, "title" | "status">>
+  data: Partial<Pick<Project, "title" | "status" | "assignee">>
 ) {
   const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
   if (typeof data.title !== "undefined") payload.title = data.title;
   if (typeof data.status !== "undefined") payload.status = data.status;
+  if (typeof data.assignee !== "undefined") payload.assignee = data.assignee;
 
   await updateDoc(doc(db, `users/${uid}/projects/${projectId}`), payload);
 

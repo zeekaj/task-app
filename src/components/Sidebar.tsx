@@ -1,7 +1,7 @@
 // src/components/Sidebar.tsx
 import React, { useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
-// Child component for sidebar droppable project
+// imports already at top
 
 type SidebarProjectDroppableProps = {
   project: WithId<Project>;
@@ -30,7 +30,7 @@ function SidebarProjectDroppable({
   return (
     <li
       ref={setNodeRef}
-      className={`group flex items-center pr-2 rounded-lg ${isOver ? "bg-blue-200" : "hover:bg-gray-200"}`}
+      className={`group flex items-center pr-2 rounded-lg transition-colors duration-200 ${isOver ? "dark:bg-accent/30 bg-blue-200" : "dark:hover:bg-surface hover:bg-gray-200"}`}
     >
       {editingProjectId === project.id ? (
         <input
@@ -48,10 +48,10 @@ function SidebarProjectDroppable({
       ) : (
         <button
           onClick={() => handleProjectClick(project)}
-          className={`flex-1 text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm truncate ${
+          className={`flex-1 text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm truncate transition-colors duration-200 text-white ${
             currentView.type === "project" && currentView.id === project.id
-              ? "bg-blue-100 text-blue-700"
-              : ""
+              ? "bg-accent text-white"
+              : "hover:bg-sidebar/80"
           }`}
         >
           <div
@@ -67,7 +67,7 @@ function SidebarProjectDroppable({
         {editingProjectId !== project.id && (
           <button
             onClick={() => handleDeleteProject(project.id!)}
-            className="p-1 text-gray-500 hover:text-red-600"
+            className="p-1 dark:text-gray-400 text-gray-500 dark:hover:text-red-400 hover:text-red-600"
             title="Delete Project"
           >
             <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
@@ -78,7 +78,6 @@ function SidebarProjectDroppable({
   );
 }
 
-// Child component for Quick Tasks droppable
 type SidebarQuickTasksDroppableProps = {
   currentView: View;
   setCurrentView: (v: View) => void;
@@ -89,12 +88,14 @@ function SidebarQuickTasksDroppable({ currentView, setCurrentView }: SidebarQuic
   return (
     <li
       ref={setNodeRef}
-      className={isOver ? "bg-blue-200 rounded-lg" : ""}
+      className={isOver ? "dark:bg-accent/30 bg-blue-200 rounded-lg" : ""}
     >
       <button
         onClick={() => setCurrentView({ type: "tasks", id: null })}
-        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left ${
-          currentView.type === "tasks" ? "bg-blue-100 text-blue-700" : "hover:bg-gray-200"
+        className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors duration-200 ${
+          currentView.type === "tasks"
+            ? "bg-surface text-gray-900"
+            : "hover:bg-sidebar/80 text-white"
         }`}
       >
         <Icon path="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z" />
@@ -164,17 +165,17 @@ export const Sidebar: React.FC<{
   };
 
   return (
-    <nav className="w-64 bg-gray-50 border-r p-4 flex flex-col flex-shrink-0">
-      <div className="font-bold text-lg mb-6">My App</div>
+  <nav className="w-64 bg-sidebar text-white border-r border-border p-4 flex flex-col flex-shrink-0 transition-colors duration-200">
+  <div className="font-bold text-lg mb-6 text-white">My App</div>
       <ul className="space-y-1">
         <SidebarQuickTasksDroppable currentView={currentView} setCurrentView={setCurrentView} />
         <li>
           <button
             onClick={() => setCurrentView({ type: "blocked", id: null })}
             className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left ${
-              currentView.type === "blocked"
-                ? "bg-blue-100 text-blue-700"
-                : "hover:bg-gray-200"
+               currentView.type === "blocked"
+                 ? "bg-surface text-gray-900"
+                 : "hover:bg-sidebar/80 text-white"
             }`}
           >
             <Icon path="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.42 0-8-3.58-8-8 0-1.85.63-3.55 1.69-4.9L16.9 18.31C15.55 19.37 13.85 20 12 20zm4.9-3.1L5.7 5.7C7.05 4.63 8.75 4 10.5 4c4.42 0 8 3.58 8 8 0 1.85-.63-3.55-1.69-4.9z" />
@@ -185,10 +186,10 @@ export const Sidebar: React.FC<{
 
       <div className="mt-6 pt-4 border-t">
         <div className="flex justify-between items-center mb-2">
-          <h3 className="font-semibold text-gray-600 text-sm">Projects</h3>
+          <h3 className="font-semibold text-white text-sm">Projects</h3>
           <button
             onClick={() => setShowAddProject(!showAddProject)}
-            className="text-gray-400 hover:text-black"
+            className="text-gray-200 hover:text-white"
             title="Add new project"
           >
             <Icon path="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" />
@@ -198,13 +199,13 @@ export const Sidebar: React.FC<{
         {showAddProject && (
           <form onSubmit={handleCreateProject} className="flex gap-2 mb-4">
             <input
-              className="flex-1 border rounded-md px-2 py-1 text-sm"
+              className="flex-1 border dark:bg-background bg-white dark:text-gray-100 text-gray-900 rounded-md px-2 py-1 text-sm"
               placeholder="New project name"
               value={newProjectTitle}
               onChange={(e) => setNewProjectTitle(e.target.value)}
               autoFocus
             />
-            <button className="px-2 py-1 bg-black text-white text-sm rounded-md">Add</button>
+            <button className="px-2 py-1 dark:bg-accent bg-black dark:text-white text-white text-sm rounded-md">Add</button>
           </form>
         )}
 

@@ -23,7 +23,7 @@ export const QuickAddTask: React.FC<{ uid: string; projectId: string }> = ({ uid
   };
 
   return (
-    <form onSubmit={handleAdd} className="flex gap-2 mb-3">
+  <form onSubmit={handleAdd} className="flex gap-2 mb-3 bg-gray-200 bg-opacity-80 rounded-xl shadow-lg p-4">
       <input
         className="flex-1 border rounded-lg px-3 py-2 text-base"
         placeholder="Add a new task to this project..."

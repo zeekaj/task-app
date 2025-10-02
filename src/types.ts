@@ -1,5 +1,5 @@
 // src/types.ts
-import type { Timestamp } from "firebase/firestore";
+import type { Timestamp, FieldValue } from "firebase/firestore";
 
 export type ProjectStatus = "in_progress" | "blocked" | "completed" | "archived";
 export type TaskStatus = "not_started" | "in_progress" | "done" | "blocked" | "archived";
@@ -8,8 +8,9 @@ export interface Project {
   id?: string;
   title: string;
   status: ProjectStatus;
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  assignee?: string; // user ID of the assigned individual
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
 }
 
 export interface Task {
@@ -18,11 +19,12 @@ export interface Task {
   description?: string;
   projectId: string | null;
   status: TaskStatus;
+  assignee?: string; // user ID of the assigned individual
   priority: number; // 0..4
   dueDate: string | null; // ISO string or null
   order?: number; // for custom ordering
-  createdAt?: Timestamp;
-  updatedAt?: Timestamp;
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
 }
 
 export type BlockerStatus = "active" | "cleared";
@@ -52,5 +54,6 @@ export interface TaskFilters {
   status: StatusFilter;
   minPriority: 0 | 1 | 2 | 3 | 4;
   due: DueFilter;
+  assigned?: string; // filter by assigned user
   includeArchived: boolean;
 }

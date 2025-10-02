@@ -41,7 +41,8 @@ export const TaskEditForm: React.FC<Props> = ({
   const [description, setDescription] = useState(task.description ?? "");
   const [priority, setPriority] = useState<number>(task.priority ?? 0);
   const [dueDate, setDueDate] = useState<string>(task.dueDate ?? "");
-    const [projectId, setProjectId] = useState<string>(task.projectId ?? "");
+  const [projectId, setProjectId] = useState<string>(task.projectId ?? "");
+  const [assignee, setAssignee] = useState<string>(task.assignee ?? "");
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   // Escape closes immediately, clicking outside asks for confirmation
   useEffect(() => {
@@ -81,8 +82,11 @@ export const TaskEditForm: React.FC<Props> = ({
         description: description.trim() || undefined,
         priority,
         dueDate: dueDate || null,
-          projectId: projectId || null,
+        projectId: projectId || null,
+        assignee: assignee || undefined,
       });
+      // Update local assignee state so it reflects immediately
+      task.assignee = assignee || undefined;
       onSave();
     } catch (err: any) {
       console.error("updateTask failed", err);
@@ -130,7 +134,7 @@ export const TaskEditForm: React.FC<Props> = ({
           placeholder="Description (optional)"
         />
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
           <label className="flex flex-col text-sm">
             <span className="mb-1 text-gray-600">Priority</span>
             <select
@@ -145,6 +149,15 @@ export const TaskEditForm: React.FC<Props> = ({
               ))}
             </select>
           </label>
+            <label className="flex flex-col text-sm">
+              <span className="mb-1 text-gray-600">Assigned</span>
+              <input
+                className="border rounded-md px-3 py-2"
+                value={assignee}
+                onChange={e => setAssignee(e.target.value)}
+                placeholder="User ID or name"
+              />
+            </label>
           <label className="flex flex-col text-sm">
             <span className="mb-1 text-gray-600">Status</span>
             <select
