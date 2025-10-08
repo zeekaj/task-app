@@ -2,6 +2,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import type { WithId, Task, Project } from "../types";
 import { updateTask } from "../services/tasks";
+import { createBlocker, resolveBlocker } from "../services/blockers";
+import { BlockerManagerModal } from "./BlockerManagerModal";
+import type { Blocker } from "../types";
 
 const priorities: { value: number; label: string }[] = [
   { value: 0, label: "None" },
@@ -15,6 +18,7 @@ type Props = {
   uid: string;
   task: WithId<Task>;
   allProjects?: WithId<Project>[];
+  allBlockers?: Blocker[];
   onSave: () => void;
   onCancel: () => void;
   onStartPromote: () => void;
@@ -24,18 +28,21 @@ type Props = {
   onStatusChange?: (newStatus: Task["status"]) => void;
 };
 
-export const TaskEditForm: React.FC<Props> = ({
-  uid,
-  task,
-  allProjects = [],
-  onSave,
-  onCancel,
-  onStartPromote,
-  onDelete,
-  onArchive,
-  onUnarchive,
-  onStatusChange,
-}) => {
+export const TaskEditForm: React.FC<Props> = (props) => {
+  const {
+    uid,
+    task,
+    allProjects = [],
+    allBlockers = [],
+    onSave,
+    onCancel,
+    onStartPromote,
+    onDelete,
+    onArchive,
+    onUnarchive,
+    onStatusChange,
+  } = props;
+  const [showBlockerManager, setShowBlockerManager] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
@@ -45,6 +52,11 @@ export const TaskEditForm: React.FC<Props> = ({
   const [assignee, setAssignee] = useState<string>(task.assignee ?? "");
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   // Escape closes immediately, clicking outside asks for confirmation
+  const [showResolveModal, setShowResolveModal] = useState(false);
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [resolveReason, setResolveReason] = useState("");
+  const [blockReason, setBlockReason] = useState("");
+  const [pendingStatus, setPendingStatus] = useState<Task["status"] | null>(null);
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -96,8 +108,113 @@ export const TaskEditForm: React.FC<Props> = ({
     }
   }
 
+
+  // Find active blocker for this task
+
+  // Intercept status change to prompt for block/resolve reason
+  const handleStatusChange = (newStatus: Task["status"]) => {
+    if (task.status === "blocked" && newStatus !== "blocked") {
+      setPendingStatus(newStatus);
+      setShowResolveModal(true);
+    } else if (newStatus === "blocked" && task.status !== "blocked") {
+      setPendingStatus(newStatus);
+      setShowBlockModal(true);
+    } else {
+      onStatusChange && onStatusChange(newStatus);
+    }
+  };
+
+  // Handle block reason submit
+  const handleBlockSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setShowBlockModal(false);
+    if (blockReason.trim() && pendingStatus === "blocked") {
+      await createBlocker(uid, { id: task.id, type: "task" }, { reason: blockReason.trim() });
+      onStatusChange && onStatusChange("blocked");
+      setPendingStatus(null);
+      setBlockReason("");
+    }
+  };
+
+  // Handle resolve reason submit
+  const handleResolveSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setShowResolveModal(false);
+    if (resolveReason.trim() && pendingStatus && allBlockers) {
+      // Find all active blockers for this task
+      const activeBlockers = allBlockers.filter(b => b.entityId === task.id && b.status === "active" && typeof b.id === "string");
+      for (const blocker of activeBlockers) {
+        if (typeof blocker.id === "string") {
+          await resolveBlocker(uid, {
+            id: blocker.id,
+            reason: blocker.reason,
+            entityId: blocker.entityId,
+            entityType: blocker.entityType,
+            prevStatus: blocker.prevStatus,
+            capturesPrev: blocker.capturesPrev,
+          }, resolveReason.trim());
+        }
+      }
+      onStatusChange && onStatusChange(pendingStatus);
+      setPendingStatus(null);
+      setResolveReason("");
+    }
+  };
+
   return (
-    <div className="border rounded-xl p-4 bg-white shadow-sm relative">
+  <div className="border rounded-xl p-4 bg-white shadow-sm relative">
+      {showBlockModal && (
+        <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-20">
+          <form className="bg-white rounded-lg shadow-lg p-6 text-center" onSubmit={handleBlockSubmit}>
+            <div className="mb-4 text-lg">Reason for blocking this task?</div>
+            <textarea
+              className="w-full border rounded-md px-3 py-2 mb-4"
+              rows={3}
+              value={blockReason}
+              onChange={e => setBlockReason(e.target.value)}
+              placeholder="Why is this task blocked? (required)"
+              required
+            />
+            <div className="flex gap-4 justify-center">
+              <button
+                type="submit"
+                className="px-4 py-2 rounded bg-red-600 text-white"
+              >Block</button>
+              <button
+                type="button"
+                className="px-4 py-2 rounded bg-gray-200"
+                onClick={() => { setShowBlockModal(false); setPendingStatus(null); }}
+              >Cancel</button>
+            </div>
+          </form>
+        </div>
+      )}
+      {showResolveModal && (
+        <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-20">
+          <form className="bg-white rounded-lg shadow-lg p-6 text-center" onSubmit={handleResolveSubmit}>
+            <div className="mb-4 text-lg">Reason for clearing block?</div>
+            <textarea
+              className="w-full border rounded-md px-3 py-2 mb-4"
+              rows={3}
+              value={resolveReason}
+              onChange={e => setResolveReason(e.target.value)}
+              placeholder="How was this resolved? (required)"
+              required
+            />
+            <div className="flex gap-4 justify-center">
+              <button
+                type="submit"
+                className="px-4 py-2 rounded bg-green-600 text-white"
+              >Submit</button>
+              <button
+                type="button"
+                className="px-4 py-2 rounded bg-gray-200"
+                onClick={() => { setShowResolveModal(false); setPendingStatus(null); }}
+              >Cancel</button>
+            </div>
+          </form>
+        </div>
+      )}
       {showDiscardConfirm && (
         <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-10">
           <div className="bg-white rounded-lg shadow-lg p-6 text-center">
@@ -163,7 +280,7 @@ export const TaskEditForm: React.FC<Props> = ({
             <select
               className="border rounded-md px-3 py-2"
               value={task.status}
-              onChange={e => onStatusChange && onStatusChange(e.target.value as Task["status"])}
+              onChange={e => handleStatusChange(e.target.value as Task["status"])}
             >
               <option value="not_started">Not Started</option>
               <option value="in_progress">In Progress</option>
@@ -250,8 +367,32 @@ export const TaskEditForm: React.FC<Props> = ({
               Unarchive
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setShowBlockerManager(true)}
+            className="px-3 py-2 rounded-md border bg-red-50 text-red-700"
+            title="View and manage blockers for this task"
+          >
+            View Blockers
+          </button>
         </div>
-      </form>
+        {showBlockerManager && (
+          <BlockerManagerModal
+            uid={uid}
+            entity={{ id: task.id, title: typeof task.title === 'string' ? task.title : String(task.title), type: 'task' }}
+            allBlockers={allBlockers.filter((b): b is WithId<Blocker> => typeof b.id === 'string')}
+            onClose={() => setShowBlockerManager(false)}
+          />
+        )}
+    </form>
+    {showBlockerManager && (
+      <BlockerManagerModal
+        uid={uid}
+        entity={{ id: task.id, title: typeof task.title === 'string' ? task.title : String(task.title), type: 'task' }}
+        allBlockers={allBlockers.filter((b): b is WithId<Blocker> => typeof b.id === 'string')}
+        onClose={() => setShowBlockerManager(false)}
+      />
+    )}
   </div>
   );
 };

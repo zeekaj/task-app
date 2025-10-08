@@ -16,15 +16,24 @@ import { logActivity } from "./activity";
 
 /** Create a new project. */
 export async function createProject(uid: string, title: string) {
-  const ref = await addDoc(col(uid, "projects"), {
-    title,
-    status: "in_progress" as ProjectStatus,
-    assignee: undefined,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  } satisfies Project);
+  console.log("createProject called with:", { uid, title });
+  try {
+    const collectionRef = col(uid, "projects");
+    console.log("collectionRef:", collectionRef?.path || collectionRef);
+    const docData: any = {
+      title,
+      status: "not_started" as ProjectStatus,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    // Do not add assignee if undefined (Firestore does not allow undefined fields)
+    const ref = await addDoc(collectionRef, docData);
   await logActivity(uid, `Created project: ${title}`, "project", ref.id, "create");
-  return ref.id;
+    return ref.id;
+  } catch (err) {
+    console.error("createProject error:", err);
+    throw err;
+  }
 }
 
 /** Update project title/status (safely builds payload). */

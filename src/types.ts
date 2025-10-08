@@ -1,7 +1,7 @@
 // src/types.ts
 import type { Timestamp, FieldValue } from "firebase/firestore";
 
-export type ProjectStatus = "in_progress" | "blocked" | "completed" | "archived";
+export type ProjectStatus = "not_started" | "in_progress" | "blocked" | "completed" | "archived";
 export type TaskStatus = "not_started" | "in_progress" | "done" | "blocked" | "archived";
 
 export interface Project {

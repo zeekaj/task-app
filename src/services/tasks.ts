@@ -18,17 +18,20 @@ export async function createTask(
   projectId?: string | null,
   options?: Partial<Pick<Task, "description" | "priority" | "dueDate" | "assignee">>
 ) {
-  const ref = await addDoc(col(uid, "tasks"), {
+  const docData: any = {
     title,
     description: options?.description ?? "",
     projectId: projectId ?? null,
     status: "not_started" as TaskStatus,
     priority: typeof options?.priority === "number" ? options.priority : 2,
     dueDate: options?.dueDate ?? null,
-    assignee: options?.assignee ?? undefined,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  } satisfies Task);
+  };
+  if (typeof options?.assignee !== "undefined") {
+    docData.assignee = options.assignee;
+  }
+  const ref = await addDoc(col(uid, "tasks"), docData as Task);
 
   await logActivity(uid, `Created task: ${title}`, "task", ref.id, "create");
   return ref.id;

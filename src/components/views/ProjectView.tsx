@@ -6,6 +6,7 @@ import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
 import { FilterBar, defaultFilters } from "../FilterBar";
 import { createTask } from "../../services/tasks";
+import { BlockerManagerModal } from "../BlockerManagerModal";
 
 const ProjectView: React.FC<{
   // Props only, no logic or debug logs here
@@ -26,10 +27,19 @@ const ProjectView: React.FC<{
   setPromotingTask,
 }) => {
   // Your component logic here
+  // Modal state for managing blockers
+  const [showBlockerManager, setShowBlockerManager] = useState<{ open: boolean; taskId: string | null }>({ open: false, taskId: null });
+
+  // Function to open the manage blockers modal for a task
+  const openManageBlockers = (task: any) => {
+    setShowBlockerManager({ open: true, taskId: task.id });
+  };
   // Find the current project
   const currentProject = allProjects.find((p: any) => p.id === projectId);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const projectBlockers = allBlockers.filter((b: any) => b.entityId === projectId);
+  // Blocked tasks for this project
+  const blockedTasks = allTasks.filter((t: any) => t.projectId === projectId && t.status === 'blocked');
   const [filters, setFilters] = useState<TaskFilters>(defaultFilters);
   const [quickAdd, setQuickAdd] = useState("");
   // Quick add handler for project tasks
@@ -78,7 +88,8 @@ const ProjectView: React.FC<{
 
   // Compute filtered/sorted list for display and drag
   const computeProjectTasks = () => {
-    let list = allTasks.filter((t: any) => t.projectId === projectId);
+  // Only show non-blocked tasks in main list
+  let list = allTasks.filter((t: any) => t.projectId === projectId && t.status !== 'blocked');
     if (!filters.includeArchived) {
       list = list.filter((t: any) => t.status !== "archived");
     }
@@ -167,6 +178,7 @@ const ProjectView: React.FC<{
               }
             }}
           >
+            <option value="not_started">Not Started</option>
             <option value="in_progress">In Progress</option>
             <option value="blocked">Blocked</option>
             <option value="completed">Completed</option>
@@ -176,16 +188,71 @@ const ProjectView: React.FC<{
       </div>
 
       <div className="mb-6">
-        <h3 className="text-lg font-semibold mb-2 dark:text-red-400 text-red-800">Blockers</h3>
-        {projectBlockers.length > 0 ? (
-          <ul className="space-y-2">
-            {projectBlockers.map((blocker: any) => (
-              <li key={blocker.id} className="p-3 dark:bg-red-900 bg-red-50 dark:border-red-800 border-red-200 rounded-lg flex items-center justify-between">
-                <span className="font-semibold dark:text-red-300 text-red-800">{blocker.reason}</span>
-                <button onClick={() => openBlockerModal(blocker)} className="text-sm dark:text-accent text-blue-600 hover:underline">Open Blocker Modal</button>
-              </li>
-            ))}
-          </ul>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-lg font-semibold dark:text-red-400 text-red-800">Blockers</h3>
+          {(projectBlockers.length + blockedTasks.length) > 1 && (
+            <button
+              className="px-3 py-1 rounded bg-accent text-white text-sm font-semibold hover:bg-indigo-700 dark:bg-accent dark:hover:bg-indigo-500 transition-colors"
+              onClick={() => setShowBlockerManager({ open: true, taskId: 'ALL' })}
+            >
+              Manage Blockers
+            </button>
+          )}
+        </div>
+        {(projectBlockers.length > 0 || blockedTasks.length > 0) ? (
+          <div className="space-y-6">
+            {/* Project-level blockers */}
+            <div>
+              <h4 className="font-semibold text-red-700 dark:text-red-300 mb-2">Project Blockers</h4>
+              {projectBlockers.length > 0 ? (
+                <ul className="space-y-2">
+                  {projectBlockers.map((blocker: any) => (
+                    <li key={blocker.id} className="p-3 dark:bg-red-900 bg-red-50 dark:border-red-800 border-red-200 rounded-lg flex items-center justify-between">
+                      <div>
+                        <div className="font-semibold dark:text-red-300 text-red-800">{blocker.reason}</div>
+                        {blocker.waitingOn && <div className="text-xs dark:text-red-200 text-red-700">Waiting on: {blocker.waitingOn}</div>}
+                        {blocker.expectedDate && <div className="text-xs dark:text-red-200 text-red-700">Expected: {blocker.expectedDate.toDate ? blocker.expectedDate.toDate().toLocaleDateString() : new Date(blocker.expectedDate).toLocaleDateString()}</div>}
+                      </div>
+                      <button onClick={() => openBlockerModal(blocker)} className="text-sm dark:text-accent text-blue-600 hover:underline">Open Blocker Modal</button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-500">No project blockers.</p>
+              )}
+            </div>
+            {/* Task-level blockers, grouped by task */}
+            <div>
+              <h4 className="font-semibold text-red-700 dark:text-red-300 mb-2">Task Blockers</h4>
+              {blockedTasks.length > 0 ? (
+                <ul className="space-y-4">
+                  {blockedTasks.map((task: any) => {
+                    const taskBlockers = allBlockers.filter((b: any) => b.entityId === task.id && b.status === 'active');
+                    if (taskBlockers.length === 0) return null;
+                    return (
+                      <li key={task.id} className="bg-white dark:bg-red-950 border border-gray-200 dark:border-red-800 rounded-lg p-3">
+                        <div className="font-semibold text-gray-800 dark:text-red-200 mb-1">Task: {typeof task.title === 'string' ? task.title : JSON.stringify(task.title)}</div>
+                        <ul className="space-y-2">
+                          {taskBlockers.map((blocker: any) => (
+                            <li key={blocker.id} className="p-3 dark:bg-red-900 bg-red-50 dark:border-red-800 border-red-200 rounded-lg flex items-center justify-between">
+                              <div>
+                                <div className="font-semibold dark:text-red-300 text-red-800">{blocker.reason}</div>
+                                {blocker.waitingOn && <div className="text-xs dark:text-red-200 text-red-700">Waiting on: {blocker.waitingOn}</div>}
+                                {blocker.expectedDate && <div className="text-xs dark:text-red-200 text-red-700">Expected: {blocker.expectedDate.toDate ? blocker.expectedDate.toDate().toLocaleDateString() : new Date(blocker.expectedDate).toLocaleDateString()}</div>}
+                              </div>
+                              <button onClick={() => openManageBlockers(task)} className="text-sm dark:text-accent text-blue-600 hover:underline">Edit</button>
+                            </li>
+                          ))}
+                        </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-500">No blocked tasks.</p>
+              )}
+            </div>
+          </div>
         ) : (
           <p className="dark:text-gray-500 text-gray-500">No blockers for this project.</p>
         )}
@@ -272,7 +339,7 @@ const ProjectView: React.FC<{
                       setEditingTaskId(task.id);
                     }}
                     onStartPromote={() => setPromotingTask(task)}
-                    onManageBlockers={() => openBlockerModal({ ...task, type: "task" })}
+                    onManageBlockers={() => openManageBlockers(task)}
                     onStartBlock={() => openBlockerModal({ ...task, type: "task" })}
                     onArchive={async () => {
                       const { archiveTask } = await import("../../services/tasks");
@@ -301,6 +368,32 @@ const ProjectView: React.FC<{
       </div>
 
       {/* Removed All Projects list as requested */}
+    {showBlockerManager.open && (
+      <BlockerManagerModal
+        uid={uid}
+        entity={
+          showBlockerManager.taskId === 'ALL'
+            ? { id: projectId, title: currentProject?.title || '', type: 'project', showAll: true }
+            : showBlockerManager.taskId
+              ? {
+                  id: showBlockerManager.taskId,
+                  title: (() => {
+                    const t = allTasks.find((tt: any) => tt.id === showBlockerManager.taskId);
+                    return t ? (typeof t.title === 'string' ? t.title : String(t.title)) : '';
+                  })(),
+                  type: 'task',
+                }
+              : {
+                  id: projectId,
+                  title: currentProject?.title || '',
+                  type: 'project',
+                }
+        }
+        allBlockers={allBlockers}
+        allTasks={allTasks}
+        onClose={() => setShowBlockerManager({ open: false, taskId: null })}
+      />
+    )}
     </div>
   );
 };

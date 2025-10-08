@@ -1,7 +1,8 @@
 // src/components/Sidebar.tsx
 import React, { useState } from "react";
 import { useDroppable } from "@dnd-kit/core";
-// imports already at top
+
+// import { QuickAddTask } from "./views/QuickAddTask";
 
 type SidebarProjectDroppableProps = {
   project: WithId<Project>;
@@ -13,6 +14,7 @@ type SidebarProjectDroppableProps = {
   handleSaveEdit: () => void;
   handleCancelEdit: () => void;
   setEditingProjectTitle: (title: string) => void;
+  uid: string;
 };
 
 function SidebarProjectDroppable({
@@ -25,6 +27,7 @@ function SidebarProjectDroppable({
   handleSaveEdit,
   handleCancelEdit,
   setEditingProjectTitle,
+  uid,
 }: SidebarProjectDroppableProps) {
   const { setNodeRef, isOver } = useDroppable({ id: `sidebar-project-${project.id}` });
   return (
@@ -50,19 +53,23 @@ function SidebarProjectDroppable({
           onClick={() => handleProjectClick(project)}
           className={`flex-1 text-left flex items-center gap-3 px-3 py-2 rounded-lg text-sm truncate transition-colors duration-200 text-white ${
             currentView.type === "project" && currentView.id === project.id
-              ? "bg-accent text-white"
+              ? "bg-gray-700 text-white" // changed from bg-accent to bg-gray-700 for a more muted highlight
               : "hover:bg-sidebar/80"
           }`}
         >
           <div
-            className={`w-2.5 h-2.5 ${
-              project.status === "blocked" ? "bg-red-500" : "bg-green-500"
-            } rounded-full flex-shrink-0`}
+            className={`w-2.5 h-2.5 rounded-full flex-shrink-0
+              ${project.status === "not_started" ? "bg-gray-400"
+                : project.status === "in_progress" ? "bg-blue-500"
+                : project.status === "blocked" ? "bg-red-500"
+                : project.status === "completed" ? "bg-green-500"
+                : project.status === "archived" ? "bg-yellow-500"
+                : "bg-gray-400"}
+            `}
           />
           <span className="truncate">{project.title}</span>
         </button>
       )}
-
       <div className="opacity-0 group-hover:opacity-100 flex items-center">
         {editingProjectId !== project.id && (
           <button
@@ -128,9 +135,13 @@ export const Sidebar: React.FC<{
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProjectTitle.trim()) return;
-    await createProject(uid, newProjectTitle.trim());
-    setNewProjectTitle("");
-    setShowAddProject(false);
+    try {
+      await createProject(uid, newProjectTitle.trim());
+      setNewProjectTitle("");
+      setShowAddProject(false);
+    } catch (err) {
+      alert("Failed to create project. Please try again.");
+    }
   };
 
   const handleProjectClick = (project: WithId<Project>) => {
@@ -197,34 +208,82 @@ export const Sidebar: React.FC<{
         </div>
 
         {showAddProject && (
-          <form onSubmit={handleCreateProject} className="flex gap-2 mb-4">
-            <input
-              className="flex-1 border dark:bg-background bg-white dark:text-gray-100 text-gray-900 rounded-md px-2 py-1 text-sm"
-              placeholder="New project name"
-              value={newProjectTitle}
-              onChange={(e) => setNewProjectTitle(e.target.value)}
-              autoFocus
-            />
-            <button className="px-2 py-1 dark:bg-accent bg-black dark:text-white text-white text-sm rounded-md">Add</button>
-          </form>
+          uid && uid.trim() ? (
+            <form onSubmit={handleCreateProject} className="flex gap-2 mb-4">
+              <input
+                className="flex-1 border dark:bg-background bg-white dark:text-gray-100 text-gray-900 rounded-md px-2 py-1 text-sm"
+                placeholder="New project name"
+                value={newProjectTitle}
+                onChange={(e) => setNewProjectTitle(e.target.value)}
+                autoFocus
+              />
+              <button className="px-2 py-1 dark:bg-accent bg-black dark:text-white text-white text-sm rounded-md">Add</button>
+            </form>
+          ) : (
+            <div className="mb-4 text-sm text-red-200">You must be signed in to create a project.</div>
+          )
         )}
 
-        <ul className="space-y-1">
-          {projects.map((p) => (
-            <SidebarProjectDroppable
-              key={p.id}
-              project={p}
-              currentView={currentView}
-              editingProjectId={editingProjectId}
-              editingProjectTitle={editingProjectTitle}
-              handleProjectClick={handleProjectClick}
-              handleDeleteProject={handleDeleteProject}
-              handleSaveEdit={handleSaveEdit}
-              handleCancelEdit={handleCancelEdit}
-              setEditingProjectTitle={setEditingProjectTitle}
-            />
-          ))}
-        </ul>
+        {/* Group projects by status with dropdowns */}
+        {(() => {
+          const statusOrder = [
+            { key: "not_started", label: "Not Started" },
+            { key: "in_progress", label: "In Progress" },
+            { key: "blocked", label: "Blocked" },
+            { key: "completed", label: "Completed" },
+            { key: "archived", label: "Archived" },
+          ];
+          const [openGroups, setOpenGroups] = React.useState<{ [k: string]: boolean }>({});
+          // This is a hack to keep openGroups state in a closure, but works for this sidebar
+          // In a real app, lift this state up if needed
+          return (
+            <>
+              {statusOrder.map(({ key, label }) => {
+                const groupProjects = projects.filter((p) => p.status === key);
+                if (groupProjects.length === 0) return null;
+                const isOpen = openGroups[key] ?? true;
+                return (
+                  <div key={key} className="mb-2">
+                    <button
+                      type="button"
+                      className={`flex items-center gap-2 w-full text-left text-xs font-semibold px-3 py-1 rounded-full mb-1
+                        ${key === "not_started" ? "bg-gray-400 text-gray-900"
+                        : key === "in_progress" ? "bg-blue-500 text-white"
+                        : key === "blocked" ? "bg-red-500 text-white"
+                        : key === "completed" ? "bg-green-500 text-white"
+                        : key === "archived" ? "bg-yellow-500 text-gray-900"
+                        : "bg-gray-300 text-gray-900"}
+                        hover:opacity-90 transition-colors`}
+                      onClick={() => setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }))}
+                    >
+                      <span>{label}</span>
+                      <span className="ml-auto">{isOpen ? "▼" : "►"}</span>
+                    </button>
+                    {isOpen && (
+                      <ul className="space-y-1 ml-2">
+                        {groupProjects.map((p) => (
+                          <SidebarProjectDroppable
+                            key={p.id}
+                            project={p}
+                            currentView={currentView}
+                            editingProjectId={editingProjectId}
+                            editingProjectTitle={editingProjectTitle}
+                            handleProjectClick={handleProjectClick}
+                            handleDeleteProject={handleDeleteProject}
+                            handleSaveEdit={handleSaveEdit}
+                            handleCancelEdit={handleCancelEdit}
+                            setEditingProjectTitle={setEditingProjectTitle}
+                            uid={uid}
+                          />
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                );
+              })}
+            </>
+          );
+        })()}
       </div>
     </nav>
   );

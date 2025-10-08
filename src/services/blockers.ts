@@ -145,12 +145,8 @@ export async function resolveBlocker(
   const prevStatusCaptured = blockerToResolve.prevStatus;
 
   if (entityType === "task") {
-    const target: TaskStatus =
-      (prevStatusCaptured as TaskStatus) && prevStatusCaptured !== "blocked"
-        ? (prevStatusCaptured as TaskStatus)
-        : "in_progress";
-
-    await updateTask(uid, entityId, { status: target });
+    // Always set to in_progress when all blockers are cleared
+    await updateTask(uid, entityId, { status: "in_progress" });
 
     // Re-evaluate the parent project if any
     try {

@@ -4,6 +4,7 @@ import type { WithId, Task, Blocker, TaskFilters, Project } from "../../types";
 import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
 import { createTask } from "../../services/tasks";
+import { BlockerModal } from "../BlockerModal";
 import { FilterBar, defaultFilters } from "../FilterBar";
 
 // Draggable wrapper for dnd-kit
@@ -47,8 +48,9 @@ export const TasksView: React.FC<{
   openBlockerModal: (t: any) => void;
   openBlockerManagerModal: (t: any) => void;
   setPromotingTask: (t: any) => void;
-}> = ({ uid, allTasks, allBlockers, allProjects, openBlockerModal, openBlockerManagerModal, setPromotingTask }) => {
+}> = ({ uid, allTasks, allBlockers, allProjects, openBlockerManagerModal, setPromotingTask }) => {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [blockerModalTask, setBlockerModalTask] = useState<null | { id: string; title: string; type: "task" }>(null);
   const [quickAdd, setQuickAdd] = useState("");
   const [filters, setFilters] = useState<TaskFilters>(defaultFilters);
   const [arrangeBy, setArrangeBy] = useState<string>("age");
@@ -223,6 +225,7 @@ export const TasksView: React.FC<{
                         uid={uid}
                         task={t}
                         allProjects={allProjects}
+                        allBlockers={allBlockers}
                         onSave={() => setEditingTaskId(null)}
                         onCancel={() => setEditingTaskId(null)}
                         onStartPromote={() => setPromotingTask(t)}
@@ -244,6 +247,15 @@ export const TasksView: React.FC<{
                         onStatusChange={async (newStatus) => {
                           const { updateTask } = await import("../../services/tasks");
                           await updateTask(uid, t.id, { status: newStatus });
+                          // Fetch latest task from backend
+                          const { getDoc, doc } = await import("firebase/firestore");
+                          const { db } = await import("../../firebase");
+                          const snap = await getDoc(doc(db, `users/${uid}/tasks/${t.id}`));
+                          if (snap.exists()) {
+                            // Update local allTasks state if you have a setter
+                            // For now, force a reload by closing the edit window
+                            setEditingTaskId(null);
+                          }
                         }}
                       />
                     </div>
@@ -255,7 +267,7 @@ export const TasksView: React.FC<{
                       onStartEdit={() => setEditingTaskId(t.id)}
                       onStartPromote={() => setPromotingTask(t)}
                       onManageBlockers={() => openBlockerManagerModal({ ...t, type: "task" })}
-                      onStartBlock={() => openBlockerModal({ ...t, type: "task" })}
+                      onStartBlock={() => setBlockerModalTask({ id: t.id, title: t.title, type: "task" })}
                       onArchive={async () => {
                         const { archiveTask } = await import("../../services/tasks");
                         await archiveTask(uid, t.id);
@@ -281,8 +293,14 @@ export const TasksView: React.FC<{
           }
         </ul>
       </div>
-      {/* Render TaskEditForm below the list if editingTaskId is set */}
-      {/* Edit form is now rendered inline in the list above */}
+      {/* Blocker modal for adding a blocker to a task */}
+      {blockerModalTask && (
+        <BlockerModal
+          uid={uid}
+          entity={blockerModalTask}
+          onClose={() => setBlockerModalTask(null)}
+        />
+      )}
     </div>
   );
 };

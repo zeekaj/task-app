@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import type { WithId, Blocker } from "../types";
 import { resolveBlocker, updateBlocker } from "../services/blockers";
+import { BlockerModal } from "./BlockerModal";
 
 const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = ({
   uid,
@@ -44,6 +45,10 @@ const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = (
   const handleResolve = async () => {
     // ALLOW empty resolution (no validation here)
     await resolveBlocker(uid, blocker, resolveReason);
+  };
+
+  const handleClear = async () => {
+    await resolveBlocker(uid, blocker, 'Cleared by user');
   };
 
   if (isEditing) {
@@ -96,7 +101,7 @@ const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = (
   }
 
   return (
-    <li className="p-4 bg-red-50 border border-red-200 rounded-lg shadow-sm">
+  <li className="p-4 bg-red-50 border border-red-200 rounded-lg shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="font-semibold text-red-800 truncate">{blocker.reason}</p>
@@ -119,6 +124,13 @@ const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = (
             title="Edit blocker"
           >
             Edit
+          </button>
+          <button
+            onClick={handleClear}
+            className="px-3 py-1.5 text-sm font-medium text-white bg-green-600 border border-green-700 rounded-md hover:bg-green-700"
+            title="Clear this blocker immediately"
+          >
+            Clear Blocker
           </button>
         </div>
       </div>
@@ -145,20 +157,47 @@ const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = (
   );
 };
 
+
+// Props: add allTasks and support grouped view for project-level modal
 export const BlockerManagerModal: React.FC<{
   uid: string;
-  entity: { id: string; title: string; type: "task" | "project" };
+  entity: { id: string; title: string; type: "task" | "project"; showAll?: boolean };
   allBlockers: WithId<Blocker>[];
+  allTasks?: any[];
   onClose: () => void;
-}> = ({ uid, entity, allBlockers, onClose }) => {
-  const entityBlockers = useMemo(
-    () => allBlockers.filter((b) => b.entityId === entity.id),
-    [allBlockers, entity.id]
-  );
-  const activeBlockers = entityBlockers.filter((b) => b.status === "active");
-  const clearedBlockers = entityBlockers.filter((b) => b.status === "cleared");
-
+}> = ({ uid, entity, allBlockers, allTasks = [], onClose }) => {
+  const safeBlockers = Array.isArray(allBlockers) ? allBlockers : [];
+  const [showBlockerModal, setShowBlockerModal] = useState(false);
   const [bulkResolveNote, setBulkResolveNote] = useState("");
+
+  // If showAll, group blockers by project and by each task in the project
+  const isGrouped = !!entity.showAll;
+
+  // Project-level blockers
+  const projectBlockers = useMemo(
+    () => safeBlockers.filter((b) => b && b.entityId === entity.id),
+    [safeBlockers, entity.id]
+  );
+
+  // Task-level blockers (for all tasks in this project)
+  const taskBlockersByTask: Record<string, WithId<Blocker>[]> = useMemo(() => {
+    if (!isGrouped || !allTasks) return {};
+    const map: Record<string, WithId<Blocker>[]> = {};
+    allTasks.forEach((task: any) => {
+      map[task.id] = safeBlockers.filter((b) => b.entityId === task.id);
+    });
+    return map;
+  }, [isGrouped, allTasks, safeBlockers]);
+
+  // For non-grouped (single entity) mode
+  const entityBlockers = useMemo(
+    () => safeBlockers.filter((b) => b && b.entityId === entity.id),
+    [safeBlockers, entity.id]
+  );
+  const activeBlockers = isGrouped
+    ? projectBlockers.filter((b) => b.status === "active")
+    : entityBlockers.filter((b) => b.status === "active");
+  // removed unused clearedBlockers
 
   const handleResolveAll = async () => {
     // Allow empty note
@@ -177,44 +216,82 @@ export const BlockerManagerModal: React.FC<{
         </p>
 
         <div className="space-y-6 max-h-[70vh] overflow-y-auto pr-2">
+          {/* Project-level blockers */}
           <div>
             <div className="flex items-end justify-between mb-2">
-              <h3 className="text-lg font-semibold text-red-800">Active Blockers</h3>
-              {activeBlockers.length > 1 && (
-                <div className="flex items-center gap-2">
-                  <input
-                    value={bulkResolveNote}
-                    onChange={(e) => setBulkResolveNote(e.target.value)}
-                    placeholder="Optional shared note"
-                    className="w-64 text-sm border border-gray-300 rounded-md py-1.5 px-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <button
-                    onClick={handleResolveAll}
-                    className="px-3 py-1.5 text-sm font-medium text-white rounded-md bg-green-600 hover:bg-green-700"
-                    title="Resolve all active blockers"
-                  >
-                    Resolve All
-                  </button>
-                </div>
-              )}
+              <h3 className="text-lg font-semibold text-red-800">Project Blockers</h3>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowBlockerModal(true)}
+                  className="px-3 py-1.5 text-sm font-medium text-white rounded-md bg-red-600 hover:bg-red-700"
+                  title="Add another blocker"
+                >
+                  Add Blocker
+                </button>
+                {activeBlockers.length > 1 && (
+                  <>
+                    <input
+                      value={bulkResolveNote}
+                      onChange={(e) => setBulkResolveNote(e.target.value)}
+                      placeholder="Optional shared note"
+                      className="w-64 text-sm border border-gray-300 rounded-md py-1.5 px-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <button
+                      onClick={handleResolveAll}
+                      className="px-3 py-1.5 text-sm font-medium text-white rounded-md bg-green-600 hover:bg-green-700"
+                      title="Resolve all active blockers"
+                    >
+                      Resolve All
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
 
-            {activeBlockers.length > 0 ? (
+            {projectBlockers.filter((b) => b.status === "active").length > 0 ? (
               <ul className="space-y-3">
-                {activeBlockers.map((b) => (
+                {projectBlockers.filter((b) => b.status === "active").map((b) => (
                   <ActiveBlockerItem key={b.id} uid={uid} blocker={b} />
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-gray-500">No active blockers.</p>
+              <p className="text-sm text-gray-500">No active project blockers.</p>
             )}
           </div>
 
+          {/* Task-level blockers, grouped by task */}
+          {isGrouped && allTasks && (
+            <div>
+              <h3 className="text-lg font-semibold text-red-800 mt-6 mb-2">Task Blockers</h3>
+              {allTasks.length > 0 ? (
+                <ul className="space-y-4">
+                  {allTasks.map((task: any) => {
+                    const blockers = taskBlockersByTask[task.id]?.filter((b) => b.status === "active") || [];
+                    if (blockers.length === 0) return null;
+                    return (
+                      <li key={task.id} className="bg-white border border-gray-200 rounded-lg p-3">
+                        <div className="font-semibold text-gray-800 mb-1">Task: {typeof task.title === 'string' ? task.title : String(task.title)}</div>
+                        <ul className="space-y-2">
+                          {blockers.map((b) => (
+                            <ActiveBlockerItem key={b.id} uid={uid} blocker={b} />
+                          ))}
+                        </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="text-sm text-gray-500">No tasks in this project.</p>
+              )}
+            </div>
+          )}
+
+          {/* Cleared project blockers */}
           <div>
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">Cleared Blockers</h3>
-            {clearedBlockers.length > 0 ? (
+            <h3 className="text-lg font-semibold text-gray-700 mb-2">Cleared Project Blockers</h3>
+            {projectBlockers.filter((b) => b.status === "cleared").length > 0 ? (
               <ul className="space-y-2">
-                {clearedBlockers.map((b) => (
+                {projectBlockers.filter((b) => b.status === "cleared").map((b) => (
                   <li key={b.id} className="p-3 bg-green-50 border border-green-200 rounded-lg text-sm">
                     <p className="text-gray-500 line-through">{b.reason}</p>
                     {b.clearedReason && (
@@ -231,7 +308,7 @@ export const BlockerManagerModal: React.FC<{
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-gray-500">No cleared blockers for this item.</p>
+              <p className="text-sm text-gray-500">No cleared project blockers.</p>
             )}
           </div>
         </div>
@@ -244,6 +321,14 @@ export const BlockerManagerModal: React.FC<{
             Close
           </button>
         </div>
+
+        {showBlockerModal && (
+          <BlockerModal
+            uid={uid}
+            entity={{ id: entity.id, title: entity.title, type: 'project' }}
+            onClose={() => setShowBlockerModal(false)}
+          />
+        )}
       </div>
     </div>
   );
