@@ -1,5 +1,6 @@
 // src/components/views/TasksView.tsx
 import React, { useState } from "react";
+import { Dropdown } from "../shared/Dropdown";
 import type { WithId, Task, Blocker, TaskFilters, Project } from "../../types";
 import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
@@ -55,6 +56,7 @@ export const TasksView: React.FC<{
   const [filters, setFilters] = useState<TaskFilters>(defaultFilters);
   const [arrangeBy, setArrangeBy] = useState<string>("age");
   const [reverseOrder, setReverseOrder] = useState<boolean>(false);
+  const [showAll, setShowAll] = useState(false);
   // Remove dragList; use computeTasksWithoutProject directly
 
   // ...existing code...
@@ -64,41 +66,51 @@ export const TasksView: React.FC<{
   // ...existing code...
   // ...existing code...
   // ...existing code...
-  // ...existing code...
 
   // Compute filtered/sorted list for display and drag
   const computeTasksWithoutProject = () => {
     let list = allTasks.filter((t) => !t.projectId);
+    if (showAll) return list;
+    // ...existing filter logic...
     if (!filters.includeArchived) {
       list = list.filter((t) => t.status !== "archived");
     }
-    if (filters.status !== "all") {
+    if (filters.status.length > 0) {
       list = list.filter((t) => {
-        if (filters.status === "active")
-          return t.status === "not_started" || t.status === "in_progress" || t.status === "blocked";
-        return t.status === (filters.status as Task["status"]);
+        const statusMap: Record<string, string[]> = {
+          active: ["not_started", "in_progress", "blocked"],
+          blocked: ["blocked"],
+          done: ["done"],
+          archived: ["archived"],
+        };
+        return filters.status.some((f) => statusMap[f]?.includes(t.status));
       });
     }
-    list = list.filter((t) => t.priority >= filters.minPriority);
-    list = list.filter((t) => isWithinDueFilter(t.dueDate, filters.due));
-    // Filter by assigned
-    if (filters.assigned) {
+    if (filters.minPriority.length > 0) {
+      list = list.filter((t) => filters.minPriority.some((p) => t.priority === p));
+    }
+    if (filters.due.length > 0) {
+      list = list.filter((t) => filters.due.some((d) => isWithinDueFilter(t.dueDate, d as any)));
+    }
+    if (filters.assigned && filters.assigned.length > 0) {
       list = list.filter((t: any) => {
-        if (typeof t.assignee === "object" && t.assignee !== null) {
-          return (
-            t.assignee.name === filters.assigned ||
-            t.assignee.id === filters.assigned
-          );
+        const isNone = !t.assignee || t.assignee === null || t.assignee === undefined;
+        if (filters.assigned.includes("(None)")) {
+          // Show tasks with no assignee if '(None)' is selected
+          if (isNone) return true;
         }
-        return t.assignee === filters.assigned;
+        if (typeof t.assignee === "object" && t.assignee !== null) {
+          return filters.assigned?.includes(t.assignee.name) || filters.assigned?.includes(t.assignee.id);
+        }
+        return filters.assigned?.includes(t.assignee);
       });
     }
-    if (arrangeBy === "order" && list.length > 0 && list.every(t => typeof t.order === "number")) {
-      list = [...list].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      if (reverseOrder) list.reverse();
-      return list;
-    }
-    list = [...list];
+    return list;
+  };
+
+  // Sort tasks by arrangeBy
+  function sortTasks(tasks) {
+    let list = [...tasks];
     switch (arrangeBy) {
       case "status":
         list.sort((a, b) => a.status.localeCompare(b.status));
@@ -118,7 +130,7 @@ export const TasksView: React.FC<{
         list.sort((a, b) => b.priority - a.priority);
         break;
       case "assigned":
-        list.sort((a: any, b: any) => {
+        list.sort((a, b) => {
           const aAssignee = typeof a.assignee === "object" && a.assignee !== null
             ? a.assignee.name || a.assignee.id || JSON.stringify(a.assignee)
             : a.assignee || "";
@@ -143,7 +155,28 @@ export const TasksView: React.FC<{
     }
     if (reverseOrder) list.reverse();
     return list;
-  };
+  }
+
+  // Group tasks by selected criteria, sorting each group by arrangeBy
+  function groupTasks(tasks, groupBy) {
+    if (!groupBy || groupBy === "none") return { "": sortTasks(tasks) };
+    const groups = {};
+    for (const t of tasks) {
+      let key = "";
+      if (groupBy === "status") key = t.status || "(none)";
+      else if (groupBy === "priority") key = String(t.priority ?? "(none)");
+      else if (groupBy === "due") key = t.dueDate ? t.dueDate.slice(0, 10) : "(none)";
+      else if (groupBy === "assigned") key = t.assignee ? (typeof t.assignee === "object" ? t.assignee.name || t.assignee.id : t.assignee) : "(none)";
+      else key = "";
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(t);
+    }
+    // Sort each group
+    Object.keys(groups).forEach(key => {
+      groups[key] = sortTasks(groups[key]);
+    });
+    return groups;
+  }
 
   // Remove effect that updates dragList from backend unless a drag is in progress
 
@@ -161,7 +194,7 @@ export const TasksView: React.FC<{
   return (
   <div className="rounded-xl p-6 shadow-lg transition-colors duration-200">
       <div className="flex items-end justify-between">
-        <h1 className="text-2xl font-bold dark:text-accent text-gray-900">Quick Tasks</h1>
+  <h1 className="text-2xl font-bold dark:text-accent text-gray-900">Tasks</h1>
       </div>
 
       <form onSubmit={handleQuickAdd} className="mt-3">
@@ -174,71 +207,154 @@ export const TasksView: React.FC<{
       </form>
 
       <div className="mt-4 flex flex-col md:flex-row md:items-center md:gap-4">
-        <FilterBar
-          filters={filters}
-          onChange={setFilters}
-          allAssignees={Array.from(new Set(
-            allTasks
-              .filter((t: any) => t.assignee)
-              .map((t: any) =>
-                typeof t.assignee === "object" && t.assignee !== null
-                  ? t.assignee.name || t.assignee.id || JSON.stringify(t.assignee)
-                  : t.assignee
-              )
-              .filter(Boolean)
-          ))}
-        />
-        <div className="mt-2 md:mt-0 flex items-center gap-2 bg-surface rounded-lg p-2">
-          <label htmlFor="arrangeBy" className="text-sm dark:text-gray-300 text-gray-600">Arrange by:</label>
-          <select
-            id="arrangeBy"
-            className="border dark:border-gray-700 border-gray-300 rounded px-2 py-1 text-sm dark:bg-surface dark:text-gray-100"
-            value={arrangeBy}
-            onChange={e => setArrangeBy(e.target.value)}
-          >
-            {arrangeOptions.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+        <div className="flex flex-wrap items-center gap-3 bg-white/80 dark:bg-surface/80 rounded-2xl shadow px-4 py-3 border border-gray-200 dark:border-gray-700 w-full">
+          <FilterBar
+            filters={filters}
+            onChange={setFilters}
+            allAssignees={Array.from(new Set(
+              allTasks
+                .filter((t: any) => t.assignee)
+                .map((t: any) =>
+                  typeof t.assignee === "object" && t.assignee !== null
+                    ? t.assignee.name || t.assignee.id || JSON.stringify(t.assignee)
+                    : t.assignee
+                )
+                .filter(Boolean)
             ))}
-          </select>
-          <button
-            type="button"
-            className={`ml-2 px-2 py-1 rounded border text-xs dark:bg-surface ${reverseOrder ? "bg-gray-200" : "bg-white"}`}
-            title={reverseOrder ? "Descending" : "Ascending"}
-            onClick={() => setReverseOrder(r => !r)}
-          >
-            {reverseOrder ? "↓" : "↑"}
-          </button>
+            compact={true}
+            showAll={showAll}
+            onToggleShowAll={() => setShowAll((v) => !v)}
+          />
+          {/* Separator after filters */}
+          <div className="h-8 w-px bg-gray-300 dark:bg-gray-700 mx-2" />
+          {/* Group by and Arrange by controls */}
+          <div className="flex items-center gap-2">
+            <Dropdown label={`Group by${filters.groupBy && filters.groupBy !== "none" ? `: ${["None","Status","Priority","Due","Assignee"].find((l,i)=>["none","status","priority","due","assigned"][i]===filters.groupBy)}` : ""}`}>
+              {["none","status","priority","due","assigned"].map((val, i) => (
+                <label key={val} className="flex items-center gap-2 px-2 py-1">
+                  <input
+                    type="radio"
+                    name="groupBy"
+                    checked={(filters.groupBy || "none") === val}
+                    onChange={() => setFilters({ ...filters, groupBy: val })}
+                  />
+                  <span>{["None","Status","Priority","Due","Assignee"][i]}</span>
+                </label>
+              ))}
+            </Dropdown>
+            <Dropdown label={`Arrange by${arrangeBy ? `: ${arrangeOptions.find(o => o.value === arrangeBy)?.label}` : ""}`}>
+              {arrangeOptions.map(opt => (
+                <label key={opt.value} className="flex items-center gap-2 px-2 py-1">
+                  <input
+                    type="radio"
+                    name="arrangeBy"
+                    checked={arrangeBy === opt.value}
+                    onChange={() => setArrangeBy(opt.value)}
+                  />
+                  <span>{opt.label}</span>
+                </label>
+              ))}
+            </Dropdown>
+            <button
+              type="button"
+              className={`ml-2 px-2 py-1 rounded border text-xs dark:bg-surface ${reverseOrder ? "bg-gray-200" : "bg-white"}`}
+              title={reverseOrder ? "Descending" : "Ascending"}
+              onClick={() => setReverseOrder(r => !r)}
+            >
+              {reverseOrder ? "↓" : "↑"}
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Quick Tasks sortable list only */}
+
+      {/* Tasks grouped list */}
       <div className="bg-surface rounded-lg p-4 mt-2" style={{ minHeight: 200 }}>
-        <ul className="space-y-2">
-          {computeTasksWithoutProject().length > 0
-            ? computeTasksWithoutProject().map((t) => (
-                <li
-                  key={t.id}
-                >
-                  {editingTaskId === t.id ? (
-                    <div className="mt-2">
-                      <TaskEditForm
+        {(() => {
+          const grouped = groupTasks(computeTasksWithoutProject(), filters.groupBy);
+          const groupKeys = Object.keys(grouped);
+          if (groupKeys.length === 1 && groupKeys[0] === "" && grouped[""]?.length === 0) {
+            return <div className="text-sm dark:text-gray-500 text-gray-500 py-6 text-center">No tasks match your filters.</div>;
+          }
+          return groupKeys.map((group) => (
+            <div key={group} className="mb-6">
+              {group && (
+                <div className="font-bold text-lg mb-2 capitalize">
+                  {filters.groupBy === "priority"
+                    ? (() => {
+                        const labels = {
+                          0: "Any",
+                          1: "Low",
+                          2: "Medium",
+                          3: "High",
+                          4: "Urgent",
+                        };
+                        return `Priority: ${labels[group] || group}`;
+                      })()
+                    : filters.groupBy === "due"
+                    ? `Due: ${group}`
+                    : filters.groupBy === "assigned"
+                    ? `Assignee: ${group}`
+                    : group.charAt(0).toUpperCase() + group.slice(1)}
+                </div>
+              )}
+              <ul className="space-y-2">
+                {grouped[group].map((t) => (
+                  <li key={t.id}>
+                    {editingTaskId === t.id ? (
+                      <div className="mt-2">
+                        <TaskEditForm
+                          uid={uid}
+                          task={t}
+                          allProjects={allProjects}
+                          allBlockers={allBlockers}
+                          onSave={() => setEditingTaskId(null)}
+                          onCancel={() => setEditingTaskId(null)}
+                          onStartPromote={() => setPromotingTask(t)}
+                          onDelete={async () => {
+                            if (window.confirm("Delete this task?")) {
+                              const { removeTask } = await import("../../services/tasks");
+                              await removeTask(uid, t.id);
+                              setEditingTaskId(null);
+                            }
+                          }}
+                          onArchive={async () => {
+                            const { archiveTask } = await import("../../services/tasks");
+                            await archiveTask(uid, t.id);
+                          }}
+                          onUnarchive={async () => {
+                            const { unarchiveTask } = await import("../../services/tasks");
+                            await unarchiveTask(uid, t.id);
+                          }}
+                          onStatusChange={async (newStatus) => {
+                            const { updateTask } = await import("../../services/tasks");
+                            await updateTask(uid, t.id, { status: newStatus });
+                            // Fetch latest task from backend
+                            const { getDoc, doc } = await import("firebase/firestore");
+                            const { db } = await import("../../firebase");
+                            const snap = await getDoc(doc(db, `users/${uid}/tasks/${t.id}`));
+                            if (snap.exists()) {
+                              setEditingTaskId(null);
+                            }
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <TaskItem
                         uid={uid}
                         task={t}
-                        allProjects={allProjects}
                         allBlockers={allBlockers}
-                        onSave={() => setEditingTaskId(null)}
-                        onCancel={() => setEditingTaskId(null)}
+                        onStartEdit={() => setEditingTaskId(t.id)}
                         onStartPromote={() => setPromotingTask(t)}
-                        onDelete={async () => {
-                          if (window.confirm("Delete this task?")) {
-                            const { removeTask } = await import("../../services/tasks");
-                            await removeTask(uid, t.id);
-                            setEditingTaskId(null);
-                          }
-                        }}
+                        onManageBlockers={() => openBlockerManagerModal({ ...t, type: "task" })}
+                        onStartBlock={() => setBlockerModalTask({ id: t.id, title: t.title, type: "task" })}
                         onArchive={async () => {
                           const { archiveTask } = await import("../../services/tasks");
                           await archiveTask(uid, t.id);
+                        }}
+                        onDelete={async () => {
+                          const { removeTask } = await import("../../services/tasks");
+                          await removeTask(uid, t.id);
                         }}
                         onUnarchive={async () => {
                           const { unarchiveTask } = await import("../../services/tasks");
@@ -247,51 +363,16 @@ export const TasksView: React.FC<{
                         onStatusChange={async (newStatus) => {
                           const { updateTask } = await import("../../services/tasks");
                           await updateTask(uid, t.id, { status: newStatus });
-                          // Fetch latest task from backend
-                          const { getDoc, doc } = await import("firebase/firestore");
-                          const { db } = await import("../../firebase");
-                          const snap = await getDoc(doc(db, `users/${uid}/tasks/${t.id}`));
-                          if (snap.exists()) {
-                            // Update local allTasks state if you have a setter
-                            // For now, force a reload by closing the edit window
-                            setEditingTaskId(null);
-                          }
                         }}
+                        onPriorityChange={() => {}}
                       />
-                    </div>
-                  ) : (
-                    <TaskItem
-                      uid={uid}
-                      task={t}
-                      allBlockers={allBlockers}
-                      onStartEdit={() => setEditingTaskId(t.id)}
-                      onStartPromote={() => setPromotingTask(t)}
-                      onManageBlockers={() => openBlockerManagerModal({ ...t, type: "task" })}
-                      onStartBlock={() => setBlockerModalTask({ id: t.id, title: t.title, type: "task" })}
-                      onArchive={async () => {
-                        const { archiveTask } = await import("../../services/tasks");
-                        await archiveTask(uid, t.id);
-                      }}
-                      onDelete={async () => {
-                        const { removeTask } = await import("../../services/tasks");
-                        await removeTask(uid, t.id);
-                      }}
-                      onUnarchive={async () => {
-                        const { unarchiveTask } = await import("../../services/tasks");
-                        await unarchiveTask(uid, t.id);
-                      }}
-                      onStatusChange={async (newStatus) => {
-                        const { updateTask } = await import("../../services/tasks");
-                        await updateTask(uid, t.id, { status: newStatus });
-                      }}
-                      onPriorityChange={() => {}}
-                    />
-                  )}
-                </li>
-              ))
-            : <li className="text-sm dark:text-gray-500 text-gray-500 py-6 text-center">No tasks match your filters.</li>
-          }
-        </ul>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ));
+        })()}
       </div>
       {/* Blocker modal for adding a blocker to a task */}
       {blockerModalTask && (

@@ -48,12 +48,12 @@ export interface Blocker {
 export type WithId<T> = T & { id: string };
 
 /** Filters */
-export type StatusFilter = "all" | "active" | "blocked" | "done" | "archived";
+export type StatusFilter = "active" | "blocked" | "done" | "archived";
 export type DueFilter = "any" | "overdue" | "today" | "week";
 export interface TaskFilters {
-  status: StatusFilter;
-  minPriority: 0 | 1 | 2 | 3 | 4;
-  due: DueFilter;
-  assigned?: string; // filter by assigned user
+  status: StatusFilter[];
+  minPriority: (0 | 1 | 2 | 3 | 4)[];
+  due: DueFilter[];
+  assigned?: string[]; // filter by assigned user(s)
   includeArchived: boolean;
 }

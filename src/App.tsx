@@ -78,7 +78,7 @@ const App: React.FC = () => {
       if (over.id.startsWith('sidebar-project-')) {
         console.log('Sidebar project drop detected:', over.id);
       } else if (over.id === 'sidebar-quicktasks') {
-        console.log('Sidebar quick tasks drop detected.');
+  console.log('Sidebar tasks drop detected.');
       } else {
         console.log('Other drop target:', over.id);
       }
@@ -86,7 +86,7 @@ const App: React.FC = () => {
     if (!over) return;
     // Sidebar droppable ids: "sidebar-quicktasks" or "sidebar-project-<id>"
     if (over.id === "sidebar-quicktasks") {
-      // Move to Quick Tasks (remove projectId)
+  // Move to Tasks (remove projectId)
       const task = allTasks.find(t => t.id === active.id);
       if (task && task.projectId !== null) {
         updateTask(user.uid, task.id, { projectId: null });
@@ -114,12 +114,12 @@ const App: React.FC = () => {
       }
       return;
     }
-    // Handle in-list reordering for Quick Tasks
-    // Only reorder if both active and over are in Quick Tasks (no projectId)
+  // Handle in-list reordering for Tasks
+  // Only reorder if both active and over are in Tasks (no projectId)
     const activeTask = allTasks.find(t => t.id === active.id);
     const overTask = allTasks.find(t => t.id === over.id);
     if (activeTask && overTask) {
-      // Quick Tasks reordering
+  // Tasks reordering
       if (!activeTask.projectId && !overTask.projectId) {
         const quickTasks = allTasks.filter(t => !t.projectId);
         const oldIndex = quickTasks.findIndex(t => t.id === active.id);

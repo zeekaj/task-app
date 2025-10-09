@@ -5,6 +5,7 @@ import type { Project, TaskFilters, WithId, Task } from "../../types";
 import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
 import { FilterBar, defaultFilters } from "../FilterBar";
+import { Dropdown } from "../shared/Dropdown";
 import { createTask } from "../../services/tasks";
 import { BlockerManagerModal } from "../BlockerManagerModal";
 
@@ -40,7 +41,8 @@ const ProjectView: React.FC<{
   const projectBlockers = allBlockers.filter((b: any) => b.entityId === projectId);
   // Blocked tasks for this project
   const blockedTasks = allTasks.filter((t: any) => t.projectId === projectId && t.status === 'blocked');
-  const [filters, setFilters] = useState<TaskFilters>(defaultFilters);
+  const [filters, setFilters] = useState<TaskFilters & { groupBy?: string }>(defaultFilters);
+  const [showAll, setShowAll] = useState(false);
   const [quickAdd, setQuickAdd] = useState("");
   // Quick add handler for project tasks
   const handleQuickAdd = async (e: React.FormEvent) => {
@@ -63,7 +65,8 @@ const ProjectView: React.FC<{
   ];
 
   // Filtering logic (copied from TasksView)
-  function isWithinDueFilter(dueISO: string | null, filter: TaskFilters["due"]) {
+  type DueFilter = "any" | "overdue" | "today" | "week";
+  function isWithinDueFilter(dueISO: string | null, filter: DueFilter) {
     if (!dueISO) return filter === "any";
     const due = new Date(dueISO);
     const now = new Date();
@@ -80,6 +83,8 @@ const ProjectView: React.FC<{
         return due >= startOfToday && due < endOfToday;
       case "week":
         return due >= startOfToday && due < endOfWeek;
+      default:
+        return false;
     }
   }
 
@@ -88,24 +93,39 @@ const ProjectView: React.FC<{
 
   // Compute filtered/sorted list for display and drag
   const computeProjectTasks = () => {
-  // Only show non-blocked tasks in main list
-  let list = allTasks.filter((t: any) => t.projectId === projectId && t.status !== 'blocked');
+    let list = allTasks.filter((t: any) => t.projectId === projectId && t.status !== 'blocked');
+    if (showAll) return list;
     if (!filters.includeArchived) {
       list = list.filter((t: any) => t.status !== "archived");
     }
-    if (filters.status !== "all") {
+    if (filters.status && filters.status.length > 0) {
       list = list.filter((t: any) => {
-        if (filters.status === "active")
-          return t.status === "not_started" || t.status === "in_progress" || t.status === "blocked";
-        return t.status === filters.status;
+        const statusMap: Record<string, string[]> = {
+          active: ["not_started", "in_progress", "blocked"],
+          blocked: ["blocked"],
+          done: ["done"],
+          archived: ["archived"],
+        };
+        return filters.status.some((f) => statusMap[f]?.includes(t.status));
       });
     }
-    list = list.filter((t: any) => t.priority >= filters.minPriority);
-    list = list.filter((t: any) => isWithinDueFilter(t.dueDate, filters.due));
-    if (arrangeBy === "order" && list.length > 0 && list.every((t: any) => typeof t.order === "number")) {
-      list = [...list].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-      if (reverseOrder) list.reverse();
-      return list;
+    if (filters.minPriority && filters.minPriority.length > 0) {
+      list = list.filter((t: any) => filters.minPriority.some((p) => t.priority === p));
+    }
+    if (filters.due && filters.due.length > 0) {
+      list = list.filter((t: any) => (filters.due as DueFilter[]).some((d) => isWithinDueFilter(t.dueDate, d)));
+    }
+    if (filters.assigned && filters.assigned.length > 0) {
+      list = list.filter((t: any) => {
+        const isNone = !t.assignee || t.assignee === null || t.assignee === undefined;
+        if (filters.assigned && filters.assigned.includes("(None)")) {
+          if (isNone) return true;
+        }
+        if (typeof t.assignee === "object" && t.assignee !== null) {
+          return filters.assigned && (filters.assigned.includes(t.assignee.name) || filters.assigned.includes(t.assignee.id));
+        }
+        return filters.assigned && filters.assigned.includes(t.assignee);
+      });
     }
     list = [...list];
     switch (arrangeBy) {
@@ -166,24 +186,38 @@ const ProjectView: React.FC<{
       <div className="mb-4 dark:text-gray-300 text-gray-600 flex items-center gap-2">
         <span>Status:</span>
         {currentProject && (
-          <select
-            className="border dark:border-gray-700 border-gray-300 rounded px-2 py-1 text-sm dark:bg-surface dark:text-gray-100"
-            value={currentProject.status}
-            onChange={async (e) => {
-              const newStatus = e.target.value;
-              if (newStatus !== currentProject.status) {
-                const { updateProject } = await import("../../services/projects");
-                await updateProject(uid, currentProject.id, { status: newStatus as Project["status"] });
-                window.location.reload(); // reload to reflect status change
-              }
-            }}
-          >
-            <option value="not_started">Not Started</option>
-            <option value="in_progress">In Progress</option>
-            <option value="blocked">Blocked</option>
-            <option value="completed">Completed</option>
-            <option value="archived">Archived</option>
-          </select>
+          <Dropdown label={(() => {
+            switch (currentProject.status) {
+              case "not_started": return "Not Started";
+              case "in_progress": return "In Progress";
+              case "blocked": return "Blocked";
+              case "completed": return "Completed";
+              case "archived": return "Archived";
+              default: return currentProject.status;
+            }
+          })()}>
+            {[{ value: "not_started", label: "Not Started" },
+              { value: "in_progress", label: "In Progress" },
+              { value: "blocked", label: "Blocked" },
+              { value: "completed", label: "Completed" },
+              { value: "archived", label: "Archived" }].map(opt => (
+                <label key={opt.value} className="flex items-center gap-2 px-2 py-1">
+                  <input
+                    type="radio"
+                    name="projectStatus"
+                    checked={currentProject.status === opt.value}
+                    onChange={async () => {
+                      if (opt.value !== currentProject.status) {
+                        const { updateProject } = await import("../../services/projects");
+                        await updateProject(uid, currentProject.id, { status: opt.value as Project["status"] });
+                        window.location.reload();
+                      }
+                    }}
+                  />
+                  <span>{opt.label}</span>
+                </label>
+              ))}
+          </Dropdown>
         )}
       </div>
 
@@ -268,29 +302,65 @@ const ProjectView: React.FC<{
             onChange={(e) => setQuickAdd(e.target.value)}
           />
         </form>
-        {/* Filters and Arrange By */}
+        {/* Filters, Show All, Group/Arrange controls (match TasksView) */}
         <div className="mt-4 flex flex-col md:flex-row md:items-center md:gap-4">
-          <FilterBar filters={filters} onChange={setFilters} />
-          <div className="mt-2 md:mt-0 flex items-center gap-2">
-            <label htmlFor="arrangeBy" className="text-sm dark:text-gray-300 text-gray-600">Arrange by:</label>
-            <select
-              id="arrangeBy"
-              className="border dark:border-gray-700 border-gray-300 rounded px-2 py-1 text-sm dark:bg-surface dark:text-gray-100"
-              value={arrangeBy}
-              onChange={e => setArrangeBy(e.target.value)}
-            >
-              {arrangeOptions.map(opt => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
+          <div className="flex flex-wrap items-center gap-3 bg-white/80 dark:bg-surface/80 rounded-2xl shadow px-4 py-3 border border-gray-200 dark:border-gray-700 w-full">
+            <FilterBar
+              filters={filters}
+              onChange={setFilters}
+              allAssignees={Array.from(new Set(
+                allTasks
+                  .filter((t: any) => t.assignee)
+                  .map((t: any) =>
+                    typeof t.assignee === "object" && t.assignee !== null
+                      ? t.assignee.name || t.assignee.id || JSON.stringify(t.assignee)
+                      : t.assignee
+                  )
+                  .filter(Boolean)
               ))}
-            </select>
-            <button
-              type="button"
-              className={`ml-2 px-2 py-1 rounded border text-xs dark:bg-surface ${reverseOrder ? "bg-gray-200" : "bg-white"}`}
-              title={reverseOrder ? "Descending" : "Ascending"}
-              onClick={() => setReverseOrder(r => !r)}
-            >
-              {reverseOrder ? "↓" : "↑"}
-            </button>
+              compact={true}
+              showAll={showAll}
+              onToggleShowAll={() => setShowAll((v) => !v)}
+            />
+            {/* Separator after filters */}
+            <div className="h-8 w-px bg-gray-300 dark:bg-gray-700 mx-2" />
+            {/* Group by and Arrange by controls */}
+            <div className="flex items-center gap-2">
+              <Dropdown label={`Group by${filters.groupBy && filters.groupBy !== "none" ? `: ${["None","Status","Priority","Due","Assignee"][ ["none","status","priority","due","assigned"].indexOf(filters.groupBy) ]}` : ""}`}>
+                {["none","status","priority","due","assigned"].map((val, i) => (
+                  <label key={val} className="flex items-center gap-2 px-2 py-1">
+                    <input
+                      type="radio"
+                      name="groupBy"
+                      checked={(filters.groupBy || "none") === val}
+                      onChange={() => setFilters({ ...filters, groupBy: val })}
+                    />
+                    <span>{["None","Status","Priority","Due","Assignee"][i]}</span>
+                  </label>
+                ))}
+              </Dropdown>
+              <Dropdown label={`Arrange by${arrangeBy ? `: ${arrangeOptions.find(o => o.value === arrangeBy)?.label}` : ""}`}>
+                {arrangeOptions.map(opt => (
+                  <label key={opt.value} className="flex items-center gap-2 px-2 py-1">
+                    <input
+                      type="radio"
+                      name="arrangeBy"
+                      checked={arrangeBy === opt.value}
+                      onChange={() => setArrangeBy(opt.value)}
+                    />
+                    <span>{opt.label}</span>
+                  </label>
+                ))}
+              </Dropdown>
+              <button
+                type="button"
+                className={`ml-2 px-2 py-1 rounded border text-xs dark:bg-surface ${reverseOrder ? "bg-gray-200" : "bg-white"}`}
+                title={reverseOrder ? "Descending" : "Ascending"}
+                onClick={() => setReverseOrder(r => !r)}
+              >
+                {reverseOrder ? "↓" : "↑"}
+              </button>
+            </div>
           </div>
         </div>
         {computeProjectTasks().length > 0 ? (
