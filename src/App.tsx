@@ -12,6 +12,7 @@ import { Sidebar } from "./components/Sidebar";
 import { TasksView } from "./components/views/TasksView";
 import { ProjectView } from "./components/views/ProjectView";
 import { BlockedView } from "./components/views/BlockedView";
+import { CalendarView } from "./components/views/CalendarView";
 import { BlockerModal } from "./components/BlockerModal";
 import { BlockerManagerModal } from "./components/BlockerManagerModal";
 import { PromotionModal } from "./components/PromotionModal";
@@ -21,7 +22,8 @@ import { signIn } from "./firebase";
 type View =
   | { type: "tasks"; id: null }
   | { type: "project"; id: string }
-  | { type: "blocked"; id: null };
+  | { type: "blocked"; id: null }
+  | { type: "calendar"; id: null };
 
 
 const App: React.FC = () => {
@@ -43,8 +45,6 @@ const App: React.FC = () => {
     target: null,
   });
 
-  const openBlockerModal = (target: any) => setModalState({ type: "block", target });
-  const openBlockerManagerModal = (target: any) => setModalState({ type: "manage_blockers", target });
   const closeModal = () => setModalState({ type: null, target: null });
 
   if (!user) {
@@ -189,7 +189,7 @@ const App: React.FC = () => {
       onDragEnd={handleDragEnd}
     >
   <div className="flex h-screen font-sans">
-        <Sidebar uid={user.uid} currentView={currentView} setCurrentView={setCurrentView} />
+  <Sidebar uid={user.uid} currentView={currentView} setCurrentView={setCurrentView} allTasks={allTasks} />
         <main className="flex-1 flex flex-col h-screen">
           <Header
             user={user}
@@ -212,9 +212,6 @@ const App: React.FC = () => {
                 allTasks={allTasks}
                 allBlockers={allBlockers}
                 allProjects={allProjects}
-                openBlockerModal={openBlockerModal}
-                openBlockerManagerModal={openBlockerManagerModal}
-                setPromotingTask={setPromotingTask}
               />
             )}
 
@@ -225,8 +222,6 @@ const App: React.FC = () => {
                 allTasks={allTasks}
                 allBlockers={allBlockers}
                 allProjects={allProjects}
-                openBlockerModal={openBlockerModal}
-                setPromotingTask={setPromotingTask}
               />
             )}
 
@@ -236,9 +231,20 @@ const App: React.FC = () => {
                 allTasks={allTasks}
                 allBlockers={allBlockers}
                 allProjects={allProjects}
-                openBlockerManagerModal={openBlockerManagerModal}
-                setPromotingTask={setPromotingTask}
                 setCurrentView={setCurrentView}
+              />
+            )}
+
+            {currentView.type === "calendar" && (
+              <CalendarView
+                tasks={allTasks}
+                onTaskClick={(task) => {
+                  if (task.projectId) {
+                    setCurrentView({ type: "project", id: task.projectId });
+                  } else {
+                    setCurrentView({ type: "tasks", id: null });
+                  }
+                }}
               />
             )}
           </div>
@@ -254,7 +260,6 @@ const App: React.FC = () => {
                   task={draggedTask}
                   allBlockers={allBlockers}
                   onStartEdit={() => {}}
-                  onStartPromote={() => {}}
                   onManageBlockers={() => {}}
                   onStartBlock={() => {}}
                   onArchive={() => {}}

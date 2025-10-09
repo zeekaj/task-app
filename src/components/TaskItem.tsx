@@ -21,12 +21,13 @@ const priorities: { [key: number]: { label: string; color: string } } = {
   4: { label: "Urgent", color: "bg-gradient-to-r from-orange-300 via-orange-400 to-yellow-600" }, // Bronze (metallic gradient)
 };
 
-export const TaskItem: React.FC<{
+interface TaskItemProps {
   uid: string;
   task: WithId<Task>;
   allBlockers: WithId<Blocker>[];
+  allTasks?: WithId<Task>[];
   onStartEdit: () => void;
-  onStartPromote: () => void;
+  // onStartPromote removed
   onManageBlockers: () => void;
   onStartBlock: () => void;
   onArchive: () => void;
@@ -36,7 +37,9 @@ export const TaskItem: React.FC<{
   dragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
   crossListDragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
   onPriorityChange?: (taskId: string, newPriority: number) => void;
-}> = ({ uid, task, allBlockers, onStartEdit, onStartPromote, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onPriorityChange }) => {
+}
+
+export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onPriorityChange }) => {
   const [iconHovered, setIconHovered] = useState(false);
   // Debug: log when TaskItem is rendered and show props
   const dueDateObj = task.dueDate ? new Date(task.dueDate) : null;
@@ -57,6 +60,10 @@ export const TaskItem: React.FC<{
   const dueDateString = dueDateObj && typeof dueDateObj.toLocaleDateString === "function"
     ? dueDateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" })
     : "";
+
+  // Subtask progress
+  const subtaskCount = Array.isArray(task.subtasks) ? task.subtasks.length : 0;
+  const subtaskDone = Array.isArray(task.subtasks) ? task.subtasks.filter(s => s.done).length : 0;
 
   const handlePriorityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     e.stopPropagation();
@@ -108,16 +115,16 @@ export const TaskItem: React.FC<{
           <div className="flex w-full">
             {/* Left cell: status / blockers */}
             <div
-              className="flex-shrink-0 flex items-center justify-center h-full transition-all duration-200 dark:bg-black bg-black bg-opacity-5 rounded-l-lg p-2"
+              className="flex-shrink-0 flex items-center justify-center h-full transition-all duration-300 dark:bg-black bg-black bg-opacity-5 rounded-l-lg p-2"
               onClick={isBlocked ? onManageBlockers : undefined}
               style={{
                 background: isBlocked ? undefined : 'transparent',
                 justifyContent: 'flex-start',
-                width: iconHovered ? '180px' : (isBlocked ? '165px' : '48px'),
-                minWidth: iconHovered ? '180px' : (isBlocked ? '165px' : '48px'),
-                maxWidth: iconHovered ? '180px' : (isBlocked ? '300px' : '48px'),
+                width: iconHovered ? '170px' : (isBlocked ? '100px' : '48px'),
+                minWidth: iconHovered ? '170px' : (isBlocked ? '100px' : '48px'),
+                maxWidth: iconHovered ? '170px' : (isBlocked ? '300px' : '48px'),
                 height: '100%',
-                transition: 'all 0.2s',
+                transition: 'all 0.35s cubic-bezier(0.4,0.2,0.2,1)',
                 position: 'relative',
                 zIndex: 1,
                 cursor: 'pointer',
@@ -160,7 +167,7 @@ export const TaskItem: React.FC<{
               ) : (
                 <div
                   className="relative flex items-center"
-                  style={{ width: iconHovered ? '180px' : '60px', minWidth: iconHovered ? '180px' : '60px', maxWidth: iconHovered ? '180px' : '60px', transition: 'max-width 0.2s, width 0.2s', overflow: iconHovered ? 'visible' : 'hidden', background: 'transparent', padding: 0, margin: 0, justifyContent: 'flex-start' }}
+                  style={{ width: iconHovered ? '170px' : '48px', minWidth: iconHovered ? '170px' : '48px', maxWidth: iconHovered ? '170px' : '48px', transition: 'max-width 0.35s cubic-bezier(0.4,0.2,0.2,1), width 0.35s cubic-bezier(0.4,0.2,0.2,1)', overflow: iconHovered ? 'visible' : 'hidden', background: 'transparent', padding: 0, margin: 0, justifyContent: 'flex-start' }}
                 >
                   {/* Only show the active icon when not hovered; show all on hover */}
                   {!iconHovered && (
@@ -292,7 +299,8 @@ export const TaskItem: React.FC<{
             </div>
             {/* Middle: title/description */}
             <div
-              className={`flex-grow flex items-center gap-2 min-w-0 transition-all duration-200 relative`}
+
+              className={`flex-grow flex items-center min-w-0 transition-all duration-200 relative`}
               style={{ paddingLeft: iconHovered && !isBlocked ? '40px' : '28px' }}
               onClick={e => {
                 // Only open full edit if not clicking the text itself or inline input
@@ -307,12 +315,6 @@ export const TaskItem: React.FC<{
                 style={{ left: iconHovered && !isBlocked ? '32px' : '20px' }}
                 aria-hidden="true"
               />
-              {task.description && (
-                <div
-                  className="w-1 h-6 dark:bg-gray-700 bg-gray-300 rounded-full flex-shrink-0"
-                  title="This task has a description"
-                />
-              )}
               {editingInline ? (
                 <input
                   ref={inputRef}
@@ -328,21 +330,74 @@ export const TaskItem: React.FC<{
                   onClick={e => e.stopPropagation()}
                 />
               ) : (
-                <p
-                  className={`truncate ${task.status === "done" ? "line-through dark:text-gray-500 text-gray-500" : ""} cursor-pointer`}
-                  onClick={e => {
-                    e.stopPropagation();
-                    if (!isArchived) setEditingInline(true);
-                  }}
-                  title="Click to edit title"
-                >
-                  {typeof task.title === "object" ? JSON.stringify(task.title) : task.title}
-                </p>
+                <span className="flex items-center gap-2 w-full">
+                  <p
+                    className={`truncate my-0 ${task.status === "done" ? "line-through dark:text-gray-500 text-gray-500" : ""} cursor-pointer`}
+                    onClick={e => {
+                      e.stopPropagation();
+                      if (!isArchived) setEditingInline(true);
+                    }}
+                    title="Click to edit title"
+                    style={{ lineHeight: '1.5' }}
+                  >
+                    {typeof task.title === "object" ? JSON.stringify(task.title) : task.title}
+                  </p>
+                  {/* Description indicator */}
+                  {task.description && (
+                    <span title="Has description" className="ml-2 flex items-center">
+                      <Icon path="M3 5h14v2H3zM3 9h14v2H3zM3 13h10v2H3z" className="w-4 h-4 text-gray-400" />
+                    </span>
+                  )}
+                  {/* Notes/comments indicator */}
+                  {task.comments && task.comments.length > 0 && (
+                    <span title="Has comments/notes" className="ml-1 flex items-center">
+                      <Icon path="M21 6.5a2.5 2.5 0 00-2.5-2.5h-13A2.5 2.5 0 003 6.5v7A2.5 2.5 0 005.5 16H6v3l4.5-3h6A2.5 2.5 0 0021 13.5v-7z" className="w-4 h-4 text-amber-400" />
+                    </span>
+                  )}
+                  {/* Subtask progress icon */}
+                  {subtaskCount > 0 && (
+                    <span className="inline-flex items-center gap-1 text-xs text-gray-500 ml-1" title="Subtasks">
+                      <svg width="16" height="16" fill="none" viewBox="0 0 20 20"><rect x="2" y="5" width="16" height="10" rx="2" fill="#e5e7eb"/><rect x="4" y="7" width="12" height="6" rx="1" fill="#fff"/><path d="M7 10.5l2 2 4-4" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                      {subtaskDone}/{subtaskCount}
+                    </span>
+                  )}
+                  {/* Dependencies icon */}
+                  {Array.isArray(task.dependencies) && task.dependencies.length > 0 && (
+                    <span className="inline-flex items-center gap-1 text-xs text-blue-500 ml-1" title={`Depends on: ${task.dependencies.map(depId => {
+                      const depTask = allTasks.find(t => t.id === depId);
+                      return depTask ? depTask.title : depId;
+                    }).join(", ")}`}>
+                      <svg width="16" height="16" fill="none" viewBox="0 0 20 20"><path d="M7 10h6M7 10l2-2m-2 2l2 2" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="5" cy="10" r="2" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.2"/><circle cx="15" cy="10" r="2" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.2"/></svg>
+                      {task.dependencies.length}
+                    </span>
+                  )}
+                </span>
               )}
+
+              {/* Comments/Notes display removed from collapsed line */}
             </div>
             {/* Right tools */}
-            <div className="flex-shrink-0 flex items-center gap-x-3 p-3 text-sm dark:text-gray-300 text-gray-800">
-              {/* Created date */}
+            <div className="flex-shrink-0 flex items-center gap-x-2 p-1 text-xs dark:text-gray-300 text-gray-800">
+              {/* Created, Due, Assigned info (left of status dropdown) */}
+              <div className="flex items-center justify-center gap-x-2 mr-2 min-w-[240px]">
+                {/* Created */}
+                <span className="flex items-center justify-center w-[75px]" title="Created date">
+                  <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m4 4V3m-7 4h14M5 7v10a2 2 0 002 2h6a2 2 0 002-2V7" /></svg>
+                  {createdAtObj ? latestDateString : '--'}
+                </span>
+                <span className="text-gray-300">|</span>
+                {/* Due */}
+                <span className="flex items-center justify-center w-[75px]" title="Due date">
+                  <svg className="w-3 h-3 mr-1 text-red-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" /><path strokeLinecap="round" strokeLinejoin="round" d="M10 6v4l2 2" /></svg>
+                  {dueDateObj ? dueDateString : '--'}
+                </span>
+                <span className="text-gray-300">|</span>
+                {/* Assigned */}
+                <span className="flex items-center justify-center w-[75px]" title="Assigned to">
+                  <svg className="w-3 h-3 mr-1 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><circle cx="10" cy="7" r="4" stroke="currentColor" strokeWidth="2" /><path strokeLinecap="round" strokeLinejoin="round" d="M4 17v-1a4 4 0 014-4h4a4 4 0 014 4v1" /></svg>
+                  {task.assignee ? (typeof task.assignee === "object" ? (task.assignee.name || task.assignee.id) : task.assignee) : '--'}
+                </span>
+              </div>
               {/* Priority dropdown */}
               {!isArchived && (
                 <select
@@ -373,7 +428,7 @@ export const TaskItem: React.FC<{
               <button
                 className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-accent hover:text-blue-500"
                 title="Promote to Project"
-                onClick={e => { e.stopPropagation(); onStartPromote(); }}
+                // onClick for promote removed
               >
                 <Icon path="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" />
               </button>
@@ -393,23 +448,6 @@ export const TaskItem: React.FC<{
                   >
                     <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
                   </button>
-                  {/* Notes section: vertically stacked on the far right */}
-                  <div className="flex flex-col items-end justify-center ml-4 min-w-[120px] text-xs text-right space-y-1">
-                    <div className="flex items-center">
-                      <div className="border-l border-gray-300 h-10 mx-3" />
-                      <div className="flex flex-col items-end justify-center min-w-[120px] text-xs text-right space-y-1">
-                        {createdAtObj && (
-                          <span className="block" title="Created date">Created: {latestDateString}</span>
-                        )}
-                        {dueDateObj && (
-                          <span className="block" title="Due date">Due: {dueDateString}</span>
-                        )}
-                        {task.assignee && (
-                          <span className="block" title="Assigned to">Assigned: {typeof task.assignee === "object" ? JSON.stringify(task.assignee) : task.assignee}</span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
                 </>
               ) : (
                 <button

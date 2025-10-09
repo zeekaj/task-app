@@ -1,7 +1,7 @@
 // src/components/views/TasksView.tsx
 import React, { useState } from "react";
 import { Dropdown } from "../shared/Dropdown";
-import type { WithId, Task, Blocker, TaskFilters, Project } from "../../types";
+import type { WithId, Task, Blocker, TaskFilters, Project, TaskAssignee } from "../../types";
 import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
 import { createTask } from "../../services/tasks";
@@ -10,106 +10,114 @@ import { FilterBar, defaultFilters } from "../FilterBar";
 
 // Draggable wrapper for dnd-kit
 
+// Main TasksView component
+import type { DueFilter } from "../../types";
 
-function isWithinDueFilter(dueISO: string | null, filter: TaskFilters["due"]) {
-  if (!dueISO) return filter === "any";
-  const due = new Date(dueISO);
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  const endOfWeek = new Date(startOfToday);
-  endOfWeek.setDate(startOfToday.getDate() + 7);
-
-  switch (filter) {
-    case "any":
-      return true;
-    case "overdue":
-      return due < startOfToday;
-    case "today":
-      return due >= startOfToday && due < endOfToday;
-    case "week":
-      return due >= startOfToday && due < endOfWeek;
-  }
-}
-
-const arrangeOptions = [
-  { value: "status", label: "Status" },
-  { value: "title", label: "Title" },
-  { value: "dueDate", label: "Due Date" },
-  { value: "priority", label: "Priority" },
-  { value: "assigned", label: "Assigned" },
-  { value: "age", label: "Age" },
-];
-
-export const TasksView: React.FC<{
+interface TasksViewProps {
   uid: string;
   allTasks: WithId<Task>[];
-  allBlockers: WithId<Blocker>[];
   allProjects: WithId<Project>[];
-  openBlockerModal: (t: any) => void;
-  openBlockerManagerModal: (t: any) => void;
-  setPromotingTask: (t: any) => void;
-}> = ({ uid, allTasks, allBlockers, allProjects, openBlockerManagerModal, setPromotingTask }) => {
-  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const [blockerModalTask, setBlockerModalTask] = useState<null | { id: string; title: string; type: "task" }>(null);
-  const [quickAdd, setQuickAdd] = useState("");
-  const [filters, setFilters] = useState<TaskFilters>(defaultFilters);
-  const [arrangeBy, setArrangeBy] = useState<string>("age");
-  const [reverseOrder, setReverseOrder] = useState<boolean>(false);
+  allBlockers: WithId<Blocker>[];
+}
+
+function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) {
+  const FILTERS_KEY = "taskAppDefaultFilters_TasksView";
+  const [filters, setFilters] = useState(() => {
+    const saved = localStorage.getItem(FILTERS_KEY);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return defaultFilters;
+      }
+    }
+    return defaultFilters;
+  });
   const [showAll, setShowAll] = useState(false);
-  // Remove dragList; use computeTasksWithoutProject directly
+  const [arrangeBy, setArrangeBy] = useState("age");
+  const [reverseOrder, setReverseOrder] = useState(false);
+  const [quickAdd, setQuickAdd] = useState("");
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  // Removed unused promotingTask state
+  const [blockerModalTask, setBlockerModalTask] = useState<{ id: string; title: string; type: "task" } | null>(null);
 
-  // ...existing code...
+  const arrangeOptions = [
+    { value: "age", label: "Created" },
+    { value: "status", label: "Status" },
+    { value: "title", label: "Title" },
+    { value: "dueDate", label: "Due Date" },
+    { value: "priority", label: "Priority" },
+    { value: "assigned", label: "Assignee" },
+  ];
 
-  // ...existing code...
-  // ...existing code...
-  // ...existing code...
-  // ...existing code...
-  // ...existing code...
+  function isWithinDueFilter(dueISO: string | null, filter: DueFilter) {
+    if (!dueISO) return filter === "any";
+    const due = new Date(dueISO);
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const endOfWeek = new Date(startOfToday);
+    endOfWeek.setDate(startOfToday.getDate() + 7);
+
+    switch (filter) {
+      case "any":
+        return true;
+      case "overdue":
+        return due < startOfToday;
+      case "today":
+        return due >= startOfToday && due < endOfToday;
+      case "week":
+        return due >= startOfToday && due < endOfWeek;
+      default:
+        return true;
+    }
+  }
 
   // Compute filtered/sorted list for display and drag
-  const computeTasksWithoutProject = () => {
-    let list = allTasks.filter((t) => !t.projectId);
+  const computeTasksWithoutProject = (): WithId<Task>[] => {
+    let list = allTasks.filter((t: WithId<Task>) => !t.projectId);
     if (showAll) return list;
-    // ...existing filter logic...
     if (!filters.includeArchived) {
-      list = list.filter((t) => t.status !== "archived");
+      list = list.filter((t: WithId<Task>) => t.status !== "archived");
     }
     if (filters.status.length > 0) {
-      list = list.filter((t) => {
+      list = list.filter((t: WithId<Task>) => {
         const statusMap: Record<string, string[]> = {
           active: ["not_started", "in_progress", "blocked"],
           blocked: ["blocked"],
           done: ["done"],
           archived: ["archived"],
         };
-        return filters.status.some((f) => statusMap[f]?.includes(t.status));
+  return filters.status.some((f: string) => statusMap[f]?.includes(t.status));
       });
     }
     if (filters.minPriority.length > 0) {
-      list = list.filter((t) => filters.minPriority.some((p) => t.priority === p));
+  list = list.filter((t: WithId<Task>) => filters.minPriority.some((p: string) => t.priority === Number(p)));
     }
     if (filters.due.length > 0) {
-      list = list.filter((t) => filters.due.some((d) => isWithinDueFilter(t.dueDate, d as any)));
+  list = list.filter((t: WithId<Task>) => filters.due.some((d: DueFilter) => isWithinDueFilter(t.dueDate, d)));
     }
     if (filters.assigned && filters.assigned.length > 0) {
-      list = list.filter((t: any) => {
+      list = list.filter((t: WithId<Task>) => {
         const isNone = !t.assignee || t.assignee === null || t.assignee === undefined;
-        if (filters.assigned.includes("(None)")) {
-          // Show tasks with no assignee if '(None)' is selected
+        if (filters.assigned && filters.assigned.includes("(None)")) {
           if (isNone) return true;
         }
         if (typeof t.assignee === "object" && t.assignee !== null) {
-          return filters.assigned?.includes(t.assignee.name) || filters.assigned?.includes(t.assignee.id);
+          const assignee = t.assignee as TaskAssignee;
+          return filters.assigned?.includes(assignee.name) || filters.assigned?.includes(assignee.id);
         }
-        return filters.assigned?.includes(t.assignee);
+        if (typeof t.assignee === "string") {
+          return filters.assigned?.includes(t.assignee);
+        }
+        return false;
       });
     }
     return list;
   };
 
   // Sort tasks by arrangeBy
-  function sortTasks(tasks) {
+  function sortTasks(tasks: WithId<Task>[]): WithId<Task>[] {
     let list = [...tasks];
     switch (arrangeBy) {
       case "status":
@@ -132,10 +140,10 @@ export const TasksView: React.FC<{
       case "assigned":
         list.sort((a, b) => {
           const aAssignee = typeof a.assignee === "object" && a.assignee !== null
-            ? a.assignee.name || a.assignee.id || JSON.stringify(a.assignee)
+            ? (a.assignee as TaskAssignee).name || (a.assignee as TaskAssignee).id || JSON.stringify(a.assignee)
             : a.assignee || "";
           const bAssignee = typeof b.assignee === "object" && b.assignee !== null
-            ? b.assignee.name || b.assignee.id || JSON.stringify(b.assignee)
+            ? (b.assignee as TaskAssignee).name || (b.assignee as TaskAssignee).id || JSON.stringify(b.assignee)
             : b.assignee || "";
           return String(aAssignee).localeCompare(String(bAssignee));
         });
@@ -158,15 +166,19 @@ export const TasksView: React.FC<{
   }
 
   // Group tasks by selected criteria, sorting each group by arrangeBy
-  function groupTasks(tasks, groupBy) {
+  function groupTasks(tasks: WithId<Task>[], groupBy: string): Record<string, WithId<Task>[]> {
     if (!groupBy || groupBy === "none") return { "": sortTasks(tasks) };
-    const groups = {};
+    const groups: Record<string, WithId<Task>[]> = {};
     for (const t of tasks) {
       let key = "";
       if (groupBy === "status") key = t.status || "(none)";
       else if (groupBy === "priority") key = String(t.priority ?? "(none)");
       else if (groupBy === "due") key = t.dueDate ? t.dueDate.slice(0, 10) : "(none)";
-      else if (groupBy === "assigned") key = t.assignee ? (typeof t.assignee === "object" ? t.assignee.name || t.assignee.id : t.assignee) : "(none)";
+      else if (groupBy === "assigned") key = t.assignee
+        ? (typeof t.assignee === "object"
+            ? (t.assignee as TaskAssignee).name || (t.assignee as TaskAssignee).id
+            : t.assignee)
+        : "(none)";
       else key = "";
       if (!groups[key]) groups[key] = [];
       groups[key].push(t);
@@ -206,22 +218,14 @@ export const TasksView: React.FC<{
         />
       </form>
 
-      <div className="mt-4 flex flex-col md:flex-row md:items-center md:gap-4">
-        <div className="flex flex-wrap items-center gap-3 bg-white/80 dark:bg-surface/80 rounded-2xl shadow px-4 py-3 border border-gray-200 dark:border-gray-700 w-full">
+      {/* Duplicate filter/group bar removed. Only one remains below. */}
+        <div className="mt-4 flex flex-wrap items-center gap-3 bg-white/80 dark:bg-surface/80 rounded-2xl shadow px-4 py-3 border border-gray-200 dark:border-gray-700 w-full">
           <FilterBar
             filters={filters}
             onChange={setFilters}
-            allAssignees={Array.from(new Set(
-              allTasks
-                .filter((t: any) => t.assignee)
-                .map((t: any) =>
-                  typeof t.assignee === "object" && t.assignee !== null
-                    ? t.assignee.name || t.assignee.id || JSON.stringify(t.assignee)
-                    : t.assignee
-                )
-                .filter(Boolean)
-            ))}
-            compact={true}
+            allAssignees={Array.from(new Set(allTasks.map((t) => typeof t.assignee === "string" ? t.assignee : t.assignee?.name).filter((v): v is string => Boolean(v))))}
+            localStorageKey={FILTERS_KEY}
+            compact={false}
             showAll={showAll}
             onToggleShowAll={() => setShowAll((v) => !v)}
           />
@@ -229,20 +233,20 @@ export const TasksView: React.FC<{
           <div className="h-8 w-px bg-gray-300 dark:bg-gray-700 mx-2" />
           {/* Group by and Arrange by controls */}
           <div className="flex items-center gap-2">
-            <Dropdown label={`Group by${filters.groupBy && filters.groupBy !== "none" ? `: ${["None","Status","Priority","Due","Assignee"].find((l,i)=>["none","status","priority","due","assigned"][i]===filters.groupBy)}` : ""}`}>
-              {["none","status","priority","due","assigned"].map((val, i) => (
+            <Dropdown label={`Group by${filters.groupBy && filters.groupBy !== "none" ? `: ${["None","Status","Priority","Due","Assignee"][ ["none","status","priority","due","assigned"].indexOf(filters.groupBy) ]}` : ""}`}> 
+              { ["none","status","priority","due","assigned"].map((val, i) => (
                 <label key={val} className="flex items-center gap-2 px-2 py-1">
                   <input
                     type="radio"
                     name="groupBy"
                     checked={(filters.groupBy || "none") === val}
-                    onChange={() => setFilters({ ...filters, groupBy: val })}
+                    onChange={() => setFilters({ ...filters, groupBy: val as TaskFilters["groupBy"] })}
                   />
                   <span>{["None","Status","Priority","Due","Assignee"][i]}</span>
                 </label>
               ))}
             </Dropdown>
-            <Dropdown label={`Arrange by${arrangeBy ? `: ${arrangeOptions.find(o => o.value === arrangeBy)?.label}` : ""}`}>
+            <Dropdown label={`Arrange by${arrangeBy ? `: ${arrangeOptions.find(o => o.value === arrangeBy)?.label}` : ""}`}> 
               {arrangeOptions.map(opt => (
                 <label key={opt.value} className="flex items-center gap-2 px-2 py-1">
                   <input
@@ -257,21 +261,20 @@ export const TasksView: React.FC<{
             </Dropdown>
             <button
               type="button"
-              className={`ml-2 px-2 py-1 rounded border text-xs dark:bg-surface ${reverseOrder ? "bg-gray-200" : "bg-white"}`}
-              title={reverseOrder ? "Descending" : "Ascending"}
-              onClick={() => setReverseOrder(r => !r)}
+              className="rounded px-2 py-1 border ml-2"
+              onClick={() => setReverseOrder((v) => !v)}
+              title="Reverse order"
             >
-              {reverseOrder ? "↓" : "↑"}
+              <span className="inline-block rotate-180">↑</span>
             </button>
           </div>
         </div>
-      </div>
 
 
       {/* Tasks grouped list */}
       <div className="bg-surface rounded-lg p-4 mt-2" style={{ minHeight: 200 }}>
         {(() => {
-          const grouped = groupTasks(computeTasksWithoutProject(), filters.groupBy);
+          const grouped = groupTasks(computeTasksWithoutProject(), filters.groupBy || "none");
           const groupKeys = Object.keys(grouped);
           if (groupKeys.length === 1 && groupKeys[0] === "" && grouped[""]?.length === 0) {
             return <div className="text-sm dark:text-gray-500 text-gray-500 py-6 text-center">No tasks match your filters.</div>;
@@ -282,12 +285,12 @@ export const TasksView: React.FC<{
                 <div className="font-bold text-lg mb-2 capitalize">
                   {filters.groupBy === "priority"
                     ? (() => {
-                        const labels = {
-                          0: "Any",
-                          1: "Low",
-                          2: "Medium",
-                          3: "High",
-                          4: "Urgent",
+                        const labels: Record<string, string> = {
+                          "0": "Any",
+                          "1": "Low",
+                          "2": "Medium",
+                          "3": "High",
+                          "4": "Urgent",
                         };
                         return `Priority: ${labels[group] || group}`;
                       })()
@@ -299,7 +302,7 @@ export const TasksView: React.FC<{
                 </div>
               )}
               <ul className="space-y-2">
-                {grouped[group].map((t) => (
+                {grouped[group].map((t: WithId<Task>) => (
                   <li key={t.id}>
                     {editingTaskId === t.id ? (
                       <div className="mt-2">
@@ -310,7 +313,7 @@ export const TasksView: React.FC<{
                           allBlockers={allBlockers}
                           onSave={() => setEditingTaskId(null)}
                           onCancel={() => setEditingTaskId(null)}
-                          onStartPromote={() => setPromotingTask(t)}
+                          // ...existing code...
                           onDelete={async () => {
                             if (window.confirm("Delete this task?")) {
                               const { removeTask } = await import("../../services/tasks");
@@ -344,9 +347,10 @@ export const TasksView: React.FC<{
                         uid={uid}
                         task={t}
                         allBlockers={allBlockers}
+                        allTasks={computeTasksWithoutProject()}
                         onStartEdit={() => setEditingTaskId(t.id)}
-                        onStartPromote={() => setPromotingTask(t)}
-                        onManageBlockers={() => openBlockerManagerModal({ ...t, type: "task" })}
+                        // ...existing code...
+                        onManageBlockers={() => {}}
                         onStartBlock={() => setBlockerModalTask({ id: t.id, title: t.title, type: "task" })}
                         onArchive={async () => {
                           const { archiveTask } = await import("../../services/tasks");
@@ -384,4 +388,10 @@ export const TasksView: React.FC<{
       )}
     </div>
   );
-};
+}
+
+export { TasksView };
+
+
+
+

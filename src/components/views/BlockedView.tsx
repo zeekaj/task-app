@@ -8,10 +8,8 @@ export const BlockedView: React.FC<{
   allProjects: WithId<Project>[];
   allTasks: WithId<Task>[];
   allBlockers: WithId<Blocker>[];
-  openBlockerManagerModal: (t: any) => void;
-  setPromotingTask: (t: any) => void;
   setCurrentView: (v: any) => void;
-}> = ({ uid, allProjects, allTasks, allBlockers, openBlockerManagerModal, setPromotingTask, setCurrentView }) => {
+}> = ({ uid, allProjects, allTasks, allBlockers, setCurrentView }) => {
   const blockedProjects = allProjects.filter((p) => p.status === "blocked");
   const blockedTasks = allTasks.filter((t) => t.status === "blocked");
   // Removed unused 'byProject' and related type issues
@@ -46,8 +44,7 @@ export const BlockedView: React.FC<{
               task={t}
               allBlockers={allBlockers}
               onStartEdit={() => {}}
-              onStartPromote={() => setPromotingTask(t)}
-              onManageBlockers={() => openBlockerManagerModal({ ...t, type: "task" })}
+              onManageBlockers={() => {}}
               onStartBlock={() => {}}
               onArchive={() => {}}
               onDelete={() => {}}

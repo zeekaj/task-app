@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 // Removed dnd-kit imports
+import { getProjectProgress } from '../../services/progress';
 
 import type { Project, TaskFilters, WithId, Task } from "../../types";
 import { TaskItem } from "../TaskItem";
@@ -16,16 +17,12 @@ const ProjectView: React.FC<{
   allTasks: any[];
   allBlockers: any[];
   allProjects: any[];
-  openBlockerModal: (t: any) => void;
-  setPromotingTask: (t: any) => void;
 }> = ({
   uid,
   projectId,
   allTasks,
   allBlockers,
   allProjects,
-  openBlockerModal,
-  setPromotingTask,
 }) => {
   // Your component logic here
   // Modal state for managing blockers
@@ -37,11 +34,25 @@ const ProjectView: React.FC<{
   };
   // Find the current project
   const currentProject = allProjects.find((p: any) => p.id === projectId);
+  // Project tasks for progress
+  const projectTasks = allTasks.filter((t: any) => t.projectId === projectId);
+  const progress = getProjectProgress(projectTasks);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const projectBlockers = allBlockers.filter((b: any) => b.entityId === projectId);
   // Blocked tasks for this project
   const blockedTasks = allTasks.filter((t: any) => t.projectId === projectId && t.status === 'blocked');
-  const [filters, setFilters] = useState<TaskFilters & { groupBy?: string }>(defaultFilters);
+  const FILTERS_KEY = "taskAppDefaultFilters_ProjectView";
+  const [filters, setFilters] = useState<TaskFilters & { groupBy?: string }>(() => {
+    const saved = localStorage.getItem(FILTERS_KEY);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch {
+        return defaultFilters;
+      }
+    }
+    return defaultFilters;
+  });
   const [showAll, setShowAll] = useState(false);
   const [quickAdd, setQuickAdd] = useState("");
   // Quick add handler for project tasks
@@ -182,7 +193,19 @@ const ProjectView: React.FC<{
 
   return (
     <div className="dark:bg-background bg-white rounded-xl p-6 shadow-lg transition-colors duration-200">
-      <h2 className="text-2xl font-bold mb-2 dark:text-accent text-gray-900">{currentProject?.title || "Project"}</h2>
+      <h2 className="text-2xl font-bold mb-2 dark:text-accent text-gray-900 flex items-center gap-4">
+        {currentProject?.title || "Project"}
+        {/* Progress bar */}
+        <span className="flex items-center gap-2 ml-4">
+          <span className="w-40 h-3 bg-gray-200 rounded-full overflow-hidden relative">
+            <span
+              className="block h-full bg-blue-500 rounded-full transition-all"
+              style={{ width: `${progress.percent}%` }}
+            />
+          </span>
+          <span className="text-xs font-semibold text-gray-600 dark:text-gray-300">{progress.percent}%</span>
+        </span>
+      </h2>
       <div className="mb-4 dark:text-gray-300 text-gray-600 flex items-center gap-2">
         <span>Status:</span>
         {currentProject && (
@@ -247,7 +270,6 @@ const ProjectView: React.FC<{
                         {blocker.waitingOn && <div className="text-xs dark:text-red-200 text-red-700">Waiting on: {blocker.waitingOn}</div>}
                         {blocker.expectedDate && <div className="text-xs dark:text-red-200 text-red-700">Expected: {blocker.expectedDate.toDate ? blocker.expectedDate.toDate().toLocaleDateString() : new Date(blocker.expectedDate).toLocaleDateString()}</div>}
                       </div>
-                      <button onClick={() => openBlockerModal(blocker)} className="text-sm dark:text-accent text-blue-600 hover:underline">Open Blocker Modal</button>
                     </li>
                   ))}
                 </ul>
@@ -308,19 +330,11 @@ const ProjectView: React.FC<{
             <FilterBar
               filters={filters}
               onChange={setFilters}
-              allAssignees={Array.from(new Set(
-                allTasks
-                  .filter((t: any) => t.assignee)
-                  .map((t: any) =>
-                    typeof t.assignee === "object" && t.assignee !== null
-                      ? t.assignee.name || t.assignee.id || JSON.stringify(t.assignee)
-                      : t.assignee
-                  )
-                  .filter(Boolean)
-              ))}
-              compact={true}
+              allAssignees={Array.from(new Set(allTasks.map((t) => typeof t.assignee === "string" ? t.assignee : t.assignee?.name).filter((v): v is string => Boolean(v))))}
+              compact={false}
               showAll={showAll}
               onToggleShowAll={() => setShowAll((v) => !v)}
+              localStorageKey={FILTERS_KEY}
             />
             {/* Separator after filters */}
             <div className="h-8 w-px bg-gray-300 dark:bg-gray-700 mx-2" />
@@ -333,7 +347,7 @@ const ProjectView: React.FC<{
                       type="radio"
                       name="groupBy"
                       checked={(filters.groupBy || "none") === val}
-                      onChange={() => setFilters({ ...filters, groupBy: val })}
+                      onChange={() => setFilters({ ...filters, groupBy: val as "none" | "status" | "priority" | "due" | "assigned" })}
                     />
                     <span>{["None","Status","Priority","Due","Assignee"][i]}</span>
                   </label>
@@ -377,7 +391,6 @@ const ProjectView: React.FC<{
                       allProjects={allProjects}
                       onSave={() => setEditingTaskId(null)}
                       onCancel={() => setEditingTaskId(null)}
-                      onStartPromote={() => setPromotingTask(task)}
                       onDelete={async () => {
                         if (window.confirm("Delete this task?")) {
                           const { removeTask } = await import("../../services/tasks");
@@ -404,13 +417,13 @@ const ProjectView: React.FC<{
                     uid={uid}
                     task={task}
                     allBlockers={allBlockers}
+                    allTasks={allTasks}
                     onStartEdit={() => {
                       console.log('ProjectView: Edit clicked for task', task.id);
                       setEditingTaskId(task.id);
                     }}
-                    onStartPromote={() => setPromotingTask(task)}
                     onManageBlockers={() => openManageBlockers(task)}
-                    onStartBlock={() => openBlockerModal({ ...task, type: "task" })}
+                    onStartBlock={() => openManageBlockers(task)}
                     onArchive={async () => {
                       const { archiveTask } = await import("../../services/tasks");
                       await archiveTask(uid, task.id);

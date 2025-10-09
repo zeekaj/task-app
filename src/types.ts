@@ -13,18 +13,50 @@ export interface Project {
   updatedAt?: Timestamp | FieldValue;
 }
 
+export interface Subtask {
+  id: string;
+  title: string;
+  done: boolean;
+}
+
+export interface TaskAssignee {
+  id: string;
+  name: string;
+}
+
+export type RecurrencePattern =
+  | { type: "none" }
+  | { type: "daily"; interval: number } // every N days
+  | { type: "weekly"; interval: number; daysOfWeek: number[] } // every N weeks on [0-6]
+  | { type: "monthly"; interval: number; dayOfMonth: number } // every N months on day X
+  | { type: "custom"; rule: string }; // for future extensibility
+
+export interface TaskAttachment {
+  id: string;
+  name: string;
+  url: string;
+  type: 'file' | 'link';
+  uploadedAt: Timestamp | FieldValue;
+  uploadedBy: string; // user id
+}
+
 export interface Task {
   id?: string;
   title: string;
   description?: string;
   projectId: string | null;
   status: TaskStatus;
-  assignee?: string; // user ID of the assigned individual
+  assignee?: string | TaskAssignee; // user ID or object
   priority: number; // 0..4
   dueDate: string | null; // ISO string or null
   order?: number; // for custom ordering
   createdAt?: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
+  subtasks?: Subtask[];
+  dependencies?: string[]; // array of task IDs this task depends on
+  recurrence?: RecurrencePattern; // recurrence rule for repeating tasks
+  comments?: string; // notes or discussion
+  attachments?: TaskAttachment[]; // files or links
 }
 
 export type BlockerStatus = "active" | "cleared";
@@ -56,4 +88,5 @@ export interface TaskFilters {
   due: DueFilter[];
   assigned?: string[]; // filter by assigned user(s)
   includeArchived: boolean;
+  groupBy?: "none" | "status" | "priority" | "due" | "assigned";
 }
