@@ -2,16 +2,10 @@ import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "fire
 import { v4 as uuidv4 } from "uuid";
 import { createBlocker, resolveBlocker } from "../services/blockers";
 import { BlockerManagerModal } from "./BlockerManagerModal";
-import React, { useState, useRef, useEffect } from "react";
+import { ActivityHistory } from "./ActivityHistory";
+import React, { useState, useRef, useEffect, useCallback } from "react";
+import { useKeydown } from "../hooks/useKeydown";
 
-// Map status to header color (static, no need for useMemo)
-const statusBg: Record<string, string> = {
-  not_started: "from-gray-100 to-gray-200",
-  in_progress: "from-blue-100 to-blue-200",
-  done: "from-green-100 to-green-200",
-  blocked: "from-red-100 to-red-200",
-  archived: "from-gray-200 to-gray-300 opacity-60",
-};
 import { useTasks } from "../hooks/useTasks";
 import type { WithId, Task, Project, Subtask, Blocker, RecurrencePattern, TaskAttachment } from "../types";
 import { updateTask } from "../services/tasks";
@@ -49,6 +43,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   const [recurrence, setRecurrence] = useState<RecurrencePattern>(task.recurrence || { type: "none" });
   const allTasks = useTasks(uid);
   const [showBlockerManager, setShowBlockerManager] = useState(false);
+  const [isAutosaving, setIsAutosaving] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
@@ -99,6 +94,8 @@ export const TaskEditForm: React.FC<Props> = (props) => {
           assignee: assignee || undefined,
           recurrence,
           attachments,
+          subtasks,
+          dependencies,
         }
       );
       onSave();
@@ -106,6 +103,62 @@ export const TaskEditForm: React.FC<Props> = (props) => {
       // handle error if needed
     }
   };
+
+  // Autosave function with debouncing
+  const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const handleAutosave = useCallback(async () => {
+    if (!title.trim()) {
+      return; // Don't autosave if title is empty
+    }
+    
+    setIsAutosaving(true);
+    try {
+      await updateTask(
+        uid,
+        task.id,
+        {
+          title: title.trim(),
+          description: description.trim() || undefined,
+          comments: comments,
+          priority,
+          dueDate: dueDate || null,
+          projectId: projectId || null,
+          assignee: assignee || undefined,
+          recurrence,
+          attachments,
+          subtasks,
+          dependencies,
+        }
+      );
+      // Don't call onSave() for autosave to avoid closing modal
+    } catch (err) {
+      console.error("Error autosaving task:", err);
+    } finally {
+      setTimeout(() => setIsAutosaving(false), 300); // Show briefly for 300ms
+    }
+  }, [uid, task.id, title, description, comments, priority, dueDate, projectId, assignee, recurrence, attachments, subtasks, dependencies]);
+
+  const triggerAutosave = useCallback(() => {
+    // Clear existing timeout
+    if (autosaveTimeoutRef.current) {
+      clearTimeout(autosaveTimeoutRef.current);
+    }
+    
+    // Set new timeout for autosave (500ms delay)
+    autosaveTimeoutRef.current = setTimeout(() => {
+      handleAutosave();
+    }, 500);
+  }, [handleAutosave]);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autosaveTimeoutRef.current) {
+        clearTimeout(autosaveTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -165,6 +218,18 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     setRecurrence(task.recurrence || { type: "none" });
   }, [task.id, task.recurrence]);
 
+  // Handle escape key to cancel edit using custom hook
+  useKeydown({
+    enabled: true,
+    key: "Escape",
+    onKeyDown: () => {
+      // Don't cancel if we're in a modal (block/resolve)
+      if (!showBlockModal && !showResolveModal && !showDiscardConfirm) {
+        onCancel();
+      }
+    }
+  });
+
   // Intercept status change to prompt for block/resolve reason
   const handleStatusChange = (newStatus: Task["status"]) => {
     if (task.status === "blocked" && newStatus !== "blocked") {
@@ -210,176 +275,634 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     setAttachments((prev) => prev.filter(a => a.id !== id));
   };
 
-  return (
-    <div className="border rounded-xl p-4 bg-white shadow-sm relative">
-      {/* Task Title as header */}
-      <div className="mb-4">
-        <div className={`bg-gradient-to-r ${statusBg[task.status] || 'from-gray-100 to-gray-200'} rounded-lg px-4 py-3 shadow-sm`}>
-          <input
-            id="task-title-input"
-            className="w-full bg-transparent border-none text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 placeholder-gray-400"
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            placeholder="Task title"
-            autoFocus
-          />
-        </div>
-      </div>
+  // State for collapsible sections
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showAttachments, setShowAttachments] = useState(false);
+  const [showActivity, setShowActivity] = useState(false);
 
-      {/* Recurrence selector */}
-      <div className="mb-2">
-        <div className="font-semibold mb-1">Recurrence</div>
-        <select
-          className="border rounded px-2 py-1 text-sm"
-          value={recurrence.type}
-          onChange={e => {
-            const type = e.target.value as RecurrencePattern["type"];
-            if (type === "none") setRecurrence({ type: "none" });
-            else if (type === "daily") setRecurrence({ type: "daily", interval: 1 });
-            else if (type === "weekly") setRecurrence({ type: "weekly", interval: 1, daysOfWeek: [1] });
-            else if (type === "monthly") setRecurrence({ type: "monthly", interval: 1, dayOfMonth: 1 });
-            else if (type === "custom") setRecurrence({ type: "custom", rule: "" });
-          }}
-        >
-          <option value="none">None</option>
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-          <option value="monthly">Monthly</option>
-          <option value="custom">Custom</option>
-        </select>
-        {/* Recurrence details */}
-        {recurrence.type === "daily" && (
-          <div className="mt-2 flex items-center gap-2">
-            <span>Every</span>
-            <input
-              type="number"
-              min={1}
-              className="w-16 border rounded px-1 py-0.5"
-              value={recurrence.interval}
-              onChange={e => setRecurrence({ type: "daily", interval: Math.max(1, Number(e.target.value)) })}
-            />
-            <span>day(s)</span>
-          </div>
-        )}
-        {recurrence.type === "weekly" && (
-          <div className="mt-2 flex items-center gap-2">
-            <span>Every</span>
-            <input
-              type="number"
-              min={1}
-              className="w-16 border rounded px-1 py-0.5"
-              value={recurrence.interval}
-              onChange={e => setRecurrence({ ...recurrence, interval: Math.max(1, Number(e.target.value)) })}
-            />
-            <span>week(s) on</span>
-            {[0,1,2,3,4,5,6].map(d => (
-              <label key={d} className="inline-flex items-center mx-1">
-                <input
-                  type="checkbox"
-                  checked={recurrence.daysOfWeek?.includes(d) || false}
-                  onChange={e => {
-                    const days = new Set(recurrence.daysOfWeek || []);
-                    if (e.target.checked) days.add(d); else days.delete(d);
-                    setRecurrence({ ...recurrence, daysOfWeek: Array.from(days) });
-                  }}
-                />
-                <span className="ml-0.5 text-xs">{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]}</span>
-              </label>
-            ))}
-          </div>
-        )}
-        {recurrence.type === "monthly" && (
-          <div className="mt-2 flex items-center gap-2">
-            <span>Every</span>
-            <input
-              type="number"
-              min={1}
-              className="w-16 border rounded px-1 py-0.5"
-              value={recurrence.interval}
-              onChange={e => setRecurrence({ ...recurrence, interval: Math.max(1, Number(e.target.value)) })}
-            />
-            <span>month(s) on day</span>
-            <input
-              type="number"
-              min={1}
-              max={31}
-              className="w-16 border rounded px-1 py-0.5"
-              value={recurrence.dayOfMonth}
-              onChange={e => setRecurrence({ ...recurrence, dayOfMonth: Math.max(1, Math.min(31, Number(e.target.value))) })}
-            />
-          </div>
-        )}
-        {recurrence.type === "custom" && (
-          <div className="mt-2 flex flex-col gap-2">
-            <select
-              className="border rounded px-2 py-1 text-sm"
-              value=""
-              onChange={e => {
-                const val = e.target.value;
-                if (val) setRecurrence({ ...recurrence, rule: val });
-              }}
-            >
-              <option value="">Select a common rule…</option>
-              <option value="FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR">Every weekday (Mon-Fri)</option>
-              <option value="FREQ=WEEKLY;INTERVAL=2;BYDAY=FR">Every other Friday</option>
-              <option value="FREQ=MONTHLY;BYDAY=1MO">First Monday of the month</option>
-              <option value="FREQ=YEARLY;BYMONTH=12;BYMONTHDAY=25">Every Dec 25 (Yearly)</option>
-            </select>
-            <input
-              className="w-full border rounded px-2 py-1"
-              value={recurrence.rule}
-              onChange={e => setRecurrence({ ...recurrence, rule: e.target.value })}
-              placeholder="Custom recurrence rule (e.g. RRULE)"
-            />
-            <span className="text-xs text-gray-500">
-              Need help? <a href="https://icalendar.org/iCalendar-RFC-5545/3-8-5-3-recurrence-rule.html" target="_blank" rel="noopener noreferrer" className="underline">RRULE reference</a>
+  // Get status color for header
+  const getStatusColor = (status: Task["status"]) => {
+    const colors = {
+      not_started: "from-gray-100 to-gray-200 border-gray-300",
+      in_progress: "from-blue-100 to-blue-200 border-blue-300", 
+      done: "from-green-100 to-green-200 border-green-300",
+      blocked: "from-red-100 to-red-200 border-red-300",
+      archived: "from-gray-200 to-gray-300 border-gray-400 opacity-60"
+    };
+    return colors[status] || colors.not_started;
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden relative">
+      {/* Enhanced Header with Status Indicator */}
+      <div className={`bg-gradient-to-r ${getStatusColor(task.status)} border-b-2 px-6 py-4`}>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {/* Status Icon */}
+            <div className={`w-3 h-3 rounded-full ${
+              task.status === 'done' ? 'bg-green-500' :
+              task.status === 'in_progress' ? 'bg-blue-500' :
+              task.status === 'blocked' ? 'bg-red-500' :
+              task.status === 'archived' ? 'bg-gray-500' : 'bg-gray-400'
+            }`}></div>
+            <span className="text-sm font-medium text-gray-600 capitalize">
+              {task.status.replace('_', ' ')}
             </span>
           </div>
-        )}
+            <span className="text-gray-400">•</span>
+            <span className="text-sm text-gray-600">
+              {task.id ? `Task #${task.id.slice(0, 8)}` : 'New Task'}
+            </span>
+          </div>
+          
+          {/* Autosave Indicator */}
+          {isAutosaving && (
+            <svg className="w-5 h-5 animate-spin text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          )}
+        </div>
+        <input
+          id="task-title-input"
+          className="w-full bg-transparent border-none text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 rounded-md px-1 placeholder-gray-500"
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          onBlur={triggerAutosave}
+          placeholder="Enter task title..."
+          autoFocus
+        />
       </div>
 
-        {/* Dependencies selector */}
-        <div className="mb-2">
-          <div className="font-semibold mb-1">Dependencies</div>
-          <ul className="space-y-1">
-            {dependencies.map((depId) => {
-              const depTask = allTasks.find((t) => t.id === depId);
-              return (
-                <li key={depId} className="flex items-center gap-2">
-                  <span className="flex-1 truncate text-sm text-gray-700 bg-gray-100 rounded px-2 py-1">
-                    {depTask ? depTask.title : depId}
-                  </span>
-                  <button
-                    type="button"
-                    className="text-xs px-2 py-1 rounded bg-red-100 text-red-700 border border-red-200"
-                    onClick={() => setDependencies(dependencies.filter((id) => id !== depId))}
-                    title="Remove dependency"
-                  >✕</button>
-                </li>
-              );
-            })}
-          </ul>
-          <select
-            className="mt-2 border rounded px-2 py-1 text-sm"
-            value=""
-            onChange={e => {
-              const newDep = e.target.value;
-              if (newDep && !dependencies.includes(newDep)) {
-                setDependencies([...dependencies, newDep]);
-              }
-            }}
-          >
-            <option value="">+ Add dependency…</option>
-            {allTasks
-              .filter(t => t.id !== task.id && !dependencies.includes(t.id) && !(t.dependencies || []).includes(task.id))
-              .map(t => (
-                <option key={t.id} value={t.id}>{t.title}</option>
-              ))}
-          </select>
+      <form ref={formRef} onSubmit={handleSave} className="flex flex-col">
+        {/* 📝 Basic Information Section */}
+        <div className="bg-gray-50 border-b border-gray-200 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <svg className="w-5 h-5 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z"/>
+              <path fillRule="evenodd" d="M4 5a2 2 0 012-2v1a1 1 0 001 1h6a1 1 0 001-1V3a2 2 0 012 2v6a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3z"/>
+            </svg>
+            <h3 className="text-lg font-semibold text-gray-900">Basic Information</h3>
+          </div>
+
+          {/* Description */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+            <textarea
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              rows={3}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onBlur={triggerAutosave}
+              placeholder="Describe what needs to be done..."
+            />
+          </div>
+
+          {/* Key Fields Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+            <div className="lg:col-span-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={priority}
+                onChange={(e) => setPriority(Number(e.target.value))}
+                onBlur={triggerAutosave}
+              >
+                {priorities.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="lg:col-span-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={task.status}
+                onChange={e => handleStatusChange(e.target.value as Task["status"])}
+              >
+                <option value="not_started">Not Started</option>
+                <option value="in_progress">In Progress</option>
+                <option value="done">Done</option>
+                <option value="blocked">Blocked</option>
+                <option value="archived">Archived</option>
+              </select>
+            </div>
+
+            <div className="lg:col-span-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Due Date</label>
+              <input
+                type="date"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={dueDate ? dueDate.substring(0, 10) : ""}
+                onChange={(e) => setDueDate(e.target.value)}
+                onBlur={triggerAutosave}
+              />
+            </div>
+
+            <div className="lg:col-span-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Assignee</label>
+              <input
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={assignee}
+                onChange={e => setAssignee(e.target.value)}
+                onBlur={triggerAutosave}
+                placeholder="Assign to..."
+              />
+            </div>
+
+            <div className="lg:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Project</label>
+              <select
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value || "")}
+                onBlur={triggerAutosave}
+              >
+                <option value="">— No Project —</option>
+                {allProjects.map((p) => (
+                  <option key={p.id} value={p.id}>{p.title}</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
 
-        {/* The rest of the form and controls go here (as previously in the file) */}
-    {/* ... */}
+        {/* ⚙️ Organization & Planning Section */}
+        <div className="border-b border-gray-200 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <svg className="w-5 h-5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z"/>
+            </svg>
+            <h3 className="text-lg font-semibold text-gray-900">Organization & Planning</h3>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Subtasks */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">Subtasks</label>
+              <div className="space-y-2">
+                {subtasks.map((sub, i) => (
+                  <div key={sub.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                    <input
+                      type="checkbox"
+                      checked={sub.done}
+                      onChange={e => {
+                        const updated = subtasks.map((s, idx) => idx === i ? { ...s, done: e.target.checked } : s);
+                        setSubtasks(updated);
+                        triggerAutosave();
+                      }}
+                      className="rounded focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={sub.title}
+                      onChange={e => {
+                        const updated = subtasks.map((s, idx) => idx === i ? { ...s, title: e.target.value } : s);
+                        setSubtasks(updated);
+                      }}
+                      onBlur={triggerAutosave}
+                      placeholder="Subtask description"
+                    />
+                    <button
+                      type="button"
+                      className="text-red-600 hover:text-red-800 p-1"
+                      onClick={() => {
+                        setSubtasks(subtasks.filter((_, idx) => idx !== i));
+                        triggerAutosave();
+                      }}
+                      title="Remove subtask"
+                    >
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"/>
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  className="w-full py-2 px-3 text-sm text-gray-600 border border-gray-300 border-dashed rounded-lg hover:bg-gray-50 focus:ring-2 focus:ring-blue-500"
+                  onClick={() => {
+                    setSubtasks([...subtasks, { id: Math.random().toString(36).slice(2), title: "", done: false }]);
+                    triggerAutosave();
+                  }}
+                >
+                  + Add subtask
+                </button>
+              </div>
+            </div>
+
+            {/* Dependencies */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-3">Dependencies</label>
+              <div className="space-y-2">
+                {dependencies.map((depId) => {
+                  const depTask = allTasks.find((t) => t.id === depId);
+                  return (
+                    <div key={depId} className="flex items-center gap-2 p-2 bg-blue-50 rounded-lg">
+                      <svg className="w-4 h-4 text-blue-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                        <path fillRule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z"/>
+                      </svg>
+                      <span className="flex-1 text-sm text-gray-700 truncate">
+                        {depTask ? depTask.title : depId}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-red-600 hover:text-red-800 p-1"
+                        onClick={() => {
+                          setDependencies(dependencies.filter((id) => id !== depId));
+                          triggerAutosave();
+                        }}
+                        title="Remove dependency"
+                      >
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"/>
+                        </svg>
+                      </button>
+                    </div>
+                  );
+                })}
+                <select
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  value=""
+                  onChange={e => {
+                    const newDep = e.target.value;
+                    if (newDep && !dependencies.includes(newDep)) {
+                      setDependencies([...dependencies, newDep]);
+                      triggerAutosave();
+                    }
+                  }}
+                >
+                  <option value="">+ Add dependency...</option>
+                  {allTasks
+                    .filter(t => t.id !== task.id && !dependencies.includes(t.id) && !(t.dependencies || []).includes(task.id))
+                    .map(t => (
+                      <option key={t.id} value={t.id}>{t.title}</option>
+                    ))}
+                </select>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 🔄 Advanced Features Section (Collapsible) */}
+        <div className="border-b border-gray-200">
+          <button
+            type="button"
+            className="w-full p-6 flex items-center justify-between text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+          >
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z"/>
+              </svg>
+              <h3 className="text-lg font-semibold text-gray-900">Advanced Features</h3>
+              <span className="text-sm text-gray-500">(Recurrence patterns)</span>
+            </div>
+            <svg className={`w-5 h-5 text-gray-400 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/>
+            </svg>
+          </button>
+          
+          {showAdvanced && (
+            <div className="px-6 pb-6 bg-purple-50">
+              <div className="bg-white rounded-lg p-4 border border-purple-200">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Recurrence Pattern</label>
+                <select
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 mb-3 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  value={recurrence.type}
+                  onChange={e => {
+                    const type = e.target.value as RecurrencePattern["type"];
+                    if (type === "none") setRecurrence({ type: "none" });
+                    else if (type === "daily") setRecurrence({ type: "daily", interval: 1 });
+                    else if (type === "weekly") setRecurrence({ type: "weekly", interval: 1, daysOfWeek: [1] });
+                    else if (type === "monthly") setRecurrence({ type: "monthly", interval: 1, dayOfMonth: 1 });
+                    else if (type === "custom") setRecurrence({ type: "custom", rule: "" });
+                    triggerAutosave();
+                  }}
+                >
+                  <option value="none">No recurrence</option>
+                  <option value="daily">Daily</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
+                  <option value="custom">Custom</option>
+                </select>
+
+                {/* Recurrence Details */}
+                {recurrence.type === "daily" && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span>Repeat every</span>
+                    <input
+                      type="number"
+                      min={1}
+                      className="w-16 border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-purple-500"
+                      value={recurrence.interval}
+                      onChange={e => setRecurrence({ type: "daily", interval: Math.max(1, Number(e.target.value)) })}
+                    />
+                    <span>day(s)</span>
+                  </div>
+                )}
+
+                {recurrence.type === "weekly" && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span>Repeat every</span>
+                      <input
+                        type="number"
+                        min={1}
+                        className="w-16 border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-purple-500"
+                        value={recurrence.interval}
+                        onChange={e => setRecurrence({ ...recurrence, interval: Math.max(1, Number(e.target.value)) })}
+                      />
+                      <span>week(s) on:</span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {[0,1,2,3,4,5,6].map(d => (
+                        <label key={d} className="inline-flex items-center">
+                          <input
+                            type="checkbox"
+                            checked={recurrence.daysOfWeek?.includes(d) || false}
+                            onChange={e => {
+                              const days = new Set(recurrence.daysOfWeek || []);
+                              if (e.target.checked) days.add(d); else days.delete(d);
+                              setRecurrence({ ...recurrence, daysOfWeek: Array.from(days) });
+                            }}
+                            className="rounded focus:ring-purple-500"
+                          />
+                          <span className="ml-1 text-sm">{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {recurrence.type === "monthly" && (
+                  <div className="flex items-center gap-2 text-sm">
+                    <span>Repeat every</span>
+                    <input
+                      type="number"
+                      min={1}
+                      className="w-16 border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-purple-500"
+                      value={recurrence.interval}
+                      onChange={e => setRecurrence({ ...recurrence, interval: Math.max(1, Number(e.target.value)) })}
+                    />
+                    <span>month(s) on day</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={31}
+                      className="w-16 border border-gray-300 rounded px-2 py-1 focus:ring-2 focus:ring-purple-500"
+                      value={recurrence.dayOfMonth}
+                      onChange={e => setRecurrence({ ...recurrence, dayOfMonth: Math.max(1, Math.min(31, Number(e.target.value))) })}
+                    />
+                  </div>
+                )}
+
+                {recurrence.type === "custom" && (
+                  <div className="space-y-3">
+                    <select
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500"
+                      value=""
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val) setRecurrence({ ...recurrence, rule: val });
+                      }}
+                    >
+                      <option value="">Select a common pattern...</option>
+                      <option value="FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR">Every weekday (Mon-Fri)</option>
+                      <option value="FREQ=WEEKLY;INTERVAL=2;BYDAY=FR">Every other Friday</option>
+                      <option value="FREQ=MONTHLY;BYDAY=1MO">First Monday of the month</option>
+                      <option value="FREQ=YEARLY;BYMONTH=12;BYMONTHDAY=25">Every Dec 25 (Yearly)</option>
+                    </select>
+                    <input
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-500"
+                      value={recurrence.rule}
+                      onChange={e => setRecurrence({ ...recurrence, rule: e.target.value })}
+                      placeholder="Custom RRULE (e.g., FREQ=DAILY;INTERVAL=2)"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Need help? <a href="https://icalendar.org/iCalendar-RFC-5545/3-8-5-3-recurrence-rule.html" target="_blank" rel="noopener noreferrer" className="text-purple-600 underline">RRULE Reference</a>
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        {/* 📎 Attachments & Notes Section (Collapsible) */}
+        <div className="border-b border-gray-200">
+          <button
+            type="button"
+            className="w-full p-6 flex items-center justify-between text-left hover:bg-gray-50 focus:bg-gray-50 focus:outline-none"
+            onClick={() => setShowAttachments(!showAttachments)}
+          >
+            <div className="flex items-center gap-2">
+              <svg className="w-5 h-5 text-amber-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M8 4a3 3 0 00-3 3v4a5 5 0 0010 0V7a1 1 0 112 0v4a7 7 0 11-14 0V7a5 5 0 0110 0v4a3 3 0 11-6 0V7a1 1 0 012 0v4a1 1 0 102 0V7a3 3 0 00-3-3z"/>
+              </svg>
+              <h3 className="text-lg font-semibold text-gray-900">Attachments & Notes</h3>
+              <span className="text-sm text-gray-500">
+                ({attachments.length} file{attachments.length !== 1 ? 's' : ''}, {comments ? 'has notes' : 'no notes'})
+              </span>
+            </div>
+            <svg className={`w-5 h-5 text-gray-400 transition-transform ${showAttachments ? 'rotate-180' : ''}`} fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"/>
+            </svg>
+          </button>
+          
+          {showAttachments && (
+            <div className="px-6 pb-6 bg-amber-50">
+              <div className="space-y-4">
+                {/* Comments/Notes */}
+                <div className="bg-white rounded-lg p-4 border border-amber-200">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Comments / Notes</label>
+                  <textarea
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    rows={3}
+                    value={comments}
+                    onChange={e => setComments(e.target.value)}
+                    placeholder="Add discussion notes, updates, or additional context..."
+                  />
+                </div>
+
+                {/* Attachments */}
+                <div className="bg-white rounded-lg p-4 border border-amber-200">
+                  <label className="block text-sm font-medium text-gray-700 mb-3">Files & Links</label>
+                  
+                  {/* Existing Attachments */}
+                  {attachments.length > 0 && (
+                    <div className="space-y-2 mb-4">
+                      {attachments.map(att => (
+                        <div key={att.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
+                          {att.type === 'file' ? (
+                            <svg className="w-4 h-4 text-blue-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M8 4a3 3 0 00-3 3v4a5 5 0 0010 0V7a1 1 0 112 0v4a7 7 0 11-14 0V7a5 5 0 0110 0v4a3 3 0 11-6 0V7a1 1 0 012 0v4a1 1 0 102 0V7a3 3 0 00-3-3z"/>
+                            </svg>
+                          ) : (
+                            <svg className="w-4 h-4 text-green-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z"/>
+                            </svg>
+                          )}
+                          <a 
+                            href={att.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="flex-1 text-sm text-blue-600 hover:text-blue-800 underline truncate"
+                          >
+                            {att.name}
+                          </a>
+                          <button 
+                            type="button" 
+                            className="text-red-600 hover:text-red-800 p-1"
+                            onClick={() => handleRemoveAttachment(att.id)} 
+                            title="Remove attachment"
+                          >
+                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"/>
+                            </svg>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Add File */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="file" 
+                        onChange={handleFileUpload} 
+                        disabled={uploading} 
+                        className="text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
+                      />
+                      {uploading && <span className="text-sm text-amber-600">Uploading...</span>}
+                    </div>
+
+                    {/* Add Link */}
+                    <div className="flex gap-2">
+                      <input 
+                        type="text" 
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500" 
+                        placeholder="Link URL" 
+                        value={newLink} 
+                        onChange={e => setNewLink(e.target.value)} 
+                      />
+                      <input 
+                        type="text" 
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-amber-500" 
+                        placeholder="Link name" 
+                        value={newLinkName} 
+                        onChange={e => setNewLinkName(e.target.value)} 
+                      />
+                      <button 
+                        type="button" 
+                        className="px-4 py-2 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700 focus:ring-2 focus:ring-amber-500" 
+                        onClick={handleAddLink}
+                        disabled={!newLink.trim() || !newLinkName.trim()}
+                      >
+                        Add Link
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 📜 Activity History Section (Collapsible) */}
+        <div className="border-t border-gray-200">
+          <button
+            type="button"
+            className="w-full px-6 py-4 bg-gray-50 hover:bg-gray-100 focus:ring-2 focus:ring-gray-500 transition-colors flex items-center justify-between"
+            onClick={() => setShowActivity(!showActivity)}
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gray-200">
+                📜
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900">Activity History</h3>
+              <span className="text-sm text-gray-500">
+                (Audit trail)
+              </span>
+            </div>
+            <svg className={`w-5 h-5 text-gray-400 transition-transform ${showActivity ? 'rotate-180' : ''}`} fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+            </svg>
+          </button>
+          {showActivity && (
+            <div className="px-6 py-4 bg-white space-y-4">
+              <ActivityHistory 
+                uid={uid}
+                entityId={task.id}
+                entityType="task"
+              />
+            </div>
+          )}
+        </div>
+
+        {/* 🎯 Actions Section */}
+        <div className="bg-gray-50 p-6">
+          <div className="flex flex-wrap gap-3 justify-between">
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="submit"
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 font-medium"
+              >
+                Save Changes
+              </button>
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 focus:ring-2 focus:ring-gray-500"
+              >
+                Cancel
+              </button>
+            </div>
+            
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setShowBlockerManager(true)}
+                className="px-3 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 focus:ring-2 focus:ring-red-500 text-sm"
+                title="View and manage blockers for this task"
+              >
+                View Blockers
+              </button>
+              
+              {task.status !== "archived" && onArchive && (
+                <button
+                  type="button"
+                  onClick={onArchive}
+                  className="px-3 py-2 bg-gray-50 text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-100 focus:ring-2 focus:ring-gray-500 text-sm"
+                >
+                  Archive
+                </button>
+              )}
+              
+              {task.status === "archived" && onUnarchive && (
+                <button
+                  type="button"
+                  onClick={onUnarchive}
+                  className="px-3 py-2 bg-green-50 text-green-700 border border-green-200 rounded-lg hover:bg-green-100 focus:ring-2 focus:ring-green-500 text-sm"
+                >
+                  Unarchive
+                </button>
+              )}
+              
+              <button
+                type="button"
+                onClick={onDelete}
+                className="px-3 py-2 bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 focus:ring-2 focus:ring-red-500 text-sm"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      </form>
+
+      {/* Modals */}
       {showBlockModal && (
         <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-20">
           <form className="bg-white rounded-lg shadow-lg p-6 text-center" onSubmit={handleBlockSubmit}>
@@ -449,338 +972,15 @@ export const TaskEditForm: React.FC<Props> = (props) => {
           </div>
         </div>
       )}
-      <form ref={formRef} onSubmit={handleSave} className="space-y-3">
-      {/* Attachments section */}
-      <div className="mb-2">
-        <div className="font-semibold mb-1">Attachments</div>
-        <ul className="space-y-1">
-          {attachments.map(att => (
-            <li key={att.id} className="flex items-center gap-2 text-sm">
-              {att.type === 'file' ? (
-                <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
-                  <span className="inline-block mr-1">📎</span>{att.name}
-                </a>
-              ) : (
-                <a href={att.url} target="_blank" rel="noopener noreferrer" className="text-green-700 underline">
-                  <span className="inline-block mr-1">🔗</span>{att.name}
-                </a>
-              )}
-              <button type="button" className="text-xs px-2 py-1 rounded bg-red-100 text-red-700 border border-red-200" onClick={() => handleRemoveAttachment(att.id)} title="Remove attachment">✕</button>
-            </li>
-          ))}
-        </ul>
-        <div className="flex items-center gap-2 mt-2">
-          <input type="file" onChange={handleFileUpload} disabled={uploading} />
-          {uploading && <span className="text-xs text-gray-500">Uploading…</span>}
-        </div>
-        <div className="flex items-center gap-2 mt-2">
-          <input type="text" className="border rounded px-2 py-1 text-sm" placeholder="Link URL" value={newLink} onChange={e => setNewLink(e.target.value)} />
-          <input type="text" className="border rounded px-2 py-1 text-sm" placeholder="Link name" value={newLinkName} onChange={e => setNewLinkName(e.target.value)} />
-          <button type="button" className="px-2 py-1 rounded bg-blue-100 text-blue-700 border border-blue-200 text-xs" onClick={handleAddLink}>+ Add Link</button>
-        </div>
-      </div>
-        <div className="flex items-center gap-2">
-          <input
-            className="flex-1 border rounded-md px-3 py-2"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Task title"
-            autoFocus
-          />
-        </div>
-
-
-        <div className="mb-2">
-          <label className="block font-semibold mb-1 text-gray-700">Description</label>
-          <textarea
-            className="w-full border rounded-md px-3 py-2"
-            rows={3}
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Description (optional)"
-          />
-        </div>
-
-        <div className="mb-2">
-          <label className="block font-semibold mb-1 text-gray-700">Comments / Notes</label>
-          <textarea
-            className="w-full border rounded-md px-3 py-2"
-            rows={3}
-            value={comments}
-            onChange={e => setComments(e.target.value)}
-            placeholder="For discussion, updates, etc."
-          />
-        </div>
-
-  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <label className="flex flex-col text-sm">
-            <span className="mb-1 text-gray-600">Priority</span>
-            <select
-              className="border rounded-md px-3 py-2"
-              value={priority}
-              onChange={(e) => setPriority(Number(e.target.value))}
-            >
-              {priorities.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
-          </label>
-            <label className="flex flex-col text-sm">
-              <span className="mb-1 text-gray-600">Assigned</span>
-              <input
-                className="border rounded-md px-3 py-2"
-                value={assignee}
-                onChange={e => setAssignee(e.target.value)}
-                placeholder="User ID or name"
-              />
-            </label>
-          <label className="flex flex-col text-sm">
-            <span className="mb-1 text-gray-600">Status</span>
-            <select
-              className="border rounded-md px-3 py-2"
-              value={task.status}
-              onChange={e => handleStatusChange(e.target.value as Task["status"])}
-            >
-              <option value="not_started">Not Started</option>
-              <option value="in_progress">In Progress</option>
-              <option value="done">Done</option>
-              <option value="blocked">Blocked</option>
-              <option value="archived">Archived</option>
-            </select>
-          </label>
-
-
-          <label className="flex flex-col text-sm">
-            <span className="mb-1 text-gray-600">Due Date</span>
-            <input
-              type="date"
-              className="border rounded-md px-3 py-2"
-              value={dueDate ? dueDate.substring(0, 10) : ""}
-              onChange={(e) => setDueDate(e.target.value)}
-            />
-          </label>
-
-          {/* Recurrence selector */}
-          <div className="flex flex-col text-sm">
-            <span className="mb-1 text-gray-600">Recurrence</span>
-            <select
-              className="border rounded px-2 py-1 text-sm"
-              value={recurrence.type}
-              onChange={e => {
-                const type = e.target.value as RecurrencePattern["type"];
-                if (type === "none") setRecurrence({ type: "none" });
-                else if (type === "daily") setRecurrence({ type: "daily", interval: 1 });
-                else if (type === "weekly") setRecurrence({ type: "weekly", interval: 1, daysOfWeek: [1] });
-                else if (type === "monthly") setRecurrence({ type: "monthly", interval: 1, dayOfMonth: 1 });
-                else if (type === "custom") setRecurrence({ type: "custom", rule: "" });
-              }}
-            >
-              <option value="none">None</option>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-              <option value="custom">Custom</option>
-            </select>
-            {/* Recurrence details */}
-            {recurrence.type === "daily" && (
-              <div className="mt-2 flex items-center gap-2">
-                <span>Every</span>
-                <input
-                  type="number"
-                  min={1}
-                  className="w-16 border rounded px-1 py-0.5"
-                  value={recurrence.interval}
-                  onChange={e => setRecurrence({ type: "daily", interval: Math.max(1, Number(e.target.value)) })}
-                />
-                <span>day(s)</span>
-              </div>
-            )}
-            {recurrence.type === "weekly" && (
-              <div className="mt-2 flex items-center gap-2">
-                <span>Every</span>
-                <input
-                  type="number"
-                  min={1}
-                  className="w-16 border rounded px-1 py-0.5"
-                  value={recurrence.interval}
-                  onChange={e => setRecurrence({ ...recurrence, interval: Math.max(1, Number(e.target.value)) })}
-                />
-                <span>week(s) on</span>
-                {[0,1,2,3,4,5,6].map(d => (
-                  <label key={d} className="inline-flex items-center mx-1">
-                    <input
-                      type="checkbox"
-                      checked={recurrence.daysOfWeek?.includes(d) || false}
-                      onChange={e => {
-                        const days = new Set(recurrence.daysOfWeek || []);
-                        if (e.target.checked) days.add(d); else days.delete(d);
-                        setRecurrence({ ...recurrence, daysOfWeek: Array.from(days) });
-                      }}
-                    />
-                    <span className="ml-0.5 text-xs">{["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]}</span>
-                  </label>
-                ))}
-              </div>
-            )}
-            {recurrence.type === "monthly" && (
-              <div className="mt-2 flex items-center gap-2">
-                <span>Every</span>
-                <input
-                  type="number"
-                  min={1}
-                  className="w-16 border rounded px-1 py-0.5"
-                  value={recurrence.interval}
-                  onChange={e => setRecurrence({ ...recurrence, interval: Math.max(1, Number(e.target.value)) })}
-                />
-                <span>month(s) on day</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={31}
-                  className="w-16 border rounded px-1 py-0.5"
-                  value={recurrence.dayOfMonth}
-                  onChange={e => setRecurrence({ ...recurrence, dayOfMonth: Math.max(1, Math.min(31, Number(e.target.value))) })}
-                />
-              </div>
-            )}
-            {recurrence.type === "custom" && (
-              <div className="mt-2">
-                <input
-                  className="w-full border rounded px-2 py-1"
-                  value={recurrence.rule}
-                  onChange={e => setRecurrence({ ...recurrence, rule: e.target.value })}
-                  placeholder="Custom recurrence rule (e.g. RRULE)"
-                />
-              </div>
-            )}
-          </div>
-
-          <label className="flex flex-col text-sm">
-            <span className="mb-1 text-gray-600">Project</span>
-            <select
-              className="border rounded-md px-3 py-2"
-                value={projectId}
-              onChange={(e) => setProjectId(e.target.value || "")}
-            >
-              <option value="">— None —</option>
-              {allProjects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.title}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-
-        {/* Subtasks checklist */}
-        <div className="mb-2">
-          <div className="font-semibold mb-1">Subtasks</div>
-          <ul className="space-y-1">
-            {subtasks.map((sub, i) => (
-              <li key={sub.id} className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={sub.done}
-                  onChange={e => {
-                    const updated = subtasks.map((s, idx) => idx === i ? { ...s, done: e.target.checked } : s);
-                    setSubtasks(updated);
-                  }}
-                />
-                <input
-                  className="border rounded px-2 py-1 flex-1 text-sm"
-                  value={sub.title}
-                  onChange={e => {
-                    const updated = subtasks.map((s, idx) => idx === i ? { ...s, title: e.target.value } : s);
-                    setSubtasks(updated);
-                  }}
-                  placeholder="Subtask title"
-                />
-                <button
-                  type="button"
-                  className="text-xs px-2 py-1 rounded bg-red-100 text-red-700 border border-red-200"
-                  onClick={() => setSubtasks(subtasks.filter((_, idx) => idx !== i))}
-                  title="Delete subtask"
-                >✕</button>
-              </li>
-            ))}
-          </ul>
-          <button
-            type="button"
-            className="mt-2 px-3 py-1 rounded bg-gray-100 border text-sm"
-            onClick={() => setSubtasks([...subtasks, { id: Math.random().toString(36).slice(2), title: "", done: false }])}
-          >+ Add subtask</button>
-        </div>
-
-
-
-        <div className="flex flex-wrap gap-2 pt-1">
-          <button
-            type="submit"
-            className="px-3 py-2 rounded-md bg-blue-600 text-white"
-          >
-            Save
-          </button>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="px-3 py-2 rounded-md border"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            // onClick for promote removed
-            className="px-3 py-2 rounded-md border"
-            title="Promote to project or higher visibility"
-          >
-            Promote
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            className="px-3 py-2 rounded-md border text-red-600"
-          >
-            Delete
-          </button>
-          {task.status !== "archived" && onArchive && (
-            <button
-              type="button"
-              onClick={onArchive}
-              className="px-3 py-2 rounded-md border text-gray-600"
-            >
-              Archive
-            </button>
-          )}
-          {task.status === "archived" && onUnarchive && (
-            <button
-              type="button"
-              onClick={onUnarchive}
-              className="px-3 py-2 rounded-md border text-green-600"
-            >
-              Unarchive
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => setShowBlockerManager(true)}
-            className="px-3 py-2 rounded-md border bg-red-50 text-red-700"
-            title="View and manage blockers for this task"
-          >
-            View Blockers
-          </button>
-        </div>
-        {showBlockerManager && (
-          <BlockerManagerModal
-            uid={uid}
-            entity={{ id: task.id, title: typeof task.title === 'string' ? task.title : String(task.title), type: 'task' }}
-            allBlockers={allBlockers.filter((b): b is WithId<Blocker> => typeof b.id === 'string')}
-            onClose={() => setShowBlockerManager(false)}
-          />
-        )}
-      </form>
+      {/* Blocker Manager Modal */}
+      {showBlockerManager && (
+        <BlockerManagerModal
+          uid={uid}
+          entity={{ id: task.id, title: typeof task.title === 'string' ? task.title : String(task.title), type: 'task' }}
+          allBlockers={allBlockers.filter((b): b is WithId<Blocker> => typeof b.id === 'string')}
+          onClose={() => setShowBlockerManager(false)}
+        />
+      )}
     </div>
 
   );

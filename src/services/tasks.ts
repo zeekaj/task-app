@@ -14,7 +14,10 @@ export async function addDependency(
     ? Array.from(new Set([...task.dependencies, dependencyTaskId]))
     : [dependencyTaskId];
   await updateDoc(ref, { dependencies, updatedAt: serverTimestamp() });
-  await logActivity(uid, `Added dependency: ${dependencyTaskId}`, "task", taskId, "update");
+  
+  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
+    description: `Added dependency: ${dependencyTaskId}`
+  });
 }
 
 /**
@@ -31,7 +34,10 @@ export async function removeDependency(
   const task = snap.data() as Task;
   const dependencies = (task.dependencies || []).filter((id) => id !== dependencyTaskId);
   await updateDoc(ref, { dependencies, updatedAt: serverTimestamp() });
-  await logActivity(uid, `Removed dependency: ${dependencyTaskId}`, "task", taskId, "update");
+  
+  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
+    description: `Removed dependency: ${dependencyTaskId}`
+  });
 }
 // src/services/tasks.ts
 import {
@@ -62,7 +68,10 @@ export async function addSubtask(
   const task = snap.data() as Task;
   const subtasks = Array.isArray(task.subtasks) ? [...task.subtasks, subtask] : [subtask];
   await updateDoc(ref, { subtasks, updatedAt: serverTimestamp() });
-  await logActivity(uid, `Added subtask: ${title}`, "task", taskId, "update");
+  
+  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
+    description: `Added subtask: ${title}`
+  });
   return subtask;
 }
 
@@ -83,7 +92,10 @@ export async function updateSubtask(
     s.id === subtaskId ? { ...s, ...data } : s
   );
   await updateDoc(ref, { subtasks, updatedAt: serverTimestamp() });
-  await logActivity(uid, `Updated subtask: ${subtaskId}`, "task", taskId, "update");
+  
+  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
+    description: `Updated subtask: ${subtaskId}`
+  });
 }
 
 /**
@@ -100,10 +112,13 @@ export async function deleteSubtask(
   const task = snap.data() as Task;
   const subtasks = (task.subtasks || []).filter((s) => s.id !== subtaskId);
   await updateDoc(ref, { subtasks, updatedAt: serverTimestamp() });
-  await logActivity(uid, `Deleted subtask: ${subtaskId}`, "task", taskId, "update");
+  
+  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
+    description: `Deleted subtask: ${subtaskId}`
+  });
 }
-import { logActivity } from "./activity";
 import { reevaluateProjectBlockedState } from "./projects";
+import { logActivity } from "./activityHistory";
 
 export async function createTask(
   uid: string,
@@ -133,14 +148,16 @@ export async function createTask(
   }
   const ref = await addDoc(col(uid, "tasks"), docData as Task);
 
-  await logActivity(uid, `Created task: ${title}`, "task", ref.id, "create");
+  await logActivity(uid, "task", ref.id, title, "created", {
+    description: `Created task: ${title}`
+  });
   return ref.id;
 }
 
 export async function updateTask(
   uid: string,
   taskId: string,
-  data: Partial<Pick<Task, "title" | "description" | "priority" | "dueDate" | "projectId" | "status" | "order" | "assignee" | "recurrence" | "attachments" | "comments">>
+  data: Partial<Pick<Task, "title" | "description" | "priority" | "dueDate" | "projectId" | "status" | "order" | "assignee" | "recurrence" | "attachments" | "comments" | "subtasks" | "dependencies">>
 ) {
   const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
 
@@ -155,13 +172,58 @@ export async function updateTask(
   if (typeof data.assignee !== "undefined") payload.assignee = data.assignee;
   if (typeof data.recurrence !== "undefined") payload.recurrence = data.recurrence;
   if (typeof data.attachments !== "undefined") payload.attachments = data.attachments;
+  if (typeof data.subtasks !== "undefined") payload.subtasks = data.subtasks;
+  if (typeof data.dependencies !== "undefined") payload.dependencies = data.dependencies;
 
-  await updateDoc(doc(db, `users/${uid}/tasks/${taskId}`), payload);
+  // Get current task data for change tracking
+  const taskRef = doc(db, `users/${uid}/tasks/${taskId}`);
+  const taskSnap = await getDoc(taskRef);
+  const currentTask = taskSnap.exists() ? taskSnap.data() as Task : null;
+  
+  await updateDoc(taskRef, payload);
 
-  if (typeof data.status !== "undefined") {
-    await logActivity(uid, `Task status → ${data.status}`, "task", taskId, "status_change");
-  } else {
-    await logActivity(uid, "Updated task", "task", taskId, "update");
+  // Build changes object for activity logging
+  const changes: Record<string, { from: any; to: any }> = {};
+  if (typeof data.title !== "undefined" && currentTask?.title !== data.title) {
+    changes.title = { from: currentTask?.title || null, to: data.title || null };
+  }
+  if (typeof data.description !== "undefined" && currentTask?.description !== data.description) {
+    changes.description = { from: currentTask?.description || null, to: data.description || null };
+  }
+  if (typeof data.status !== "undefined" && currentTask?.status !== data.status) {
+    changes.status = { from: currentTask?.status || null, to: data.status };
+  }
+  if (typeof data.priority !== "undefined" && currentTask?.priority !== data.priority) {
+    changes.priority = { from: currentTask?.priority || null, to: data.priority };
+  }
+  if (typeof data.assignee !== "undefined" && currentTask?.assignee !== data.assignee) {
+    changes.assignee = { from: currentTask?.assignee || null, to: data.assignee || null };
+  }
+  if (typeof data.projectId !== "undefined" && currentTask?.projectId !== data.projectId) {
+    changes.projectId = { from: currentTask?.projectId || null, to: data.projectId || null };
+  }
+  if (typeof data.dueDate !== "undefined" && currentTask?.dueDate !== data.dueDate) {
+    changes.dueDate = { from: currentTask?.dueDate || null, to: data.dueDate || null };
+  }
+  if (typeof data.comments !== "undefined" && currentTask?.comments !== data.comments) {
+    changes.comments = { from: currentTask?.comments || null, to: data.comments || null };
+  }
+  if (typeof data.subtasks !== "undefined" && JSON.stringify(currentTask?.subtasks || []) !== JSON.stringify(data.subtasks || [])) {
+    changes.subtasks = { from: currentTask?.subtasks || [], to: data.subtasks || [] };
+  }
+  if (typeof data.dependencies !== "undefined" && JSON.stringify(currentTask?.dependencies || []) !== JSON.stringify(data.dependencies || [])) {
+    changes.dependencies = { from: currentTask?.dependencies || [], to: data.dependencies || [] };
+  }
+
+  // Log activity if there are changes
+  if (Object.keys(changes).length > 0) {
+    const action = changes.status ? "status_changed" : "updated";
+    const taskTitle = data.title || currentTask?.title || "Unknown Task";
+    
+    await logActivity(uid, "task", taskId, taskTitle, action, {
+      changes,
+      description: `Updated task: ${Object.keys(changes).join(', ')}`
+    });
   }
 
   try {
@@ -177,9 +239,14 @@ export async function updateTask(
 
 export async function removeTask(uid: string, taskId: string) {
   let parentProjectId: string | null = null;
+  let taskTitle = "Unknown Task";
   try {
     const tSnap = await getDoc(doc(db, `users/${uid}/tasks/${taskId}`));
-    parentProjectId = tSnap.exists() ? ((tSnap.data() as Task).projectId ?? null) : null;
+    if (tSnap.exists()) {
+      const taskData = tSnap.data() as Task;
+      parentProjectId = taskData.projectId ?? null;
+      taskTitle = taskData.title || "Unknown Task";
+    }
   } catch (e) {
     console.error("Failed to fetch task before delete:", e);
   }
@@ -188,7 +255,10 @@ export async function removeTask(uid: string, taskId: string) {
   batch.delete(doc(db, `users/${uid}/tasks/${taskId}`));
   // blockers cleanup done in blockers service during project delete; safe to keep simple here
   await batch.commit();
-  await logActivity(uid, "Deleted task", "task", taskId, "delete");
+  
+  await logActivity(uid, "task", taskId, taskTitle, "deleted", {
+    description: `Deleted task: ${taskTitle}`
+  });
 
   try {
     if (parentProjectId) await reevaluateProjectBlockedState(uid, parentProjectId);

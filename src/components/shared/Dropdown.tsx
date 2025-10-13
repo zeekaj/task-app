@@ -1,10 +1,16 @@
-import React, { useState } from "react";
+import { useState } from "react";
+import type { ReactNode } from "react";
 
 /**
  * Custom dropdown component for filter groups and menus.
  * Usage: <Dropdown label="..."> ... </Dropdown>
  */
-export function Dropdown({ label, children }) {
+interface DropdownProps {
+  label: string;
+  children: ReactNode;
+}
+
+export function Dropdown({ label, children }: DropdownProps) {
   const [open, setOpen] = useState(false);
   // Close dropdown only when focus leaves the whole dropdown area
   return (

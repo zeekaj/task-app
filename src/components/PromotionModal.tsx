@@ -1,7 +1,8 @@
 // src/components/PromotionModal.tsx
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { createProject } from "../services/projects";
 import { updateTask } from "../services/tasks";
+import { useKeydown } from "../hooks/useKeydown";
 
 export const PromotionModal: React.FC<{
   uid: string;
@@ -10,11 +11,11 @@ export const PromotionModal: React.FC<{
 }> = ({ uid, task, onClose }) => {
   const [projectName, setProjectName] = useState(task.title);
 
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
+  useKeydown({
+    enabled: true,
+    key: "Escape",
+    onKeyDown: onClose
+  });
 
   const handlePromote = async () => {
     if (!projectName.trim()) return;

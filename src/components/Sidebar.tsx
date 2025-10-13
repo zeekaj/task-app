@@ -1,7 +1,8 @@
 // src/components/Sidebar.tsx
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { getProjectProgress } from '../services/progress';
+import { getUrgencyColor } from '../utils/urgency';
 
 // import { QuickAddTask } from "./views/QuickAddTask";
 
@@ -11,7 +12,6 @@ type SidebarProjectDroppableProps = {
   editingProjectId: string | null;
   editingProjectTitle: string;
   handleProjectClick: (p: WithId<Project>) => void;
-  handleDeleteProject: (id: string) => void;
   handleSaveEdit: () => void;
   handleCancelEdit: () => void;
   setEditingProjectTitle: (title: string) => void;
@@ -24,7 +24,6 @@ function SidebarProjectDroppable({
   editingProjectId,
   editingProjectTitle,
   handleProjectClick,
-  handleDeleteProject,
   handleSaveEdit,
   handleCancelEdit,
   setEditingProjectTitle,
@@ -85,23 +84,32 @@ function SidebarProjectDroppable({
             />
             {/* Project name and percent above progress */}
             <span className="relative z-10 flex items-center justify-between w-full">
-              <span className="truncate flex-1 text-center drop-shadow-sm" style={{textShadow: '0 1px 2px rgba(0,0,0,0.25)'}}>{project.title}</span>
-              <span className="ml-2 text-xs text-white/80 tabular-nums drop-shadow-sm" style={{textShadow: '0 1px 2px rgba(0,0,0,0.25)'}}>{progress.percent}%</span>
+              {/* Left side - Urgency marker */}
+              <div className="flex items-center flex-shrink-0">
+                {project.installDate && (() => {
+                  const urgency = getUrgencyColor(project.installDate);
+                  return (
+                    <div className={`px-1.5 py-0.5 rounded-full ${urgency.bg} border flex-shrink-0`}>
+                      <span className={`text-xs font-medium ${urgency.text}`}>
+                        {urgency.label}
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+              
+              {/* Center - Project name */}
+              <span className="truncate flex-1 text-center drop-shadow-sm mx-2" style={{textShadow: '0 1px 2px rgba(0,0,0,0.25)'}}>
+                {project.title}
+              </span>
+              
+              {/* Right side - Progress percentage */}
+              <span className="text-xs text-white/80 tabular-nums drop-shadow-sm flex-shrink-0" style={{textShadow: '0 1px 2px rgba(0,0,0,0.25)'}}>{progress.percent}%</span>
             </span>
           </button>
         </div>
       )}
-      <div className="opacity-0 group-hover:opacity-100 flex items-center">
-        {editingProjectId !== project.id && (
-          <button
-            onClick={() => handleDeleteProject(project.id!)}
-            className="p-1 dark:text-gray-400 text-gray-500 dark:hover:text-red-400 hover:text-red-600"
-            title="Delete Project"
-          >
-            <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-          </button>
-        )}
-      </div>
+      {/* Archive button moved to ProjectView */}
     </li>
   );
 }
@@ -133,15 +141,16 @@ function SidebarQuickTasksDroppable({ currentView, setCurrentView }: SidebarQuic
   );
 }
 import { useProjects } from "../hooks/useProjects";
-import { Icon } from "./shared/Icon";
-import { createProject, deleteProject, updateProject } from "../services/projects";
+import Icon from "./Icon";
+import { createProject, updateProject } from "../services/projects";
 import type { WithId, Project } from "../types";
 
 type View =
   | { type: "tasks"; id: null }
   | { type: "blocked"; id: null }
   | { type: "project"; id: string }
-  | { type: "calendar"; id: null };
+  | { type: "calendar"; id: null }
+  | { type: "techs"; id: null | string };
 
 export const Sidebar: React.FC<{
   uid: string;
@@ -151,17 +160,72 @@ export const Sidebar: React.FC<{
 }> = ({ uid, currentView, setCurrentView, allTasks }) => {
   const projects = useProjects(uid);
   const [newProjectTitle, setNewProjectTitle] = useState("");
+  const [newProjectAssignee, setNewProjectAssignee] = useState("");
   const [showAddProject, setShowAddProject] = useState(false);
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editingProjectTitle, setEditingProjectTitle] = useState("");
   const [openGroups, setOpenGroups] = useState<{ [k: string]: boolean }>({});
 
+  // Calculate tech statistics
+    const techStats = useMemo(() => {
+    const techNames = new Set<string>();
+    const techTaskCounts: { [techName: string]: number } = {};
+
+    // Process tasks to get tech names and counts
+    allTasks.forEach((task: any) => {
+      if (task.status === 'done' || task.status === 'archived') return; // Skip completed tasks
+
+      let techName: string | undefined;
+      if (typeof task.assignee === 'string') {
+        techName = task.assignee;
+      } else if (task.assignee && typeof task.assignee === 'object' && task.assignee.name) {
+        techName = task.assignee.name;
+      }
+
+      if (techName) {
+        techNames.add(techName);
+        techTaskCounts[techName] = (techTaskCounts[techName] || 0) + 1;
+      }
+    });
+
+    // Process projects to get tech names and add to counts
+    projects.forEach((project: any) => {
+      if (project.status === 'completed' || project.status === 'archived') return; // Skip completed projects
+
+      // Handle legacy single assignee (but skip string "undefined")
+      if (project.assignee && project.assignee !== "undefined") {
+        techNames.add(project.assignee);
+        techTaskCounts[project.assignee] = (techTaskCounts[project.assignee] || 0) + 1;
+      }
+      
+      // Handle new multiple assignees
+      if (project.assignees && Array.isArray(project.assignees)) {
+        project.assignees.forEach((assignee: string) => {
+          techNames.add(assignee);
+          techTaskCounts[assignee] = (techTaskCounts[assignee] || 0) + 1;
+        });
+      }
+      
+      // Handle project owner (only count if not already counted as assignee)
+      if (project.owner && project.owner !== project.assignee && !project.assignees?.includes(project.owner)) {
+        techNames.add(project.owner);
+        techTaskCounts[project.owner] = (techTaskCounts[project.owner] || 0) + 1;
+      }
+    });
+
+    return {
+      techTaskCounts,
+      techNames: Array.from(techNames).sort()
+    };
+  }, [allTasks, projects]);
+
   const handleCreateProject = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProjectTitle.trim()) return;
     try {
-      await createProject(uid, newProjectTitle.trim());
+      await createProject(uid, newProjectTitle.trim(), newProjectAssignee || undefined);
       setNewProjectTitle("");
+      setNewProjectAssignee("");
       setShowAddProject(false);
     } catch (err) {
       alert("Failed to create project. Please try again.");
@@ -188,16 +252,7 @@ export const Sidebar: React.FC<{
     handleCancelEdit();
   };
 
-  const handleDeleteProject = async (projectId: string) => {
-    if (
-      window.confirm("Delete this project and all its tasks? This cannot be undone.")
-    ) {
-      if (currentView.type === "project" && currentView.id === projectId) {
-        setCurrentView({ type: "tasks", id: null });
-      }
-      await deleteProject(uid, projectId);
-    }
-  };
+  // Archive project function moved to ProjectView
 
   return (
   <nav className="w-64 bg-sidebar text-white border-r border-border p-4 flex flex-col flex-shrink-0 transition-colors duration-200">
@@ -230,6 +285,24 @@ export const Sidebar: React.FC<{
             <span className="font-semibold">Calendar</span>
           </button>
         </li>
+        <li>
+          <button
+            onClick={() => setCurrentView({ type: "techs", id: null })}
+            className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left ${
+               currentView.type === "techs"
+                 ? "bg-surface text-gray-900"
+                 : "hover:bg-sidebar/80 text-white"
+            }`}
+          >
+            <Icon path="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            <span className="font-semibold">Techs</span>
+            {techStats.techNames.length > 0 && (
+              <span className="ml-auto text-xs bg-blue-600 text-white px-2 py-0.5 rounded-full">
+                {Object.values(techStats.techTaskCounts).reduce((sum, count) => sum + count, 0)}
+              </span>
+            )}
+          </button>
+        </li>
       </ul>
 
       <div className="mt-6 pt-4 border-t">
@@ -246,7 +319,7 @@ export const Sidebar: React.FC<{
 
         {showAddProject && (
           uid && uid.trim() ? (
-            <form onSubmit={handleCreateProject} className="flex gap-2 mb-4">
+            <form onSubmit={handleCreateProject} className="flex flex-col gap-2 mb-4">
               <input
                 className="flex-1 border dark:bg-background bg-white dark:text-gray-100 text-gray-900 rounded-md px-2 py-1 text-sm"
                 placeholder="New project name"
@@ -254,7 +327,19 @@ export const Sidebar: React.FC<{
                 onChange={(e) => setNewProjectTitle(e.target.value)}
                 autoFocus
               />
-              <button className="px-2 py-1 dark:bg-accent bg-black dark:text-white text-white text-sm rounded-md">Add</button>
+              <select
+                className="flex-1 border dark:bg-background bg-white dark:text-gray-100 text-gray-900 rounded-md px-2 py-1 text-sm"
+                value={newProjectAssignee}
+                onChange={(e) => setNewProjectAssignee(e.target.value)}
+              >
+                <option value="">Select Tech (Optional)</option>
+                {techStats.techNames.map((techName) => (
+                  <option key={techName} value={techName}>
+                    {techName}
+                  </option>
+                ))}
+              </select>
+              <button className="px-2 py-1 dark:bg-accent bg-black dark:text-white text-white text-sm rounded-md">Add Project</button>
             </form>
           ) : (
             <div className="mb-4 text-sm text-red-200">You must be signed in to create a project.</div>
@@ -286,11 +371,16 @@ export const Sidebar: React.FC<{
                   hover:opacity-90 transition-colors`}
                 onClick={() => setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }))}
               >
-                <span>{label}</span>
+                <span className="flex items-center gap-2">
+                  <span>{label}</span>
+                  <span className="bg-black/20 text-xs px-2 py-0.5 rounded-full font-bold">
+                    {groupProjects.length}
+                  </span>
+                </span>
                 <span className="ml-auto">{isOpen ? "▼" : "►"}</span>
               </button>
               {isOpen && (
-                <ul className="space-y-1 ml-2">
+                <ul className="space-y-2 ml-2">
                   {groupProjects.map((p) => (
                     <SidebarProjectDroppable
                       key={p.id}
@@ -299,7 +389,6 @@ export const Sidebar: React.FC<{
                       editingProjectId={editingProjectId}
                       editingProjectTitle={editingProjectTitle}
                       handleProjectClick={handleProjectClick}
-                      handleDeleteProject={handleDeleteProject}
                       handleSaveEdit={handleSaveEdit}
                       handleCancelEdit={handleCancelEdit}
                       setEditingProjectTitle={setEditingProjectTitle}
@@ -312,7 +401,70 @@ export const Sidebar: React.FC<{
             </div>
           );
         })}
-  </div>
-  </nav>
+      </div>
+
+      {/* Techs Section */}
+      <div className="mt-6 pt-4 border-t">
+        <h3 className="font-semibold text-white text-sm mb-2">Techs</h3>
+        {techStats.techNames.length > 0 ? (
+          <ul className="space-y-2">
+            {techStats.techNames.map((techName) => {
+              // Calculate separate counts for tasks and projects
+              const taskCount = allTasks.filter((task: any) => {
+                if (task.status === 'done' || task.status === 'archived') return false;
+                const assignee = typeof task.assignee === 'string' ? task.assignee : task.assignee?.name;
+                return assignee === techName;
+              }).length;
+              
+              const projectCount = projects.filter((project: any) => {
+                if (project.status === 'completed' || project.status === 'archived') return false;
+                // Check legacy assignee, new assignees array, and owner
+                const hasLegacyAssignment = project.assignee === techName && project.assignee !== "undefined";
+                const hasMultipleAssignment = project.assignees && project.assignees.includes(techName);
+                const isOwner = project.owner === techName;
+                return hasLegacyAssignment || hasMultipleAssignment || isOwner;
+              }).length;
+              
+              return (
+                <li key={techName}>
+                  <button
+                    onClick={() => setCurrentView({ type: "techs", id: techName })}
+                    className="relative flex items-center gap-2 pl-2 pr-4 py-1 w-full rounded-full text-sm font-medium truncate transition-all duration-200 text-white border-none outline-none focus:ring-2 focus:ring-blue-400 bg-white/10
+                      shadow-[0_4px_16px_0_rgba(0,0,0,0.18),0_1.5px_0_0_rgba(255,255,255,0.18)_inset] -translate-y-0.5
+                      hover:scale-105 hover:shadow-[0_6px_24px_0_rgba(0,120,255,0.18),0_2px_0_0_rgba(255,255,255,0.22)_inset] active:scale-97 active:ring-2 active:ring-blue-300"
+                    style={{
+                      background: undefined,
+                      minHeight: '1.5rem',
+                      lineHeight: '1.25',
+                    }}
+                    title={`${taskCount} task${taskCount !== 1 ? 's' : ''}, ${projectCount} project${projectCount !== 1 ? 's' : ''}`}
+                  >
+                    <span className="flex items-center justify-between w-full">
+                      <span className="truncate flex-1">{techName}</span>
+                      <span className="ml-2 flex items-center gap-1 text-xs text-white/80">
+                        {taskCount > 0 && (
+                          <span className="flex items-center gap-0.5">
+                            <Icon path="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z" className="w-3 h-3" />
+                            <span className="tabular-nums">{taskCount}</span>
+                          </span>
+                        )}
+                        {projectCount > 0 && (
+                          <span className="flex items-center gap-0.5">
+                            <Icon path="M10 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V8c0-1.11-.89-2-2-2h-8l-2-2z" className="w-3 h-3" />
+                            <span className="tabular-nums">{projectCount}</span>
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="text-sm text-gray-400">No techs with active tasks.</p>
+        )}
+      </div>
+    </nav>
   );
 };

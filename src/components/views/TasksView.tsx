@@ -1,5 +1,5 @@
 // src/components/views/TasksView.tsx
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { Dropdown } from "../shared/Dropdown";
 import type { WithId, Task, Blocker, TaskFilters, Project, TaskAssignee } from "../../types";
 import { TaskItem } from "../TaskItem";
@@ -56,8 +56,12 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    
+    // Calculate end of current week (Sunday)
     const endOfWeek = new Date(startOfToday);
-    endOfWeek.setDate(startOfToday.getDate() + 7);
+    const currentDayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    const daysUntilSunday = currentDayOfWeek === 0 ? 0 : 7 - currentDayOfWeek;
+    endOfWeek.setDate(startOfToday.getDate() + daysUntilSunday + 1); // +1 to include Sunday
 
     switch (filter) {
       case "any":
@@ -68,13 +72,17 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
         return due >= startOfToday && due < endOfToday;
       case "week":
         return due >= startOfToday && due < endOfWeek;
+      case "month":
+        // Calculate end of current month
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        return due >= startOfToday && due < endOfMonth;
       default:
         return true;
     }
   }
 
-  // Compute filtered/sorted list for display and drag
-  const computeTasksWithoutProject = (): WithId<Task>[] => {
+  // Memoized filtered task computation to prevent unnecessary recalculations
+  const filteredTasks = useMemo((): WithId<Task>[] => {
     let list = allTasks.filter((t: WithId<Task>) => !t.projectId);
     if (showAll) return list;
     if (!filters.includeArchived) {
@@ -114,7 +122,16 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
       });
     }
     return list;
-  };
+  }, [allTasks, showAll, filters]);
+
+  // Memoized unique assignees list to prevent recalculation
+  const uniqueAssignees = useMemo(() => {
+    return Array.from(new Set(
+      allTasks.map((t) => 
+        typeof t.assignee === "string" ? t.assignee : t.assignee?.name
+      ).filter((v): v is string => Boolean(v))
+    ));
+  }, [allTasks]);
 
   // Sort tasks by arrangeBy
   function sortTasks(tasks: WithId<Task>[]): WithId<Task>[] {
@@ -165,30 +182,34 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
     return list;
   }
 
-  // Group tasks by selected criteria, sorting each group by arrangeBy
-  function groupTasks(tasks: WithId<Task>[], groupBy: string): Record<string, WithId<Task>[]> {
-    if (!groupBy || groupBy === "none") return { "": sortTasks(tasks) };
-    const groups: Record<string, WithId<Task>[]> = {};
-    for (const t of tasks) {
-      let key = "";
-      if (groupBy === "status") key = t.status || "(none)";
-      else if (groupBy === "priority") key = String(t.priority ?? "(none)");
-      else if (groupBy === "due") key = t.dueDate ? t.dueDate.slice(0, 10) : "(none)";
-      else if (groupBy === "assigned") key = t.assignee
-        ? (typeof t.assignee === "object"
-            ? (t.assignee as TaskAssignee).name || (t.assignee as TaskAssignee).id
-            : t.assignee)
-        : "(none)";
-      else key = "";
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(t);
+  // Memoized grouped and sorted tasks to prevent recalculation on every render
+  const groupedTasks = useMemo(() => {
+    function groupTasks(tasks: WithId<Task>[], groupBy: string): Record<string, WithId<Task>[]> {
+      if (!groupBy || groupBy === "none") return { "": sortTasks(tasks) };
+      const groups: Record<string, WithId<Task>[]> = {};
+      for (const t of tasks) {
+        let key = "";
+        if (groupBy === "status") key = t.status || "(none)";
+        else if (groupBy === "priority") key = String(t.priority ?? "(none)");
+        else if (groupBy === "due") key = t.dueDate ? t.dueDate.slice(0, 10) : "(none)";
+        else if (groupBy === "assigned") key = t.assignee
+          ? (typeof t.assignee === "object"
+              ? (t.assignee as TaskAssignee).name || (t.assignee as TaskAssignee).id
+              : t.assignee)
+          : "(none)";
+        else key = "";
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(t);
+      }
+      // Sort each group
+      Object.keys(groups).forEach(key => {
+        groups[key] = sortTasks(groups[key]);
+      });
+      return groups;
     }
-    // Sort each group
-    Object.keys(groups).forEach(key => {
-      groups[key] = sortTasks(groups[key]);
-    });
-    return groups;
-  }
+    
+    return groupTasks(filteredTasks, filters.groupBy || "none");
+  }, [filteredTasks, filters.groupBy, arrangeBy, reverseOrder]);
 
   // Remove effect that updates dragList from backend unless a drag is in progress
 
@@ -223,7 +244,7 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
           <FilterBar
             filters={filters}
             onChange={setFilters}
-            allAssignees={Array.from(new Set(allTasks.map((t) => typeof t.assignee === "string" ? t.assignee : t.assignee?.name).filter((v): v is string => Boolean(v))))}
+            allAssignees={uniqueAssignees}
             localStorageKey={FILTERS_KEY}
             compact={false}
             showAll={showAll}
@@ -274,7 +295,7 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
       {/* Tasks grouped list */}
       <div className="bg-surface rounded-lg p-4 mt-2" style={{ minHeight: 200 }}>
         {(() => {
-          const grouped = groupTasks(computeTasksWithoutProject(), filters.groupBy || "none");
+          const grouped = groupedTasks;
           const groupKeys = Object.keys(grouped);
           if (groupKeys.length === 1 && groupKeys[0] === "" && grouped[""]?.length === 0) {
             return <div className="text-sm dark:text-gray-500 text-gray-500 py-6 text-center">No tasks match your filters.</div>;
@@ -347,7 +368,7 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
                         uid={uid}
                         task={t}
                         allBlockers={allBlockers}
-                        allTasks={computeTasksWithoutProject()}
+                        allTasks={filteredTasks}
                         onStartEdit={() => setEditingTaskId(t.id)}
                         // ...existing code...
                         onManageBlockers={() => {}}

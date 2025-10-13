@@ -16,7 +16,6 @@ import type {
   TaskStatus,
   ProjectStatus,
 } from "../types";
-import { logActivity } from "./activity";
 import { updateTask } from "./tasks";
 import { updateProject, reevaluateProjectBlockedState } from "./projects";
 
@@ -44,7 +43,7 @@ export async function createBlocker(
   const shouldCapturePrev =
     currentStatus != null && currentStatus !== "blocked" && currentStatus !== "archived";
 
-  const ref = await addDoc(col(uid, "blockers"), {
+  await addDoc(col(uid, "blockers"), {
     reason: data.reason,
     waitingOn: data.waitingOn ?? "",
     expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
@@ -72,7 +71,7 @@ export async function createBlocker(
     await updateProject(uid, entity.id, { status: "blocked" as ProjectStatus });
   }
 
-  await logActivity(uid, `Blocked ${entity.type}: ${data.reason}`, "blocker", ref.id, "block");
+  // Activity logging handled by calling functions
 }
 
 /**
@@ -92,7 +91,7 @@ export async function updateBlocker(
 
   if (Object.keys(payload).length > 0) {
     await updateDoc(doc(db, `users/${uid}/blockers/${blockerId}`), payload);
-    await logActivity(uid, "Updated blocker details", "blocker", blockerId, "update");
+    // Activity logging handled by calling functions
   }
 }
 
@@ -121,13 +120,7 @@ export async function resolveBlocker(
     clearedReason: cleaned || null,
     clearedAt: serverTimestamp(),
   });
-  await logActivity(
-    uid,
-    `Resolved blocker: ${blockerToResolve.reason}`,
-    "blocker",
-    blockerToResolve.id!,
-    "unblock"
-  );
+  // Activity logging handled by calling functions
 
   const { entityId, entityType } = blockerToResolve;
 
@@ -142,8 +135,6 @@ export async function resolveBlocker(
   if (!remaining.empty) return; // still blocked by others
 
   // No active blockers remain → update entity state
-  const prevStatusCaptured = blockerToResolve.prevStatus;
-
   if (entityType === "task") {
     // Always set to in_progress when all blockers are cleared
     await updateTask(uid, entityId, { status: "in_progress" });

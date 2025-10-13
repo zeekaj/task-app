@@ -1,9 +1,9 @@
 // src/components/TaskItem.tsx
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useMemo } from "react";
 import type { Task, Blocker, WithId } from "../types";
 import { updateTask } from "../services/tasks";
 import Icon from "./Icon";
-// If you do not have an Icon component, create src/components/Icon.tsx with a default export.
+import { useClickOutside } from "../hooks/useClickOutside";
 
 const taskStatusConfig: { [key in Task["status"]]: { label: string; classes: string } } = {
   not_started: { label: "Not Started", classes: "dark:bg-surface bg-white dark:hover:bg-background hover:bg-gray-50 dark:border-gray-700 border-gray-200" },
@@ -41,29 +41,52 @@ interface TaskItemProps {
 
 export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onPriorityChange }) => {
   const [iconHovered, setIconHovered] = useState(false);
-  // Debug: log when TaskItem is rendered and show props
-  const dueDateObj = task.dueDate ? new Date(task.dueDate) : null;
-  const createdAtObj = (task as any).createdAt?.toDate ? (task as any).createdAt.toDate() : null;
-  const updatedAtObj = (task as any).updatedAt?.toDate ? (task as any).updatedAt.toDate() : null;
-  const isBlocked = task.status === "blocked";
-  const isArchived = task.status === "archived";
-  const activeTaskBlockers = isBlocked
-    ? allBlockers.filter((b) => b.entityId === task.id && b.status === "active")
-    : [];
+  const [editingDueDate, setEditingDueDate] = useState(false);
+  const [editingAssignee, setEditingAssignee] = useState(false);
+  const [tempDueDate, setTempDueDate] = useState(task.dueDate || "");
+  const [tempAssignee, setTempAssignee] = useState(
+    typeof task.assignee === "string" ? task.assignee : task.assignee?.name || ""
+  );
+  
+  // Memoized calculations to prevent expensive operations on every render
+  const dateInfo = useMemo(() => {
+    const dueDateObj = task.dueDate ? new Date(task.dueDate) : null;
+    const createdAtObj = (task as any).createdAt?.toDate ? (task as any).createdAt.toDate() : null;
+    const updatedAtObj = (task as any).updatedAt?.toDate ? (task as any).updatedAt.toDate() : null;
+    
+    const wasUpdated = updatedAtObj && createdAtObj && updatedAtObj.getTime() - createdAtObj.getTime() > 60000;
+    const latestDateObj = wasUpdated ? updatedAtObj : createdAtObj;
+    
+    return {
+      dueDateObj,
+      createdAtObj,
+      updatedAtObj,
+      latestDateString: latestDateObj && typeof latestDateObj.toLocaleDateString === "function"
+        ? latestDateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+        : "",
+      dueDateString: dueDateObj && typeof dueDateObj.toLocaleDateString === "function"
+        ? dueDateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+        : "",
+    };
+  }, [task.dueDate, (task as any).createdAt, (task as any).updatedAt]);
 
-  const wasUpdated =
-    updatedAtObj && createdAtObj && updatedAtObj.getTime() - createdAtObj.getTime() > 60000;
-  const latestDateObj = wasUpdated ? updatedAtObj : createdAtObj;
-  const latestDateString = latestDateObj && typeof latestDateObj.toLocaleDateString === "function"
-    ? latestDateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-    : "";
-  const dueDateString = dueDateObj && typeof dueDateObj.toLocaleDateString === "function"
-    ? dueDateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" })
-    : "";
+  // Memoized status calculations
+  const statusInfo = useMemo(() => {
+    const isBlocked = task.status === "blocked";
+    const isArchived = task.status === "archived";
+    const activeTaskBlockers = isBlocked
+      ? allBlockers.filter((b) => b.entityId === task.id && b.status === "active")
+      : [];
+    
+    return { isBlocked, isArchived, activeTaskBlockers };
+  }, [task.status, task.id, allBlockers]);
 
-  // Subtask progress
-  const subtaskCount = Array.isArray(task.subtasks) ? task.subtasks.length : 0;
-  const subtaskDone = Array.isArray(task.subtasks) ? task.subtasks.filter(s => s.done).length : 0;
+  // Memoized subtask calculations
+  const subtaskInfo = useMemo(() => {
+    const subtaskCount = Array.isArray(task.subtasks) ? task.subtasks.length : 0;
+    const subtaskDone = Array.isArray(task.subtasks) ? task.subtasks.filter(s => s.done).length : 0;
+    return { subtaskCount, subtaskDone };
+  }, [task.subtasks]);
 
   const handlePriorityChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     e.stopPropagation();
@@ -73,6 +96,32 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
       onPriorityChange(task.id, newPriority);
     }
   };
+
+  // Handle due date update
+  const handleDueDateUpdate = async () => {
+    const dueDateValue = tempDueDate.trim() ? tempDueDate : null;
+    if (dueDateValue !== task.dueDate) {
+      await updateTask(uid, task.id, { dueDate: dueDateValue });
+    }
+    setEditingDueDate(false);
+  };
+
+  // Handle assignee update
+  const handleAssigneeUpdate = async () => {
+    const assigneeValue = tempAssignee.trim() || undefined;
+    const currentAssignee = typeof task.assignee === "string" ? task.assignee : task.assignee?.name || undefined;
+    if (assigneeValue !== currentAssignee) {
+      await updateTask(uid, task.id, { assignee: assigneeValue });
+    }
+    setEditingAssignee(false);
+  };
+
+  // Get all available assignees from tasks
+  const allAssignees = Array.from(new Set(
+    allTasks.map((t) => 
+      typeof t.assignee === "string" ? t.assignee : t.assignee?.name
+    ).filter((v): v is string => Boolean(v))
+  ));
 
   const statusClasses =
     taskStatusConfig[task.status as Task["status"]]?.classes ||
@@ -91,38 +140,48 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
     setEditingInline(false);
   };
 
-  // Handle click outside
-  React.useEffect(() => {
-    if (!editingInline) return;
-    function handleClick(e: MouseEvent) {
-      if (inputRef.current && !inputRef.current.contains(e.target as Node)) {
+  // Consolidated click outside handlers using custom hook
+  useClickOutside({
+    enabled: editingInline,
+    onClickOutside: () => {
+      if (inputRef.current) {
         commitInlineEdit();
       }
     }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [editingInline]);
+  });
+
+  useClickOutside({
+    enabled: editingDueDate,
+    onClickOutside: handleDueDateUpdate,
+    selector: 'input[type="date"]'
+  });
+
+  useClickOutside({
+    enabled: editingAssignee,
+    onClickOutside: handleAssigneeUpdate,
+    selector: 'input[list="assignees-datalist"]'
+  });
 
   return (
       <div
-        className={`flex items-stretch border rounded-lg shadow-sm transition-shadow ${statusClasses} dark:text-gray-100 text-gray-900`}
+        className={`flex items-stretch border rounded-lg shadow-sm transition-shadow ${statusClasses} dark:text-gray-100 text-gray-900 max-w-full overflow-hidden`}
         onClick={e => {
           // Only open edit if clicking the container itself, not a child button/input
-          if (!isArchived && !editingInline && e.target === e.currentTarget) onStartEdit();
+          if (!statusInfo.isArchived && !editingInline && e.target === e.currentTarget) onStartEdit();
         }}
       >
-        <div className="flex flex-1 items-stretch">
-          <div className="flex w-full">
+        <div className="flex flex-1 items-stretch min-w-0">
+          <div className="flex w-full min-w-0">
             {/* Left cell: status / blockers */}
             <div
               className="flex-shrink-0 flex items-center justify-center h-full transition-all duration-300 dark:bg-black bg-black bg-opacity-5 rounded-l-lg p-2"
-              onClick={isBlocked ? onManageBlockers : undefined}
+              onClick={statusInfo.isBlocked ? onManageBlockers : undefined}
               style={{
-                background: isBlocked ? undefined : 'transparent',
+                background: statusInfo.isBlocked ? undefined : 'transparent',
                 justifyContent: 'flex-start',
-                width: iconHovered ? '170px' : (isBlocked ? '100px' : '48px'),
-                minWidth: iconHovered ? '170px' : (isBlocked ? '100px' : '48px'),
-                maxWidth: iconHovered ? '170px' : (isBlocked ? '300px' : '48px'),
+                width: iconHovered ? '170px' : (statusInfo.isBlocked ? '100px' : '48px'),
+                minWidth: iconHovered ? '170px' : (statusInfo.isBlocked ? '100px' : '48px'),
+                maxWidth: iconHovered ? '170px' : (statusInfo.isBlocked ? '300px' : '48px'),
                 height: '100%',
                 transition: 'all 0.35s cubic-bezier(0.4,0.2,0.2,1)',
                 position: 'relative',
@@ -135,7 +194,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
               onMouseLeave={() => setIconHovered(false)}
             >
               {/* Expanded invisible hover area to keep hover state */}
-              {iconHovered && !isBlocked && (
+              {iconHovered && !statusInfo.isBlocked && (
                 <span
                   style={{
                     position: 'absolute',
@@ -150,17 +209,17 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                   aria-hidden="true"
                 />
               )}
-              {isBlocked ? (
+              {statusInfo.isBlocked ? (
                 <div className="text-left w-full">
                   <div className="text-sm font-bold dark:text-red-400 text-red-700 mb-1">BLOCKED</div>
                   <div className="space-y-1 text-xs dark:text-red-300 text-red-900">
-                    {activeTaskBlockers.slice(0, 2).map((b) => (
+                    {statusInfo.activeTaskBlockers.slice(0, 2).map((b) => (
                       <span key={b.id} className="block truncate" title={typeof b.reason === "object" ? JSON.stringify(b.reason) : b.reason}>
                         {typeof b.reason === "object" ? JSON.stringify(b.reason) : b.reason}
                       </span>
                     ))}
-                    {activeTaskBlockers.length > 2 && (
-                      <span className="block font-semibold">...and {activeTaskBlockers.length - 2} more</span>
+                    {statusInfo.activeTaskBlockers.length > 2 && (
+                      <span className="block font-semibold">...and {statusInfo.activeTaskBlockers.length - 2} more</span>
                     )}
                   </div>
                 </div>
@@ -175,7 +234,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                       type="button"
                       className="p-2 rounded-full transition-all duration-200"
                       title="Not Started"
-                      disabled={isArchived}
+                      disabled={statusInfo.isArchived}
                       onClick={() => onStatusChange("not_started")}
                       style={{ display: task.status === "not_started" ? 'block' : 'none' }}
                     >
@@ -192,7 +251,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                       type="button"
                       className="p-2 rounded-full transition-all duration-200"
                       title="In Progress"
-                      disabled={isArchived}
+                      disabled={statusInfo.isArchived}
                       onClick={() => onStatusChange("in_progress")}
                       style={{ display: task.status === "in_progress" ? 'block' : 'none' }}
                     >
@@ -209,7 +268,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                       type="button"
                       className="p-2 rounded-full transition-all duration-200"
                       title="Done"
-                      disabled={isArchived}
+                      disabled={statusInfo.isArchived}
                       onClick={() => onStatusChange("done")}
                       style={{ display: task.status === "done" ? 'block' : 'none' }}
                     >
@@ -224,7 +283,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                       type="button"
                       className="p-2 rounded-full transition-all duration-200"
                       title="Blocked"
-                      disabled={isArchived}
+                      disabled={statusInfo.isArchived}
                       onClick={onStartBlock}
                       style={{ display: task.status === "blocked" ? 'block' : 'none' }}
                     >
@@ -242,7 +301,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                         type="button"
                         className="p-2 rounded-full transition-all duration-200 opacity-100 scale-100"
                         title="Not Started"
-                        disabled={isArchived}
+                        disabled={statusInfo.isArchived}
                         onClick={() => onStatusChange("not_started")}
                       >
                         {/* Person sitting on bench (Font Awesome) for not_started */}
@@ -256,7 +315,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                         type="button"
                         className="p-2 rounded-full transition-all duration-200 opacity-100 scale-100"
                         title="In Progress"
-                        disabled={isArchived}
+                        disabled={statusInfo.isArchived}
                         onClick={() => onStatusChange("in_progress")}
                       >
                         {/* Person walking (Font Awesome) for in_progress */}
@@ -270,7 +329,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                         type="button"
                         className="p-2 rounded-full transition-all duration-200 opacity-100 scale-100"
                         title="Done"
-                        disabled={isArchived}
+                        disabled={statusInfo.isArchived}
                         onClick={() => onStatusChange("done")}
                       >
                         {/* Done (Crosswalk thumbs up) for done */}
@@ -282,7 +341,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                         type="button"
                         className="p-2 rounded-full transition-all duration-200 opacity-100 scale-100"
                         title="Blocked"
-                        disabled={isArchived}
+                        disabled={statusInfo.isArchived}
                         onClick={onStartBlock}
                       >
                         {/* Blocked (Font Awesome) for blocked */}
@@ -301,10 +360,10 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
             <div
 
               className={`flex-grow flex items-center min-w-0 transition-all duration-200 relative`}
-              style={{ paddingLeft: iconHovered && !isBlocked ? '40px' : '28px' }}
+              style={{ paddingLeft: iconHovered && !statusInfo.isBlocked ? '40px' : '28px' }}
               onClick={e => {
                 // Only open full edit if not clicking the text itself or inline input
-                if (!isArchived && !editingInline && e.target === e.currentTarget) {
+                if (!statusInfo.isArchived && !editingInline && e.target === e.currentTarget) {
                   onStartEdit();
                 }
               }}
@@ -312,7 +371,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
               {/* Vertical divider after icon area */}
               <span
                 className="absolute left-0 top-3 bottom-3 w-px bg-gray-300 dark:bg-gray-700 opacity-70"
-                style={{ left: iconHovered && !isBlocked ? '32px' : '20px' }}
+                style={{ left: iconHovered && !statusInfo.isBlocked ? '32px' : '20px' }}
                 aria-hidden="true"
               />
               {editingInline ? (
@@ -330,12 +389,12 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                   onClick={e => e.stopPropagation()}
                 />
               ) : (
-                <span className="flex items-center gap-2 w-full">
+                <span className="flex items-center gap-2 w-full min-w-0">
                   <p
-                    className={`truncate my-0 ${task.status === "done" ? "line-through dark:text-gray-500 text-gray-500" : ""} cursor-pointer`}
+                    className={`truncate my-0 flex-shrink min-w-0 ${task.status === "done" ? "line-through dark:text-gray-500 text-gray-500" : ""} cursor-pointer`}
                     onClick={e => {
                       e.stopPropagation();
-                      if (!isArchived) setEditingInline(true);
+                      if (!statusInfo.isArchived) setEditingInline(true);
                     }}
                     title="Click to edit title"
                     style={{ lineHeight: '1.5' }}
@@ -355,10 +414,10 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                     </span>
                   )}
                   {/* Subtask progress icon */}
-                  {subtaskCount > 0 && (
+                  {subtaskInfo.subtaskCount > 0 && (
                     <span className="inline-flex items-center gap-1 text-xs text-gray-500 ml-1" title="Subtasks">
                       <svg width="16" height="16" fill="none" viewBox="0 0 20 20"><rect x="2" y="5" width="16" height="10" rx="2" fill="#e5e7eb"/><rect x="4" y="7" width="12" height="6" rx="1" fill="#fff"/><path d="M7 10.5l2 2 4-4" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                      {subtaskDone}/{subtaskCount}
+                      {subtaskInfo.subtaskDone}/{subtaskInfo.subtaskCount}
                     </span>
                   )}
                   {/* Dependencies icon */}
@@ -377,35 +436,104 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
               {/* Comments/Notes display removed from collapsed line */}
             </div>
             {/* Right tools */}
-            <div className="flex-shrink-0 flex items-center gap-x-2 p-1 text-xs dark:text-gray-300 text-gray-800">
+            <div className="flex-shrink-0 flex items-center gap-x-2 p-1 text-xs dark:text-gray-300 text-gray-800 min-w-0 overflow-hidden">
               {/* Created, Due, Assigned info (left of status dropdown) */}
-              <div className="flex items-center justify-center gap-x-2 mr-2 min-w-[240px]">
+              <div className="hidden sm:flex items-center justify-center gap-x-2 mr-2 min-w-[200px] lg:min-w-[240px]">
                 {/* Created */}
                 <span className="flex items-center justify-center w-[75px]" title="Created date">
                   <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m4 4V3m-7 4h14M5 7v10a2 2 0 002 2h6a2 2 0 002-2V7" /></svg>
-                  {createdAtObj ? latestDateString : '--'}
+                  {dateInfo.createdAtObj ? dateInfo.latestDateString : '--'}
                 </span>
                 <span className="text-gray-300">|</span>
                 {/* Due */}
-                <span className="flex items-center justify-center w-[75px]" title="Due date">
-                  <svg className="w-3 h-3 mr-1 text-red-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" /><path strokeLinecap="round" strokeLinejoin="round" d="M10 6v4l2 2" /></svg>
-                  {dueDateObj ? dueDateString : '--'}
-                </span>
+                {editingDueDate ? (
+                  <div className="flex items-center justify-center w-[75px]">
+                    <input
+                      type="date"
+                      value={tempDueDate}
+                      onChange={(e) => setTempDueDate(e.target.value)}
+                      onBlur={handleDueDateUpdate}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleDueDateUpdate();
+                        if (e.key === "Escape") {
+                          setTempDueDate(task.dueDate || "");
+                          setEditingDueDate(false);
+                        }
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full px-1 py-0.5 text-xs border rounded dark:bg-background dark:border-gray-600"
+                      autoFocus
+                    />
+                  </div>
+                ) : (
+                  <span 
+                    className="flex items-center justify-center w-[75px] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded px-1" 
+                    title="Due date (click to edit)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!statusInfo.isArchived) {
+                        setTempDueDate(task.dueDate || "");
+                        setEditingDueDate(true);
+                      }
+                    }}
+                  >
+                    <svg className="w-3 h-3 mr-1 text-red-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="2" /><path strokeLinecap="round" strokeLinejoin="round" d="M10 6v4l2 2" /></svg>
+                    {dateInfo.dueDateObj ? dateInfo.dueDateString : '--'}
+                  </span>
+                )}
                 <span className="text-gray-300">|</span>
                 {/* Assigned */}
-                <span className="flex items-center justify-center w-[75px]" title="Assigned to">
-                  <svg className="w-3 h-3 mr-1 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><circle cx="10" cy="7" r="4" stroke="currentColor" strokeWidth="2" /><path strokeLinecap="round" strokeLinejoin="round" d="M4 17v-1a4 4 0 014-4h4a4 4 0 014 4v1" /></svg>
-                  {task.assignee ? (typeof task.assignee === "object" ? (task.assignee.name || task.assignee.id) : task.assignee) : '--'}
-                </span>
+                {editingAssignee ? (
+                  <div className="flex items-center justify-center w-[75px]">
+                    <input
+                      type="text"
+                      value={tempAssignee}
+                      onChange={(e) => setTempAssignee(e.target.value)}
+                      onBlur={handleAssigneeUpdate}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleAssigneeUpdate();
+                        if (e.key === "Escape") {
+                          setTempAssignee(typeof task.assignee === "string" ? task.assignee : task.assignee?.name || "");
+                          setEditingAssignee(false);
+                        }
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      className="w-full px-1 py-0.5 text-xs border rounded dark:bg-background dark:border-gray-600"
+                      placeholder="Assignee"
+                      list="assignees-datalist"
+                      autoFocus
+                    />
+                    <datalist id="assignees-datalist">
+                      {allAssignees.map((assignee) => (
+                        <option key={assignee} value={assignee} />
+                      ))}
+                    </datalist>
+                  </div>
+                ) : (
+                  <span 
+                    className="flex items-center justify-center w-[75px] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded px-1" 
+                    title="Assigned to (click to edit)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!statusInfo.isArchived) {
+                        setTempAssignee(typeof task.assignee === "string" ? task.assignee : task.assignee?.name || "");
+                        setEditingAssignee(true);
+                      }
+                    }}
+                  >
+                    <svg className="w-3 h-3 mr-1 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><circle cx="10" cy="7" r="4" stroke="currentColor" strokeWidth="2" /><path strokeLinecap="round" strokeLinejoin="round" d="M4 17v-1a4 4 0 014-4h4a4 4 0 014 4v1" /></svg>
+                    {task.assignee ? (typeof task.assignee === "object" ? (task.assignee.name || task.assignee.id) : task.assignee) : '--'}
+                  </span>
+                )}
               </div>
               {/* Priority dropdown */}
-              {!isArchived && (
+              {!statusInfo.isArchived && (
                 <select
                   value={task.priority}
                   onChange={handlePriorityChange}
                   onClick={(e) => e.stopPropagation()}
                   title="Priority"
-                  className={`text-xs font-semibold rounded-lg px-2 py-1 appearance-none focus:outline-none focus:ring-2 focus:ring-accent cursor-pointer shadow-md border border-zinc-400 ${priorities[task.priority]?.color}`}
+                  className={`hidden sm:block text-xs font-semibold rounded-lg px-2 py-1 appearance-none focus:outline-none focus:ring-2 focus:ring-accent cursor-pointer shadow-md border border-zinc-400 ${priorities[task.priority]?.color}`}
                   style={{ boxShadow: '0 2px 6px rgba(120,120,120,0.15), inset 0 1px 2px #fff' }}
                 >
                   {Object.entries(priorities).map(([value, { label }]) => (
@@ -414,10 +542,10 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                 </select>
               )}
               {/* Edit button */}
-              {!isArchived && (
+              {!statusInfo.isArchived && (
                 <button
                   type="button"
-                  className="px-2 py-1 text-xs border rounded dark:bg-surface bg-gray-100 dark:hover:bg-accent hover:bg-blue-100 dark:text-gray-100 text-gray-900"
+                  className="hidden md:block px-2 py-1 text-xs border rounded dark:bg-surface bg-gray-100 dark:hover:bg-accent hover:bg-blue-100 dark:text-gray-100 text-gray-900"
                   onClick={e => { e.stopPropagation(); onStartEdit(); }}
                   title="Open full edit window"
                 >
@@ -432,7 +560,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
               >
                 <Icon path="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" />
               </button>
-              {!isArchived ? (
+              {!statusInfo.isArchived ? (
                 <>
                   <button
                     onClick={e => { e.stopPropagation(); onArchive(); }}

@@ -4,11 +4,18 @@ import type { Timestamp, FieldValue } from "firebase/firestore";
 export type ProjectStatus = "not_started" | "in_progress" | "blocked" | "completed" | "archived";
 export type TaskStatus = "not_started" | "in_progress" | "done" | "blocked" | "archived";
 
+// Firebase timestamp type for consistent usage
+export type FirebaseTimestamp = Timestamp | FieldValue;
+
 export interface Project {
   id?: string;
   title: string;
   status: ProjectStatus;
-  assignee?: string; // user ID of the assigned individual
+  assignee?: string; // user ID of the assigned individual (legacy single assignee)
+  assignees?: string[]; // array of user IDs for multiple assignees
+  owner?: string; // user ID of the project owner/lead
+  r2Number?: string; // R2# identifier
+  installDate?: Timestamp | Date | string; // Install Date (due date for the project)
   createdAt?: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
 }
@@ -79,9 +86,26 @@ export interface Blocker {
 
 export type WithId<T> = T & { id: string };
 
+/** Activity/Audit Trail */
+export type ActivityType = "created" | "updated" | "status_changed" | "assigned" | "blocked" | "unblocked" | "archived" | "deleted";
+export type ActivityEntityType = "task" | "project";
+
+export interface Activity {
+  id?: string;
+  entityType: ActivityEntityType;
+  entityId: string;
+  entityTitle: string;
+  action: ActivityType;
+  changes?: Record<string, { from: any; to: any }>; // field changes
+  description?: string; // human-readable description
+  userId: string; // who made the change
+  userName?: string; // name of user who made the change
+  createdAt: Timestamp | FieldValue;
+}
+
 /** Filters */
 export type StatusFilter = "active" | "blocked" | "done" | "archived";
-export type DueFilter = "any" | "overdue" | "today" | "week";
+export type DueFilter = "any" | "overdue" | "today" | "week" | "month";
 export interface TaskFilters {
   status: StatusFilter[];
   minPriority: (0 | 1 | 2 | 3 | 4)[];

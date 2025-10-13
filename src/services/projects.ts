@@ -12,23 +12,36 @@ import {
 } from "firebase/firestore";
 import { db, col } from "../firebase";
 import type { Project } from "../types";
-import { logActivity } from "./activity";
+import { logActivity } from "./activityHistory";
 
 /** Create a new project. */
-export async function createProject(uid: string, title: string) {
-  console.log("createProject called with:", { uid, title });
+export async function createProject(uid: string, title: string, assignees?: string | string[]) {
   try {
     const collectionRef = col(uid, "projects");
-    console.log("collectionRef:", collectionRef?.path || collectionRef);
     const docData: any = {
       title,
       status: "not_started" as ProjectStatus,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
     };
-    // Do not add assignee if undefined (Firestore does not allow undefined fields)
+    
+    // Handle both single assignee (legacy) and multiple assignees
+    if (assignees) {
+      if (typeof assignees === 'string') {
+        // Legacy single assignee
+        docData.assignee = assignees;
+      } else if (Array.isArray(assignees) && assignees.length > 0) {
+        // Multiple assignees
+        docData.assignees = assignees;
+        // Also set first assignee as legacy single assignee for backwards compatibility
+        docData.assignee = assignees[0];
+      }
+    }
+    
     const ref = await addDoc(collectionRef, docData);
-  await logActivity(uid, `Created project: ${title}`, "project", ref.id, "create");
+    await logActivity(uid, "project", ref.id, title, "created", {
+      description: `Created project: ${title}`,
+    });
     return ref.id;
   } catch (err) {
     console.error("createProject error:", err);
@@ -36,26 +49,97 @@ export async function createProject(uid: string, title: string) {
   }
 }
 
-/** Update project title/status (safely builds payload). */
+/** Update project title/status/assignees/owner (safely builds payload). */
 export async function updateProject(
   uid: string,
   projectId: string,
-  data: Partial<Pick<Project, "title" | "status" | "assignee">>
+  data: Partial<Pick<Project, "title" | "status" | "assignee" | "assignees" | "owner" | "r2Number" | "installDate">>
 ) {
+  // Get current project for change tracking
+  const projectDoc = await getDoc(doc(db, `users/${uid}/projects/${projectId}`));
+  const currentProject = projectDoc.exists() ? projectDoc.data() as Project : null;
+  
   const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
-  if (typeof data.title !== "undefined") payload.title = data.title;
-  if (typeof data.status !== "undefined") payload.status = data.status;
-  if (typeof data.assignee !== "undefined") payload.assignee = data.assignee;
+  const changes: Record<string, { from: any; to: any }> = {};
+  
+  if (typeof data.title !== "undefined") {
+    payload.title = data.title;
+    if (currentProject?.title !== data.title) {
+      changes.title = { from: currentProject?.title, to: data.title };
+    }
+  }
+  if (typeof data.status !== "undefined") {
+    payload.status = data.status;
+    if (currentProject?.status !== data.status) {
+      changes.status = { from: currentProject?.status, to: data.status };
+    }
+  }
+  if (typeof data.assignee !== "undefined") {
+    payload.assignee = data.assignee;
+    if (currentProject?.assignee !== data.assignee) {
+      changes.assignee = { 
+        from: currentProject?.assignee || null, 
+        to: data.assignee || null 
+      };
+    }
+  }
+  if (typeof data.assignees !== "undefined") {
+    payload.assignees = data.assignees;
+    if (JSON.stringify(currentProject?.assignees) !== JSON.stringify(data.assignees)) {
+      changes.assignees = { 
+        from: currentProject?.assignees || [], 
+        to: data.assignees || [] 
+      };
+    }
+  }
+  if (typeof data.owner !== "undefined") {
+    payload.owner = data.owner;
+    if (currentProject?.owner !== data.owner) {
+      changes.owner = { 
+        from: currentProject?.owner || null, 
+        to: data.owner || null 
+      };
+    }
+  }
+  if (typeof data.r2Number !== "undefined") {
+    payload.r2Number = data.r2Number;
+    if (currentProject?.r2Number !== data.r2Number) {
+      changes.r2Number = { 
+        from: currentProject?.r2Number || null, 
+        to: data.r2Number || null 
+      };
+    }
+  }
+  if (typeof data.installDate !== "undefined") {
+    payload.installDate = data.installDate;
+    // Convert dates to comparable format for change tracking
+    const normalizeDate = (date: any): Date | null => {
+      if (!date) return null;
+      if (date.toDate) return date.toDate();
+      return new Date(date);
+    };
+    
+    const currentInstallDate = normalizeDate(currentProject?.installDate);
+    const newInstallDate = normalizeDate(data.installDate);
+    
+    if (currentInstallDate?.getTime() !== newInstallDate?.getTime()) {
+      changes.installDate = { 
+        from: currentInstallDate, 
+        to: newInstallDate 
+      };
+    }
+  }
 
   await updateDoc(doc(db, `users/${uid}/projects/${projectId}`), payload);
 
-  const summary =
-    typeof data.title !== "undefined"
-      ? "Updated project title"
-      : typeof data.status !== "undefined"
-      ? `Updated project status to ${data.status}`
-      : "Updated project";
-  await logActivity(uid, summary, "project", projectId, "update");
+  // Log activity with proper parameters
+  const action = Object.keys(changes).includes('status') ? "status_changed" : "updated";
+  const projectTitle = data.title || currentProject?.title || "Unknown Project";
+  
+  await logActivity(uid, "project", projectId, projectTitle, action, {
+    changes,
+    description: `Updated project: ${Object.keys(changes).join(', ')}`
+  });
 }
 
 /**
@@ -101,13 +185,9 @@ export async function deleteProject(uid: string, projectId: string) {
   batch.delete(doc(db, `users/${uid}/projects/${projectId}`));
 
   await batch.commit();
-  await logActivity(
-    uid,
-    "Deleted project and its tasks/blockers",
-    "project",
-    projectId,
-    "delete"
-  );
+  await logActivity(uid, "project", projectId, "Deleted Project", "deleted", {
+    description: "Deleted project and its tasks/blockers"
+  });
 }
 
 /**
@@ -156,13 +236,11 @@ export async function reevaluateProjectBlockedState(uid: string, projectId: stri
 
   if (targetStatus && targetStatus !== currentStatus) {
     await updateProject(uid, projectId, { status: targetStatus });
-    await logActivity(
-      uid,
-      `Project status auto-set to ${targetStatus}`,
-      "project",
-      projectId,
-      "status_change"
-    );
+    const projectTitle = (projectSnap.data() as Project).title || "Unknown Project";
+    await logActivity(uid, "project", projectId, projectTitle, "status_changed", {
+      description: `Project status auto-set to ${targetStatus}`,
+      changes: { status: { from: currentStatus, to: targetStatus } }
+    });
   }
 }
 // src/services/projects.ts

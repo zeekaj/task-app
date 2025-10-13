@@ -43,13 +43,32 @@ export const BlockedView: React.FC<{
               uid={uid}
               task={t}
               allBlockers={allBlockers}
+              allTasks={blockedTasks}
               onStartEdit={() => {}}
               onManageBlockers={() => {}}
               onStartBlock={() => {}}
-              onArchive={() => {}}
-              onDelete={() => {}}
-              onUnarchive={() => {}}
-              onStatusChange={() => {}}
+              onArchive={async () => {
+                const { archiveTask } = await import("../../services/tasks");
+                await archiveTask(uid, t.id);
+              }}
+              onDelete={async () => {
+                if (window.confirm(`Delete task "${t.title}"? This action cannot be undone.`)) {
+                  const { removeTask } = await import("../../services/tasks");
+                  await removeTask(uid, t.id);
+                }
+              }}
+              onUnarchive={async () => {
+                const { unarchiveTask } = await import("../../services/tasks");
+                await unarchiveTask(uid, t.id);
+              }}
+              onStatusChange={async (newStatus) => {
+                const { updateTask } = await import("../../services/tasks");
+                await updateTask(uid, t.id, { status: newStatus });
+              }}
+              onPriorityChange={async (newPriority) => {
+                const { updateTask } = await import("../../services/tasks");
+                await updateTask(uid, t.id, { priority: Number(newPriority) });
+              }}
             />
           ))}
         </ul>

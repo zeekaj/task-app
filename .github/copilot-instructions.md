@@ -17,7 +17,7 @@
   - Blockers can be attached to tasks or projects.
   - Creating a blocker sets the entity's status to `blocked` and stores the previous status.
   - Project status is auto-updated based on blockers and blocked tasks (see `reevaluateProjectBlockedState`).
-- **Activity Logging:** All major actions (create, update, block, unblock, delete) are logged via `logActivity` in `src/services/activity.ts`.
+- **Activity Logging:** All major actions (create, update, block, unblock, delete) are logged via `logActivity` in `src/services/activityHistory.ts`.
 
 ## Developer Workflows
 - **Start Dev Server:** `npm run dev` (Vite, port 5173)

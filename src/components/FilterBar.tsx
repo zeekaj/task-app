@@ -133,7 +133,7 @@ export const FilterBar: React.FC<{
                           </Dropdown>
                           <Dropdown label="Due">
                             {(() => {
-                              const allDue = ["any", "overdue", "today", "week"] as const;
+                              const allDue = ["any", "overdue", "today", "week", "month"] as const;
                               const allSelected = allDue.every((d) => filters.due.includes(d));
                               return (
                                 <>
@@ -169,8 +169,9 @@ export const FilterBar: React.FC<{
                               );
                             })()}
                           </Dropdown>
-                          <Dropdown label="Assigned">
-                            {Array.isArray(allAssignees) && allAssignees.length > 0 ? (() => {
+                          {Array.isArray(allAssignees) && allAssignees.length > 0 && (
+                            <Dropdown label="Assigned">
+                              {(() => {
                               const allOptions = ["(None)", ...allAssignees];
                               const allSelected = allOptions.every((a) => filters.assigned?.includes(a));
                               return (
@@ -205,10 +206,9 @@ export const FilterBar: React.FC<{
                                   ))}
                                 </>
                               );
-                            })() : (
-                              <span className="text-gray-400 px-2 py-1">No assignees</span>
-                            )}
-                          </Dropdown>
+                            })()}
+                            </Dropdown>
+                          )}
                           {!compact && (
                             <button
                               type="button"

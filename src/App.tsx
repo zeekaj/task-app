@@ -1,5 +1,6 @@
 // src/App.tsx
 import React, { useState } from "react";
+import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from "react-router-dom";
 import { DndContext, pointerWithin, closestCorners, DragOverlay } from "@dnd-kit/core";
 import { useAuth } from "./hooks/useAuth";
 import { useProjects } from "./hooks/useProjects";
@@ -13,6 +14,7 @@ import { TasksView } from "./components/views/TasksView";
 import { ProjectView } from "./components/views/ProjectView";
 import { BlockedView } from "./components/views/BlockedView";
 import { CalendarView } from "./components/views/CalendarView";
+import { TechsView } from "./components/views/TechsView";
 import { BlockerModal } from "./components/BlockerModal";
 import { BlockerManagerModal } from "./components/BlockerManagerModal";
 import { PromotionModal } from "./components/PromotionModal";
@@ -23,17 +25,116 @@ type View =
   | { type: "tasks"; id: null }
   | { type: "project"; id: string }
   | { type: "blocked"; id: null }
-  | { type: "calendar"; id: null };
+  | { type: "calendar"; id: null }
+  | { type: "techs"; id: null | string };
 
+
+// Route wrapper components that use useParams
+const ProjectRoute: React.FC<{
+  uid: string;
+  allTasks: any[];
+  allBlockers: any[];
+  allProjects: any[];
+  onBack: () => void;
+}> = ({ uid, allTasks, allBlockers, allProjects, onBack }) => {
+  const { projectId } = useParams<{ projectId: string }>();
+  return (
+    <ProjectView
+      uid={uid}
+      projectId={projectId!}
+      allTasks={allTasks}
+      allBlockers={allBlockers}
+      allProjects={allProjects}
+      onBack={onBack}
+      previousViewType={undefined}
+    />
+  );
+};
+
+const TechRoute: React.FC<{
+  uid: string;
+  allTasks: any[];
+  allBlockers: any[];
+  allProjects: any[];
+  onNavigateToAllTechs: () => void;
+  onNavigateToProject: (projectId: string) => void;
+}> = ({ uid, allTasks, allBlockers, allProjects, onNavigateToAllTechs, onNavigateToProject }) => {
+  const { techId } = useParams<{ techId: string }>();
+  return (
+    <TechsView
+      uid={uid}
+      allTasks={allTasks}
+      allBlockers={allBlockers}
+      allProjects={allProjects}
+      selectedTech={techId || null}
+      onNavigateToAllTechs={onNavigateToAllTechs}
+      onNavigateToProject={onNavigateToProject}
+    />
+  );
+};
+
+// Helper component to get current view from URL
+const getCurrentViewFromPath = (pathname: string): View => {
+  if (pathname === "/" || pathname === "/tasks") {
+    return { type: "tasks", id: null };
+  }
+  if (pathname === "/blocked") {
+    return { type: "blocked", id: null };
+  }
+  if (pathname === "/calendar") {
+    return { type: "calendar", id: null };
+  }
+  if (pathname === "/techs") {
+    return { type: "techs", id: null };
+  }
+  if (pathname.startsWith("/techs/")) {
+    const techId = pathname.replace("/techs/", "");
+    return { type: "techs", id: techId };
+  }
+  if (pathname.startsWith("/project/")) {
+    const projectId = pathname.replace("/project/", "");
+    return { type: "project", id: projectId };
+  }
+  return { type: "tasks", id: null };
+};
 
 const App: React.FC = () => {
   // Track currently dragged task id
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const user = useAuth();
-  const [currentView, setCurrentView] = useState<View>({
-    type: "tasks",
-    id: null,
-  });
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Get current view from URL
+  const currentView = getCurrentViewFromPath(location.pathname);
+  
+  // Helper function to navigate with URL updates
+  const navigateToView = (newView: View) => {
+    let path = "/";
+    switch (newView.type) {
+      case "tasks":
+        path = "/tasks";
+        break;
+      case "blocked":
+        path = "/blocked";
+        break;
+      case "calendar":
+        path = "/calendar";
+        break;
+      case "techs":
+        path = newView.id ? `/techs/${newView.id}` : "/techs";
+        break;
+      case "project":
+        path = `/project/${newView.id}`;
+        break;
+    }
+    navigate(path);
+  };
+
+  // Helper function to go back (browser back)
+  const goBack = () => {
+    navigate(-1);
+  };
 
   const allProjects = useProjects(user?.uid);
   const allTasks = useTasks(user?.uid);
@@ -68,20 +169,8 @@ const App: React.FC = () => {
 
   const handleDragEnd = ({ active, over }: any) => {
     setActiveDragId(null);
-    console.log('dnd-kit drag end:', { activeId: active?.id, overId: over?.id, over });
     if (!over) {
-      console.log('No drop target detected.');
       return;
-    }
-    // Log all possible over.id values for debugging
-    if (typeof over.id === 'string') {
-      if (over.id.startsWith('sidebar-project-')) {
-        console.log('Sidebar project drop detected:', over.id);
-      } else if (over.id === 'sidebar-quicktasks') {
-  console.log('Sidebar tasks drop detected.');
-      } else {
-        console.log('Other drop target:', over.id);
-      }
     }
     if (!over) return;
     // Sidebar droppable ids: "sidebar-quicktasks" or "sidebar-project-<id>"
@@ -90,7 +179,7 @@ const App: React.FC = () => {
       const task = allTasks.find(t => t.id === active.id);
       if (task && task.projectId !== null) {
         updateTask(user.uid, task.id, { projectId: null });
-        setCurrentView({ type: "tasks", id: null });
+        navigateToView({ type: "tasks", id: null });
         // Optimistically update local state
         task.projectId = null;
       }
@@ -108,7 +197,7 @@ const App: React.FC = () => {
         const targetTasks = allTasks.filter(t => t.projectId === projectId);
         const newOrder = targetTasks.length;
         updateTask(user.uid, task.id, { projectId, order: newOrder });
-        setCurrentView({ type: "project", id: projectId });
+        navigateToView({ type: "project", id: projectId });
         task.projectId = projectId;
         task.order = newOrder;
       }
@@ -189,14 +278,12 @@ const App: React.FC = () => {
       onDragEnd={handleDragEnd}
     >
   <div className="flex h-screen font-sans">
-  <Sidebar uid={user.uid} currentView={currentView} setCurrentView={setCurrentView} allTasks={allTasks} />
+  <Sidebar uid={user.uid} currentView={currentView} setCurrentView={navigateToView} allTasks={allTasks} />
         <main className="flex-1 flex flex-col h-screen">
           <Header
             user={user}
-            onAddTask={(title: string) => {
-              if (title && user?.uid) {
-                console.log(`Add task: ${title}`);
-              }
+            onAddTask={() => {
+              // Task creation handled by Header component
             }}
           />
           <div className="flex-1 p-6 overflow-y-auto">
@@ -206,47 +293,86 @@ const App: React.FC = () => {
               <BlockerManagerModal uid={user.uid} entity={modalState.target} allBlockers={allBlockers} onClose={closeModal} />
             )}
 
-            {currentView.type === "tasks" && (
-              <TasksView
-                uid={user.uid}
-                allTasks={allTasks}
-                allBlockers={allBlockers}
-                allProjects={allProjects}
+            <Routes>
+              <Route path="/" element={<Navigate to="/tasks" replace />} />
+              <Route 
+                path="/tasks" 
+                element={
+                  <TasksView
+                    uid={user.uid}
+                    allTasks={allTasks}
+                    allBlockers={allBlockers}
+                    allProjects={allProjects}
+                  />
+                } 
               />
-            )}
-
-            {currentView.type === "project" && currentView.id && (
-              <ProjectView
-                uid={user.uid}
-                projectId={currentView.id}
-                allTasks={allTasks}
-                allBlockers={allBlockers}
-                allProjects={allProjects}
+              <Route 
+                path="/project/:projectId" 
+                element={
+                  <ProjectRoute
+                    uid={user.uid}
+                    allTasks={allTasks}
+                    allBlockers={allBlockers}
+                    allProjects={allProjects}
+                    onBack={goBack}
+                  />
+                } 
               />
-            )}
-
-            {currentView.type === "blocked" && (
-              <BlockedView
-                uid={user.uid}
-                allTasks={allTasks}
-                allBlockers={allBlockers}
-                allProjects={allProjects}
-                setCurrentView={setCurrentView}
+              <Route 
+                path="/blocked" 
+                element={
+                  <BlockedView
+                    uid={user.uid}
+                    allTasks={allTasks}
+                    allBlockers={allBlockers}
+                    allProjects={allProjects}
+                    setCurrentView={navigateToView}
+                  />
+                } 
               />
-            )}
-
-            {currentView.type === "calendar" && (
-              <CalendarView
-                tasks={allTasks}
-                onTaskClick={(task) => {
-                  if (task.projectId) {
-                    setCurrentView({ type: "project", id: task.projectId });
-                  } else {
-                    setCurrentView({ type: "tasks", id: null });
-                  }
-                }}
+              <Route 
+                path="/calendar" 
+                element={
+                  <CalendarView
+                    tasks={allTasks}
+                    onTaskClick={(task) => {
+                      if (task.projectId) {
+                        navigateToView({ type: "project", id: task.projectId });
+                      } else {
+                        navigateToView({ type: "tasks", id: null });
+                      }
+                    }}
+                  />
+                } 
               />
-            )}
+              <Route 
+                path="/techs" 
+                element={
+                  <TechsView
+                    uid={user.uid}
+                    allTasks={allTasks}
+                    allBlockers={allBlockers}
+                    allProjects={allProjects}
+                    selectedTech={null}
+                    onNavigateToAllTechs={() => navigateToView({ type: "techs", id: null })}
+                    onNavigateToProject={(projectId) => navigateToView({ type: "project", id: projectId })}
+                  />
+                } 
+              />
+              <Route 
+                path="/techs/:techId" 
+                element={
+                  <TechRoute
+                    uid={user.uid}
+                    allTasks={allTasks}
+                    allBlockers={allBlockers}
+                    allProjects={allProjects}
+                    onNavigateToAllTechs={() => navigateToView({ type: "techs", id: null })}
+                    onNavigateToProject={(projectId) => navigateToView({ type: "project", id: projectId })}
+                  />
+                } 
+              />
+            </Routes>
           </div>
         </main>
         <DragOverlay>
