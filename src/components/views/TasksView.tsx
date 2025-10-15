@@ -1,17 +1,17 @@
 // src/components/views/TasksView.tsx
 import React, { useState, useMemo } from "react";
 import { Dropdown } from "../shared/Dropdown";
-import type { WithId, Task, Blocker, TaskFilters, Project, TaskAssignee } from "../../types";
+import type { WithId, Task, Blocker, TaskFilters, Project, TaskAssignee, DueFilter, StatusFilter } from "../../types";
 import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
 import { createTask } from "../../services/tasks";
 import { BlockerModal } from "../BlockerModal";
 import { FilterBar, defaultFilters } from "../FilterBar";
+// Removed SimpleFilterBar
 
 // Draggable wrapper for dnd-kit
 
 // Main TasksView component
-import type { DueFilter } from "../../types";
 
 interface TasksViewProps {
   uid: string;
@@ -22,7 +22,7 @@ interface TasksViewProps {
 
 function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) {
   const FILTERS_KEY = "taskAppDefaultFilters_TasksView";
-  const [filters, setFilters] = useState(() => {
+  const [filters, setFiltersState] = useState(() => {
     const saved = localStorage.getItem(FILTERS_KEY);
     if (saved) {
       try {
@@ -33,11 +33,57 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
     }
     return defaultFilters;
   });
+
+  // Create a wrapper function that also saves to localStorage
+  const setFilters = (newFilters: TaskFilters) => {
+    setFiltersState(newFilters);
+    localStorage.setItem(FILTERS_KEY, JSON.stringify(newFilters));
+  };
   const [showAll, setShowAll] = useState(false);
   const [arrangeBy, setArrangeBy] = useState("age");
   const [reverseOrder, setReverseOrder] = useState(false);
   const [quickAdd, setQuickAdd] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  // Removed streamlined UI toggle; always using classic FilterBar
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  const filtersPanelRef = React.useRef<HTMLDivElement | null>(null);
+  const toggleButtonRef = React.useRef<HTMLButtonElement | null>(null);
+
+  // Count active (non-default) filters for badge display
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (filters.status && filters.status.length > 0) count++;
+    if (filters.minPriority && filters.minPriority.length > 0 && filters.minPriority.length < 5) count++;
+    if (filters.due && filters.due.length > 0 && !filters.due.includes("any")) count++;
+    if (filters.assigned && filters.assigned.length > 0) count++;
+    return count;
+  }, [filters]);
+
+  // Close on outside click
+  React.useEffect(() => {
+    if (!showFilters) return;
+    function handlePointerDown(e: MouseEvent) {
+      const target = e.target as Node;
+      // If clicking the toggle button, let its own onClick handler manage state
+      if (toggleButtonRef.current && toggleButtonRef.current.contains(target)) {
+        return;
+      }
+      // Close if click is outside the panel
+      if (filtersPanelRef.current && !filtersPanelRef.current.contains(target)) {
+        setShowFilters(false);
+      }
+    }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setShowFilters(false);
+    }
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [showFilters]);
   // Removed unused promotingTask state
   const [blockerModalTask, setBlockerModalTask] = useState<{ id: string; title: string; type: "task" } | null>(null);
 
@@ -81,29 +127,55 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
     }
   }
 
+  // Custom filter setter that also saves to localStorage
+  const setFiltersWithPersistence = (newFilters: TaskFilters) => {
+    setFilters(newFilters);
+    localStorage.setItem(FILTERS_KEY, JSON.stringify(newFilters));
+  };
+
   // Memoized filtered task computation to prevent unnecessary recalculations
   const filteredTasks = useMemo((): WithId<Task>[] => {
     let list = allTasks.filter((t: WithId<Task>) => !t.projectId);
     if (showAll) return list;
-    if (!filters.includeArchived) {
+    
+    // Apply search filter first
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      list = list.filter((t: WithId<Task>) => 
+        t.title.toLowerCase().includes(query) ||
+        (t.description && t.description.toLowerCase().includes(query)) ||
+        (t.comments && t.comments.toLowerCase().includes(query)) ||
+        (t.assignee && typeof t.assignee === 'string' && t.assignee.toLowerCase().includes(query)) ||
+        (t.assignee && typeof t.assignee === 'object' && t.assignee.name && t.assignee.name.toLowerCase().includes(query)) ||
+        (t.subtasks && t.subtasks.some(sub => sub.title.toLowerCase().includes(query)))
+      );
+    }
+    
+    // Handle archived tasks - only exclude them if not explicitly requesting archived status
+    if (!filters.includeArchived && !(filters.status && filters.status.includes("archived" as StatusFilter))) {
       list = list.filter((t: WithId<Task>) => t.status !== "archived");
     }
-    if (filters.status.length > 0) {
+    if (filters.status && filters.status.length > 0) {
       list = list.filter((t: WithId<Task>) => {
-        const statusMap: Record<string, string[]> = {
+        const statusMap: Record<StatusFilter, string[]> = {
           active: ["not_started", "in_progress", "blocked"],
           blocked: ["blocked"],
           done: ["done"],
           archived: ["archived"],
         };
-  return filters.status.some((f: string) => statusMap[f]?.includes(t.status));
+        return filters.status.some((f: StatusFilter) => statusMap[f]?.includes(t.status));
       });
     }
-    if (filters.minPriority.length > 0) {
-  list = list.filter((t: WithId<Task>) => filters.minPriority.some((p: string) => t.priority === Number(p)));
+    if (filters.minPriority && filters.minPriority.length > 0) {
+      // If empty array or includes all priorities [0,1,2,3,4], show all tasks
+      const hasAllPriorities = filters.minPriority.length === 5 && [0,1,2,3,4].every(p => filters.minPriority.includes(p));
+      
+      if (!hasAllPriorities) {
+        list = list.filter((t: WithId<Task>) => filters.minPriority.includes(t.priority));
+      }
     }
-    if (filters.due.length > 0) {
-  list = list.filter((t: WithId<Task>) => filters.due.some((d: DueFilter) => isWithinDueFilter(t.dueDate, d)));
+    if (filters.due && filters.due.length > 0 && !filters.due.includes("any" as DueFilter)) {
+      list = list.filter((t: WithId<Task>) => filters.due.some((d: DueFilter) => isWithinDueFilter(t.dueDate, d)));
     }
     if (filters.assigned && filters.assigned.length > 0) {
       list = list.filter((t: WithId<Task>) => {
@@ -122,7 +194,8 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
       });
     }
     return list;
-  }, [allTasks, showAll, filters]);
+  }, [allTasks, showAll, filters, searchQuery]);
+
 
   // Memoized unique assignees list to prevent recalculation
   const uniqueAssignees = useMemo(() => {
@@ -239,20 +312,41 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
         />
       </form>
 
-      {/* Duplicate filter/group bar removed. Only one remains below. */}
-        <div className="mt-4 flex flex-wrap items-center gap-3 bg-white/80 dark:bg-surface/80 rounded-2xl shadow px-4 py-3 border border-gray-200 dark:border-gray-700 w-full">
-          <FilterBar
-            filters={filters}
-            onChange={setFilters}
-            allAssignees={uniqueAssignees}
-            localStorageKey={FILTERS_KEY}
-            compact={false}
-            showAll={showAll}
-            onToggleShowAll={() => setShowAll((v) => !v)}
-          />
-          {/* Separator after filters */}
-          <div className="h-8 w-px bg-gray-300 dark:bg-gray-700 mx-2" />
-          {/* Group by and Arrange by controls */}
+      {/* Filters Dropdown */}
+      <div className="mt-4 relative">
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-3">
+            {/* Persistent Search */}
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search tasks..."
+                className="pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-56"
+              />
+            </div>
+            <button
+              type="button"
+              aria-haspopup="true"
+              aria-expanded={showFilters}
+              aria-controls="filters-panel"
+              ref={toggleButtonRef}
+              onClick={() => setShowFilters((v) => !v)}
+              className={`relative flex items-center gap-2 px-3 py-2 text-sm rounded-lg border shadow transition-colors ${showFilters ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+            >
+              <svg className={`w-4 h-4 ${showFilters ? 'text-blue-600' : 'text-gray-600'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M6 8h12M9 12h6M11 16h2" /></svg>
+              <span>Filters</span>
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full leading-none">{activeFilterCount}</span>
+              )}
+              <svg className={`w-3 h-3 ml-1 transition-transform ${showFilters ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+            </button>
+            {/* Mode toggle removed */}
+          </div>
           <div className="flex items-center gap-2">
             <Dropdown label={`Group by${filters.groupBy && filters.groupBy !== "none" ? `: ${["None","Status","Priority","Due","Assignee"][ ["none","status","priority","due","assigned"].indexOf(filters.groupBy) ]}` : ""}`}> 
               { ["none","status","priority","due","assigned"].map((val, i) => (
@@ -261,7 +355,7 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
                     type="radio"
                     name="groupBy"
                     checked={(filters.groupBy || "none") === val}
-                    onChange={() => setFilters({ ...filters, groupBy: val as TaskFilters["groupBy"] })}
+                    onChange={() => setFiltersWithPersistence({ ...filters, groupBy: val as TaskFilters["groupBy"] })}
                   />
                   <span>{["None","Status","Priority","Due","Assignee"][i]}</span>
                 </label>
@@ -282,7 +376,7 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
             </Dropdown>
             <button
               type="button"
-              className="rounded px-2 py-1 border ml-2"
+              className="rounded px-2 py-1 border"
               onClick={() => setReverseOrder((v) => !v)}
               title="Reverse order"
             >
@@ -290,6 +384,20 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
             </button>
           </div>
         </div>
+        {showFilters && (
+          <div id="filters-panel" ref={filtersPanelRef} className="absolute z-20 mt-2 left-0 right-0 bg-white dark:bg-surface border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-4" role="region" aria-label="Filters">
+            <FilterBar
+              filters={filters}
+              onChange={setFiltersWithPersistence}
+              allAssignees={uniqueAssignees}
+              localStorageKey={FILTERS_KEY}
+              compact={false}
+              showAll={showAll}
+              onToggleShowAll={() => setShowAll((v) => !v)}
+            />
+          </div>
+        )}
+      </div>
 
 
       {/* Tasks grouped list */}
@@ -313,12 +421,23 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
                           "3": "High",
                           "4": "Urgent",
                         };
-                        return `Priority: ${labels[group] || group}`;
+                        return labels[group] || group;
                       })()
                     : filters.groupBy === "due"
-                    ? `Due: ${group}`
+                    ? group
                     : filters.groupBy === "assigned"
-                    ? `Assignee: ${group}`
+                    ? group
+                    : filters.groupBy === "status"
+                    ? (() => {
+                        const statusLabels: Record<string, string> = {
+                          "not_started": "Not Started",
+                          "in_progress": "In Progress",
+                          "blocked": "Blocked",
+                          "done": "Done",
+                          "archived": "Archived",
+                        };
+                        return statusLabels[group] || group.charAt(0).toUpperCase() + group.slice(1);
+                      })()
                     : group.charAt(0).toUpperCase() + group.slice(1)}
                 </div>
               )}
@@ -332,6 +451,7 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
                           task={t}
                           allProjects={allProjects}
                           allBlockers={allBlockers}
+                          searchQuery={searchQuery}
                           onSave={() => setEditingTaskId(null)}
                           onCancel={() => setEditingTaskId(null)}
                           // ...existing code...
@@ -369,6 +489,7 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
                         task={t}
                         allBlockers={allBlockers}
                         allTasks={filteredTasks}
+                        searchQuery={searchQuery}
                         onStartEdit={() => setEditingTaskId(t.id)}
                         // ...existing code...
                         onManageBlockers={() => {}}

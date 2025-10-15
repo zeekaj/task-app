@@ -37,9 +37,10 @@ interface TaskItemProps {
   dragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
   crossListDragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
   onPriorityChange?: (taskId: string, newPriority: number) => void;
+  searchQuery?: string;
 }
 
-export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onPriorityChange }) => {
+export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onPriorityChange, searchQuery = '' }) => {
   const [iconHovered, setIconHovered] = useState(false);
   const [editingDueDate, setEditingDueDate] = useState(false);
   const [editingAssignee, setEditingAssignee] = useState(false);
@@ -161,6 +162,83 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
     onClickOutside: handleAssigneeUpdate,
     selector: 'input[list="assignees-datalist"]'
   });
+
+  // Highlight helper: splits text and wraps matches
+  const highlightText = (text: string | undefined | null) => {
+    if (!text) return text;
+    const q = searchQuery.trim();
+    if (!q) return text;
+    try {
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'ig');
+      const parts: React.ReactNode[] = [];
+      let lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(text)) !== null) {
+        const start = match.index;
+        const end = regex.lastIndex;
+        if (start > lastIndex) {
+          parts.push(text.slice(lastIndex, start));
+        }
+        const matched = text.slice(start, end);
+        parts.push(
+          <mark
+            key={start + '-' + end}
+            className="bg-yellow-300 text-black px-0.5 rounded-sm"
+          >
+            {matched}
+          </mark>
+        );
+        lastIndex = end;
+        // Avoid infinite loops with zero-length matches
+        if (start === end) break;
+      }
+      if (lastIndex < text.length) {
+        parts.push(text.slice(lastIndex));
+      }
+      return parts;
+    } catch {
+      return text;
+    }
+  };
+
+  // Get search match snippet with context
+  const getMatchSnippet = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return null;
+
+    // Check if title matches - if so, no snippet needed
+    if (task.title.toLowerCase().includes(q)) return null;
+
+    // Check description
+    if (task.description && task.description.toLowerCase().includes(q)) {
+      const index = task.description.toLowerCase().indexOf(q);
+      const start = Math.max(0, index - 40);
+      const end = Math.min(task.description.length, index + q.length + 40);
+      const snippet = (start > 0 ? '...' : '') + task.description.slice(start, end) + (end < task.description.length ? '...' : '');
+      return { source: 'Description', text: snippet };
+    }
+
+    // Check comments
+    if (task.comments && task.comments.toLowerCase().includes(q)) {
+      const index = task.comments.toLowerCase().indexOf(q);
+      const start = Math.max(0, index - 40);
+      const end = Math.min(task.comments.length, index + q.length + 40);
+      const snippet = (start > 0 ? '...' : '') + task.comments.slice(start, end) + (end < task.comments.length ? '...' : '');
+      return { source: 'Note', text: snippet };
+    }
+
+    // Check subtasks
+    if (task.subtasks) {
+      for (const sub of task.subtasks) {
+        if (sub.title.toLowerCase().includes(q)) {
+          return { source: 'Subtask', text: sub.title };
+        }
+      }
+    }
+
+    return null;
+  }, [task.title, task.description, task.comments, task.subtasks, searchQuery]);
 
   return (
       <div
@@ -358,8 +436,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
             </div>
             {/* Middle: title/description */}
             <div
-
-              className={`flex-grow flex items-center min-w-0 transition-all duration-200 relative`}
+              className={`flex-grow flex flex-col justify-center min-w-0 transition-all duration-200 relative py-2`}
               style={{ paddingLeft: iconHovered && !statusInfo.isBlocked ? '40px' : '28px' }}
               onClick={e => {
                 // Only open full edit if not clicking the text itself or inline input
@@ -389,48 +466,60 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                   onClick={e => e.stopPropagation()}
                 />
               ) : (
-                <span className="flex items-center gap-2 w-full min-w-0">
-                  <p
-                    className={`truncate my-0 flex-shrink min-w-0 ${task.status === "done" ? "line-through dark:text-gray-500 text-gray-500" : ""} cursor-pointer`}
-                    onClick={e => {
-                      e.stopPropagation();
-                      if (!statusInfo.isArchived) setEditingInline(true);
-                    }}
-                    title="Click to edit title"
-                    style={{ lineHeight: '1.5' }}
-                  >
-                    {typeof task.title === "object" ? JSON.stringify(task.title) : task.title}
-                  </p>
-                  {/* Description indicator */}
-                  {task.description && (
-                    <span title="Has description" className="ml-2 flex items-center">
-                      <Icon path="M3 5h14v2H3zM3 9h14v2H3zM3 13h10v2H3z" className="w-4 h-4 text-gray-400" />
-                    </span>
+                <>
+                  <span className="flex items-center gap-2 w-full min-w-0">
+                    <p
+                      className={`truncate my-0 flex-shrink min-w-0 ${task.status === "done" ? "line-through dark:text-gray-500 text-gray-500" : ""} cursor-pointer`}
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (!statusInfo.isArchived) setEditingInline(true);
+                      }}
+                      title="Click to edit title"
+                      style={{ lineHeight: '1.5' }}
+                    >
+                      {typeof task.title === "object" ? highlightText(JSON.stringify(task.title)) : highlightText(task.title)}
+                    </p>
+                    {/* Description indicator */}
+                    {task.description && (
+                      <span
+                        title={typeof task.description === 'string' ? task.description : 'Has description'}
+                        className="ml-2 flex items-center"
+                      >
+                        <Icon path="M3 5h14v2H3zM3 9h14v2H3zM3 13h10v2H3z" className="w-4 h-4 text-gray-400" />
+                      </span>
+                    )}
+                    {/* Notes/comments indicator */}
+                    {task.comments && task.comments.length > 0 && (
+                      <span title="Has comments/notes" className="ml-1 flex items-center">
+                        <Icon path="M21 6.5a2.5 2.5 0 00-2.5-2.5h-13A2.5 2.5 0 003 6.5v7A2.5 2.5 0 005.5 16H6v3l4.5-3h6A2.5 2.5 0 0021 13.5v-7z" className="w-4 h-4 text-amber-400" />
+                      </span>
+                    )}
+                    {/* Subtask progress icon */}
+                    {subtaskInfo.subtaskCount > 0 && (
+                      <span className="inline-flex items-center gap-1 text-xs text-gray-500 ml-1" title="Subtasks">
+                        <svg width="16" height="16" fill="none" viewBox="0 0 20 20"><rect x="2" y="5" width="16" height="10" rx="2" fill="#e5e7eb"/><rect x="4" y="7" width="12" height="6" rx="1" fill="#fff"/><path d="M7 10.5l2 2 4-4" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                        {subtaskInfo.subtaskDone}/{subtaskInfo.subtaskCount}
+                      </span>
+                    )}
+                    {/* Dependencies icon */}
+                    {Array.isArray(task.dependencies) && task.dependencies.length > 0 && (
+                      <span className="inline-flex items-center gap-1 text-xs text-blue-500 ml-1" title={`Depends on: ${task.dependencies.map(depId => {
+                        const depTask = allTasks.find(t => t.id === depId);
+                        return depTask ? depTask.title : depId;
+                      }).join(", ")}`}>
+                        <svg width="16" height="16" fill="none" viewBox="0 0 20 20"><path d="M7 10h6M7 10l2-2m-2 2l2 2" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="5" cy="10" r="2" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.2"/><circle cx="15" cy="10" r="2" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.2"/></svg>
+                        {task.dependencies.length}
+                      </span>
+                    )}
+                  </span>
+                  {/* Search match snippet */}
+                  {getMatchSnippet && (
+                    <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 italic truncate">
+                      <span className="font-semibold text-blue-600 dark:text-blue-400">{getMatchSnippet.source}:</span>{' '}
+                      {highlightText(getMatchSnippet.text)}
+                    </div>
                   )}
-                  {/* Notes/comments indicator */}
-                  {task.comments && task.comments.length > 0 && (
-                    <span title="Has comments/notes" className="ml-1 flex items-center">
-                      <Icon path="M21 6.5a2.5 2.5 0 00-2.5-2.5h-13A2.5 2.5 0 003 6.5v7A2.5 2.5 0 005.5 16H6v3l4.5-3h6A2.5 2.5 0 0021 13.5v-7z" className="w-4 h-4 text-amber-400" />
-                    </span>
-                  )}
-                  {/* Subtask progress icon */}
-                  {subtaskInfo.subtaskCount > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs text-gray-500 ml-1" title="Subtasks">
-                      <svg width="16" height="16" fill="none" viewBox="0 0 20 20"><rect x="2" y="5" width="16" height="10" rx="2" fill="#e5e7eb"/><rect x="4" y="7" width="12" height="6" rx="1" fill="#fff"/><path d="M7 10.5l2 2 4-4" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                      {subtaskInfo.subtaskDone}/{subtaskInfo.subtaskCount}
-                    </span>
-                  )}
-                  {/* Dependencies icon */}
-                  {Array.isArray(task.dependencies) && task.dependencies.length > 0 && (
-                    <span className="inline-flex items-center gap-1 text-xs text-blue-500 ml-1" title={`Depends on: ${task.dependencies.map(depId => {
-                      const depTask = allTasks.find(t => t.id === depId);
-                      return depTask ? depTask.title : depId;
-                    }).join(", ")}`}>
-                      <svg width="16" height="16" fill="none" viewBox="0 0 20 20"><path d="M7 10h6M7 10l2-2m-2 2l2 2" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="5" cy="10" r="2" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.2"/><circle cx="15" cy="10" r="2" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.2"/></svg>
-                      {task.dependencies.length}
-                    </span>
-                  )}
-                </span>
+                </>
               )}
 
               {/* Comments/Notes display removed from collapsed line */}
@@ -553,13 +642,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                 </button>
               )}
               {/* Promote, archive, delete, unarchive buttons */}
-              <button
-                className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-accent hover:text-blue-500"
-                title="Promote to Project"
-                // onClick for promote removed
-              >
-                <Icon path="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" />
-              </button>
+              {!statusInfo.isArchived && (
+                <button
+                  className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-accent hover:text-blue-500"
+                  title="Promote to Project"
+                  // onClick for promote removed
+                >
+                  <Icon path="M9 16h6v-6h4l-7-7-7 7h4v6zm-4 2h14v2H5v-2z" />
+                </button>
+              )}
               {!statusInfo.isArchived ? (
                 <>
                   <button
@@ -578,13 +669,22 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                   </button>
                 </>
               ) : (
-                <button
-                  onClick={e => { e.stopPropagation(); onUnarchive(); }}
-                  className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-green-400 hover:text-green-600"
-                  title="Unarchive Task"
-                >
-                  <Icon path="M5 5h14v2H5zm2 4h10v10H7z" />
-                </button>
+                <>
+                  <button
+                    onClick={e => { e.stopPropagation(); onUnarchive(); }}
+                    className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-green-400 hover:text-green-600"
+                    title="Unarchive Task"
+                  >
+                    <Icon path="M5 5h14v2H5zm2 4h10v10H7z" />
+                  </button>
+                  <button
+                    onClick={e => { e.stopPropagation(); onDelete(); }}
+                    className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-red-400 hover:text-red-500"
+                    title="Delete Task"
+                  >
+                    <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                  </button>
+                </>
               )}
             </div>
           </div>
