@@ -314,6 +314,19 @@ const ProjectView: React.FC<{
     return list;
   };
 
+  // Count hidden project tasks (active and blocked only)
+  const hiddenProjectTasksCount = () => {
+    if (showAll) return 0;
+    
+    const allProjectTasks = allTasks.filter((t: any) => t.projectId === projectId);
+    const activeAndBlockedProjectTasks = allProjectTasks.filter((t: any) => 
+      t.status === "not_started" || t.status === "in_progress" || t.status === "blocked"
+    );
+    
+    const currentFilteredTasks = computeProjectTasks();
+    return activeAndBlockedProjectTasks.length - currentFilteredTasks.length;
+  };
+
   // No dragList; always use computeProjectTasks()
   // ...existing code...
 
@@ -826,6 +839,18 @@ const ProjectView: React.FC<{
               onToggleShowAll={() => setShowAll((v) => !v)}
               localStorageKey={FILTERS_KEY}
             />
+            
+            {/* Hidden tasks indicator */}
+            {hiddenProjectTasksCount() > 0 && (
+              <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1">
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd"/>
+                  <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z"/>
+                </svg>
+                <span>{hiddenProjectTasksCount()} task{hiddenProjectTasksCount() === 1 ? '' : 's'} hidden by filters</span>
+              </div>
+            )}
+            
             {/* Separator after filters */}
             <div className="h-8 w-px bg-gray-300 dark:bg-gray-700 mx-2" />
             {/* Group by and Arrange by controls */}
