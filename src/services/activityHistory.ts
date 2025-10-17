@@ -176,6 +176,20 @@ export function generateActivityDescription(activity: Activity, contextEntityId?
             const toCount = Array.isArray(change.to) ? change.to.length : 0;
             return `${field}: ${fromCount} → ${toCount}`;
           }
+          if (field === 'attachments') {
+            const fromCount = Array.isArray(change.from) ? change.from.length : 0;
+            const toCount = Array.isArray(change.to) ? change.to.length : 0;
+            if (toCount > fromCount) {
+              // Added attachment
+              const added = Array.isArray(change.to) ? change.to[change.to.length - 1] : null;
+              return added ? `added ${added.type === 'file' ? 'file' : 'link'}: "${added.name}"` : `attachments: ${fromCount} → ${toCount}`;
+            } else if (toCount < fromCount) {
+              // Removed attachment
+              const removed = Array.isArray(change.from) ? change.from.find((a: any) => !change.to?.some((b: any) => b.id === a.id)) : null;
+              return removed ? `removed ${removed.type === 'file' ? 'file' : 'link'}: "${removed.name}"` : `attachments: ${fromCount} → ${toCount}`;
+            }
+            return `attachments: ${fromCount} → ${toCount}`;
+          }
           return `${field}: "${change.from}" → "${change.to}"`;
         }).join(", ");
         return `${user} updated${entityRef}${isInContext ? '' : ':'} ${fieldChanges}`;

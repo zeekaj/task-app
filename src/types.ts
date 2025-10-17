@@ -54,7 +54,7 @@ export interface Task {
   projectId: string | null;
   status: TaskStatus;
   assignee?: string | TaskAssignee; // user ID or object
-  priority: number; // 0..4
+  priority: number; // 0..100 scale
   dueDate: string | null; // ISO string or null
   order?: number; // for custom ordering
   createdAt?: Timestamp | FieldValue;
@@ -108,7 +108,7 @@ export type StatusFilter = "active" | "blocked" | "done" | "archived";
 export type DueFilter = "any" | "overdue" | "today" | "week" | "month";
 export interface TaskFilters {
   status: StatusFilter[];
-  minPriority: (0 | 1 | 2 | 3 | 4)[];
+  minPriority: number[]; // 0-100 range
   due: DueFilter[];
   assigned?: string[]; // filter by assigned user(s)
   includeArchived: boolean;

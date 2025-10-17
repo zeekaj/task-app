@@ -65,10 +65,6 @@ export const BlockedView: React.FC<{
                 const { updateTask } = await import("../../services/tasks");
                 await updateTask(uid, t.id, { status: newStatus });
               }}
-              onPriorityChange={async (newPriority) => {
-                const { updateTask } = await import("../../services/tasks");
-                await updateTask(uid, t.id, { priority: Number(newPriority) });
-              }}
             />
           ))}
         </ul>

@@ -9,10 +9,10 @@ import type { TaskFilters } from "../types";
 
 const priorities = [
   { value: 0, label: "Any" },
-  { value: 1, label: "≥ Low" },
-  { value: 2, label: "≥ Medium" },
-  { value: 3, label: "≥ High" },
-  { value: 4, label: "≥ Urgent" },
+  { value: 25, label: "≥ Low (25+)" },
+  { value: 50, label: "≥ Medium (50+)" },
+  { value: 75, label: "≥ High (75+)" },
+  { value: 90, label: "≥ Urgent (90+)" },
 ] as const;
 
 export const defaultFilters: TaskFilters = {
@@ -95,7 +95,7 @@ export const FilterBar: React.FC<{
   </Dropdown>
                           <Dropdown label="Priority">
                             {(() => {
-                              const allLevels = [1, 2, 3, 4] as (0 | 1 | 2 | 3 | 4)[];
+                              const allLevels = [0, 25, 50, 75, 90] as const;
                               const allSelected = allLevels.every((l) => filters.minPriority.includes(l));
                               return (
                                 <>
@@ -124,7 +124,7 @@ export const FilterBar: React.FC<{
                                           onChange({ ...filters, minPriority: next });
                                         }}
                                       />
-                                      <span>{priorities.find((p) => p.value === level)?.label.replace('≥ ', '')}</span>
+                                      <span>{priorities.find((p) => p.value === level)?.label}</span>
                                     </label>
                                   ))}
                                 </>

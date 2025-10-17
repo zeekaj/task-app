@@ -17,13 +17,32 @@ export const TaskCreateForm: React.FC<Props> = ({
 }) => {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [priority, setPriority] = useState<number>(0);
+  const [priority, setPriority] = useState<number>(50); // Default to medium (50)
   const [dueDate, setDueDate] = useState<string>("");
   const [proj, setProj] = useState<string | "">(projectId ?? "");
   const [assignee, setAssignee] = useState<string>(""); // New assignee state
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Priority helper functions (0-100 scale)
+  const getPriorityLabel = (value: number): string => {
+    if (value === 0) return "None";
+    if (value <= 20) return "Very Low";
+    if (value <= 40) return "Low";
+    if (value <= 60) return "Medium";
+    if (value <= 80) return "High";
+    return "Urgent";
+  };
+
+  const getPrioritySliderColor = (value: number): string => {
+    if (value === 0) return "#9ca3af"; // gray
+    if (value <= 20) return "#60a5fa"; // blue
+    if (value <= 40) return "#4ade80"; // green
+    if (value <= 60) return "#facc15"; // yellow
+    if (value <= 80) return "#fb923c"; // orange
+    return "#ef4444"; // red
+  };
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -47,7 +66,7 @@ export const TaskCreateForm: React.FC<Props> = ({
       );
       setTitle("");
       setDescription("");
-      setPriority(0);
+      setPriority(50);
       setDueDate("");
       setAssignee("");
       if (!projectId) setProj("");
@@ -90,18 +109,32 @@ export const TaskCreateForm: React.FC<Props> = ({
 
   <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <label className="flex flex-col text-sm">
-          <span className="mb-1 text-gray-600">Priority</span>
-          <select
-            className="border rounded-md px-3 py-2"
-            value={priority}
-            onChange={(e) => setPriority(Number(e.target.value))}
-          >
-            <option value={0}>P0 (Lowest)</option>
-            <option value={1}>P1</option>
-            <option value={2}>P2</option>
-            <option value={3}>P3</option>
-            <option value={4}>P4 (Highest)</option>
-          </select>
+          <span className="mb-1 text-gray-600">Priority: {getPriorityLabel(priority)} ({priority})</span>
+          <div className="flex items-center gap-2">
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={priority}
+              onChange={(e) => setPriority(Number(e.target.value))}
+              className="flex-1 h-2 rounded-lg appearance-none cursor-pointer"
+              style={{
+                background: `linear-gradient(to right, 
+                  #9ca3af 0%, 
+                  #60a5fa 20%, 
+                  #4ade80 40%, 
+                  #facc15 60%, 
+                  #fb923c 80%, 
+                  #ef4444 100%)`,
+              }}
+            />
+            <span 
+              className="flex-shrink-0 w-10 h-6 rounded flex items-center justify-center text-xs font-bold text-white"
+              style={{ backgroundColor: getPrioritySliderColor(priority) }}
+            >
+              {priority}
+            </span>
+          </div>
         </label>
           <label className="flex flex-col text-sm">
             <span className="mb-1 text-gray-600">Assignee</span>

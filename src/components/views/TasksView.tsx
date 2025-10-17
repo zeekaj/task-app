@@ -54,7 +54,8 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
   const activeFilterCount = useMemo(() => {
     let count = 0;
     if (filters.status && filters.status.length > 0) count++;
-    if (filters.minPriority && filters.minPriority.length > 0 && filters.minPriority.length < 5) count++;
+    // Priority filter is active if it doesn't include 0 (Any) or doesn't have all thresholds
+    if (filters.minPriority && filters.minPriority.length > 0 && !filters.minPriority.includes(0) && filters.minPriority.length < 5) count++;
     if (filters.due && filters.due.length > 0 && !filters.due.includes("any")) count++;
     if (filters.assigned && filters.assigned.length > 0) count++;
     return count;
@@ -167,11 +168,15 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
       });
     }
     if (filters.minPriority && filters.minPriority.length > 0) {
-      // If empty array or includes all priorities [0,1,2,3,4], show all tasks
-      const hasAllPriorities = filters.minPriority.length === 5 && [0,1,2,3,4].every(p => filters.minPriority.includes(p));
+      // If includes 0 or all thresholds [0, 25, 50, 75, 90], show all tasks
+      const hasAllPriorities = filters.minPriority.includes(0) || (filters.minPriority.length === 5 && [0, 25, 50, 75, 90].every(p => filters.minPriority.includes(p)));
       
       if (!hasAllPriorities) {
-        list = list.filter((t: WithId<Task>) => filters.minPriority.includes(t.priority));
+        // Show tasks that meet at least one of the selected priority thresholds
+        list = list.filter((t: WithId<Task>) => {
+          // For each selected threshold, check if task priority >= threshold
+          return filters.minPriority.some((threshold: number) => t.priority >= threshold);
+        });
       }
     }
     if (filters.due && filters.due.length > 0 && !filters.due.includes("any" as DueFilter)) {
@@ -473,13 +478,7 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
                           onStatusChange={async (newStatus) => {
                             const { updateTask } = await import("../../services/tasks");
                             await updateTask(uid, t.id, { status: newStatus });
-                            // Fetch latest task from backend
-                            const { getDoc, doc } = await import("firebase/firestore");
-                            const { db } = await import("../../firebase");
-                            const snap = await getDoc(doc(db, `users/${uid}/tasks/${t.id}`));
-                            if (snap.exists()) {
-                              setEditingTaskId(null);
-                            }
+                            // Modal will remain open after status change
                           }}
                         />
                       </div>
@@ -510,7 +509,6 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
                           const { updateTask } = await import("../../services/tasks");
                           await updateTask(uid, t.id, { status: newStatus });
                         }}
-                        onPriorityChange={() => {}}
                       />
                     )}
                   </li>

@@ -132,7 +132,7 @@ export async function createTask(
     comments: options?.comments ?? "",
     projectId: projectId ?? null,
     status: "not_started" as TaskStatus,
-    priority: typeof options?.priority === "number" ? options.priority : 2,
+    priority: typeof options?.priority === "number" ? options.priority : 50,
     dueDate: options?.dueDate ?? null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

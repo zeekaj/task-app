@@ -925,6 +925,7 @@ const ProjectView: React.FC<{
                       onStatusChange={async (newStatus) => {
                         const { updateTask } = await import("../../services/tasks");
                         await updateTask(uid, task.id, { status: newStatus });
+                        // Modal will remain open after status change
                       }}
                     />
                   </div>

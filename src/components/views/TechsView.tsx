@@ -160,7 +160,14 @@ export const TechsView: React.FC<TechsViewProps> = ({
       }
       
       if (filters.minPriority && filters.minPriority.length > 0) {
-        filteredTasks = filteredTasks.filter(task => filters.minPriority.some((p) => task.priority === p));
+        // If includes 0 or all thresholds [0, 25, 50, 75, 90], show all tasks
+        const hasAllPriorities = filters.minPriority.includes(0) || (filters.minPriority.length === 5 && [0, 25, 50, 75, 90].every(p => filters.minPriority.includes(p)));
+        
+        if (!hasAllPriorities) {
+          filteredTasks = filteredTasks.filter(task => 
+            filters.minPriority.some((threshold: number) => task.priority >= threshold)
+          );
+        }
       }
       
       if (filters.due && filters.due.length > 0) {
@@ -566,10 +573,6 @@ export const TechsView: React.FC<TechsViewProps> = ({
                         onStatusChange={async (newStatus) => {
                           const { updateTask } = await import("../../services/tasks");
                           await updateTask(uid, task.id, { status: newStatus });
-                        }}
-                        onPriorityChange={async (taskId, newPriority) => {
-                          const { updateTask } = await import("../../services/tasks");
-                          await updateTask(uid, taskId, { priority: newPriority });
                         }}
                       />
                     )}
