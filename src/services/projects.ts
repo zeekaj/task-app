@@ -1,28 +1,19 @@
 // src/services/projects.ts
-import {
-  addDoc,
-  doc,
-  getDoc,
-  getDocs,
-  query,
-  serverTimestamp,
-  updateDoc,
-  where,
-  writeBatch,
-} from "firebase/firestore";
-import { db, col } from "../firebase";
+import { getFirebase } from "../firebase";
 import type { Project } from "../types";
 import { logActivity } from "./activityHistory";
 
 /** Create a new project. */
 export async function createProject(uid: string, title: string, assignees?: string | string[]) {
   try {
-    const collectionRef = col(uid, "projects");
+    const { addDoc: _addDoc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
+  const fb = await getFirebase();
+  const collectionRef = fb.col(uid, "projects");
     const docData: any = {
       title,
       status: "not_started" as ProjectStatus,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+      createdAt: _serverTimestamp(),
+      updatedAt: _serverTimestamp(),
     };
     
     // Handle both single assignee (legacy) and multiple assignees
@@ -38,13 +29,14 @@ export async function createProject(uid: string, title: string, assignees?: stri
       }
     }
     
-    const ref = await addDoc(collectionRef, docData);
+  const ref = await _addDoc(collectionRef, docData);
     await logActivity(uid, "project", ref.id, title, "created", {
       description: `Created project: ${title}`,
     });
     return ref.id;
   } catch (err) {
-    console.error("createProject error:", err);
+  const { logError } = await import('../utils/logger');
+  logError("createProject error:", (err as any)?.message ?? err);
     throw err;
   }
 }
@@ -56,10 +48,12 @@ export async function updateProject(
   data: Partial<Pick<Project, "title" | "status" | "assignee" | "assignees" | "owner" | "r2Number" | "installDate">>
 ) {
   // Get current project for change tracking
-  const projectDoc = await getDoc(doc(db, `users/${uid}/projects/${projectId}`));
+  const { getDoc: _getDoc, doc: _doc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
+  const fb2 = await getFirebase();
+  const projectDoc = await _getDoc(_doc(fb2.db, `users/${uid}/projects/${projectId}`));
   const currentProject = projectDoc.exists() ? projectDoc.data() as Project : null;
   
-  const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
+  const payload: Record<string, unknown> = { updatedAt: _serverTimestamp() };
   const changes: Record<string, { from: any; to: any }> = {};
   
   if (typeof data.title !== "undefined") {
@@ -130,7 +124,9 @@ export async function updateProject(
     }
   }
 
-  await updateDoc(doc(db, `users/${uid}/projects/${projectId}`), payload);
+  const { updateDoc: _updateDoc, doc: _doc2 } = await import('firebase/firestore');
+  const fb3 = await getFirebase();
+  await _updateDoc(_doc2(fb3.db, `users/${uid}/projects/${projectId}`), payload);
 
   // Log activity with proper parameters
   const action = Object.keys(changes).includes('status') ? "status_changed" : "updated";
@@ -147,24 +143,22 @@ export async function updateProject(
  * to the project or those tasks.
  */
 export async function deleteProject(uid: string, projectId: string) {
-  const batch = writeBatch(db);
+  const { writeBatch: _writeBatch, query: _query, where: _where, getDocs: _getDocs, doc: _doc3 } = await import('firebase/firestore');
+  const fb4 = await getFirebase();
+  const batch = _writeBatch(fb4.db);
 
   // Delete project tasks
-  const tasksQ = query(col(uid, "tasks"), where("projectId", "==", projectId));
-  const tasksSnap = await getDocs(tasksQ);
-  const taskIds = tasksSnap.docs.map((d) => d.id);
-  for (const d of tasksSnap.docs) {
-    batch.delete(doc(db, `users/${uid}/tasks/${d.id}`));
+  const tasksQ = _query(fb4.col(uid, "tasks"), _where("projectId", "==", projectId));
+  const tasksSnap = await _getDocs(tasksQ);
+  const taskIds = tasksSnap.docs.map((d: any) => d.id);
+    for (const d of tasksSnap.docs) {
+    batch.delete(_doc3(fb4.db, `users/${uid}/tasks/${(d as any).id}`));
   }
 
   // Delete blockers directly on the project
-  const projectBlockersQ = query(
-    col(uid, "blockers"),
-    where("entityId", "==", projectId),
-    where("entityType", "==", "project")
-  );
-  const projectBlockersSnap = await getDocs(projectBlockersQ);
-  projectBlockersSnap.forEach((b) => batch.delete(b.ref));
+  const projectBlockersQ = _query(fb4.col(uid, "blockers"), _where("entityId", "==", projectId), _where("entityType", "==", "project"));
+  const projectBlockersSnap = await _getDocs(projectBlockersQ);
+  projectBlockersSnap.forEach((b: any) => batch.delete(b.ref));
 
   // Delete blockers on each task in chunks of 10 (Firestore 'in' limit)
   const chunkSize = 10;
@@ -172,17 +166,13 @@ export async function deleteProject(uid: string, projectId: string) {
     const chunk = taskIds.slice(i, i + chunkSize);
     if (chunk.length === 0) continue;
 
-    const taskBlockersQ = query(
-      col(uid, "blockers"),
-      where("entityId", "in", chunk),
-      where("entityType", "==", "task")
-    );
-    const taskBlockersSnap = await getDocs(taskBlockersQ);
-    taskBlockersSnap.forEach((b) => batch.delete(b.ref));
+    const taskBlockersQ = _query(fb4.col(uid, "blockers"), _where("entityId", "in", chunk), _where("entityType", "==", "task"));
+  const taskBlockersSnap = await _getDocs(taskBlockersQ);
+  taskBlockersSnap.forEach((b: any) => batch.delete(b.ref));
   }
 
   // Finally delete the project doc
-  batch.delete(doc(db, `users/${uid}/projects/${projectId}`));
+  batch.delete(_doc3(fb4.db, `users/${uid}/projects/${projectId}`));
 
   await batch.commit();
   await logActivity(uid, "project", projectId, "Deleted Project", "deleted", {
@@ -197,21 +187,13 @@ export async function deleteProject(uid: string, projectId: string) {
  * If unblocking, leave 'completed'/'archived' sticky.
  */
 export async function reevaluateProjectBlockedState(uid: string, projectId: string) {
-  const projectRef = doc(db, `users/${uid}/projects/${projectId}`);
-
+  const fb5 = await getFirebase();
+  const { getDocs: _getDocs2, query: _query2, where: _where2, getDoc: _getDoc2, doc: _doc2 } = await import('firebase/firestore');
+  const projectRef = _doc2(fb5.db, `users/${uid}/projects/${projectId}`);
   const [blockedTasksSnap, activeProjectBlockersSnap, projectSnap] = await Promise.all([
-    getDocs(
-      query(col(uid, "tasks"), where("projectId", "==", projectId), where("status", "==", "blocked"))
-    ),
-    getDocs(
-      query(
-        col(uid, "blockers"),
-        where("entityType", "==", "project"),
-        where("entityId", "==", projectId),
-        where("status", "==", "active")
-      )
-    ),
-    getDoc(projectRef),
+    _getDocs2(_query2(fb5.col(uid, "tasks"), _where2("projectId", "==", projectId), _where2("status", "==", "blocked"))),
+    _getDocs2(_query2(fb5.col(uid, "blockers"), _where2("entityType", "==", "project"), _where2("entityId", "==", projectId), _where2("status", "==", "active"))),
+    _getDoc2(projectRef),
   ]);
 
   if (!projectSnap.exists()) return;

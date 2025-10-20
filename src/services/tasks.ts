@@ -1,131 +1,24 @@
-/**
- * Add a dependency to a task
- */
-export async function addDependency(
-  uid: string,
-  taskId: string,
-  dependencyTaskId: string
-): Promise<void> {
-  const ref = doc(db, `users/${uid}/tasks/${taskId}`);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) throw new Error("Task not found");
-  const task = snap.data() as Task;
-  const dependencies = Array.isArray(task.dependencies)
-    ? Array.from(new Set([...task.dependencies, dependencyTaskId]))
-    : [dependencyTaskId];
-  await updateDoc(ref, { dependencies, updatedAt: serverTimestamp() });
-  
-  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
-    description: `Added dependency: ${dependencyTaskId}`
-  });
-}
-
-/**
- * Remove a dependency from a task
- */
-export async function removeDependency(
-  uid: string,
-  taskId: string,
-  dependencyTaskId: string
-): Promise<void> {
-  const ref = doc(db, `users/${uid}/tasks/${taskId}`);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) throw new Error("Task not found");
-  const task = snap.data() as Task;
-  const dependencies = (task.dependencies || []).filter((id) => id !== dependencyTaskId);
-  await updateDoc(ref, { dependencies, updatedAt: serverTimestamp() });
-  
-  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
-    description: `Removed dependency: ${dependencyTaskId}`
-  });
-}
 // src/services/tasks.ts
-import {
-  addDoc,
-  doc,
-  getDoc,
-  serverTimestamp,
-  updateDoc,
-  writeBatch,
-} from "firebase/firestore";
-import { db, col } from "../firebase";
+// Firestore functions are imported dynamically inside functions to avoid bundling Firestore eagerly
+import { getFirebase } from "../firebase";
 import type { Task, TaskStatus, Subtask } from "../types";
-// Subtask CRUD operations
-import { v4 as uuidv4 } from "uuid";
 
-/**
- * Add a subtask to a task
- */
-export async function addSubtask(
-  uid: string,
-  taskId: string,
-  title: string
-): Promise<Subtask> {
-  const subtask: Subtask = { id: uuidv4(), title, done: false };
-  const ref = doc(db, `users/${uid}/tasks/${taskId}`);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) throw new Error("Task not found");
-  const task = snap.data() as Task;
-  const subtasks = Array.isArray(task.subtasks) ? [...task.subtasks, subtask] : [subtask];
-  await updateDoc(ref, { subtasks, updatedAt: serverTimestamp() });
-  
-  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
-    description: `Added subtask: ${title}`
-  });
-  return subtask;
-}
-
-/**
- * Update a subtask (title or done)
- */
-export async function updateSubtask(
-  uid: string,
-  taskId: string,
-  subtaskId: string,
-  data: Partial<Pick<Subtask, "title" | "done">>
-): Promise<void> {
-  const ref = doc(db, `users/${uid}/tasks/${taskId}`);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) throw new Error("Task not found");
-  const task = snap.data() as Task;
-  const subtasks = (task.subtasks || []).map((s) =>
-    s.id === subtaskId ? { ...s, ...data } : s
-  );
-  await updateDoc(ref, { subtasks, updatedAt: serverTimestamp() });
-  
-  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
-    description: `Updated subtask: ${subtaskId}`
-  });
-}
-
-/**
- * Delete a subtask
- */
-export async function deleteSubtask(
-  uid: string,
-  taskId: string,
-  subtaskId: string
-): Promise<void> {
-  const ref = doc(db, `users/${uid}/tasks/${taskId}`);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) throw new Error("Task not found");
-  const task = snap.data() as Task;
-  const subtasks = (task.subtasks || []).filter((s) => s.id !== subtaskId);
-  await updateDoc(ref, { subtasks, updatedAt: serverTimestamp() });
-  
-  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
-    description: `Deleted subtask: ${subtaskId}`
-  });
-}
+// Lightweight ID generator for subtasks (uses crypto.randomUUID when available)
+const generateId = () =>
+  (globalThis.crypto && (globalThis.crypto as any).randomUUID
+    ? (globalThis.crypto as any).randomUUID()
+    : Math.random().toString(36).slice(2, 10));
 import { reevaluateProjectBlockedState } from "./projects";
 import { logActivity } from "./activityHistory";
 
+/** Create a new task */
 export async function createTask(
   uid: string,
   title: string,
   projectId?: string | null,
   options?: Partial<Pick<Task, "description" | "priority" | "dueDate" | "assignee" | "recurrence" | "attachments" | "comments">>
 ) {
+  const { serverTimestamp: _serverTimestamp, addDoc: _addDoc } = await import('firebase/firestore');
   const docData: any = {
     title,
     description: options?.description ?? "",
@@ -134,32 +27,31 @@ export async function createTask(
     status: "not_started" as TaskStatus,
     priority: typeof options?.priority === "number" ? options.priority : 50,
     dueDate: options?.dueDate ?? null,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
+    createdAt: _serverTimestamp(),
+    updatedAt: _serverTimestamp(),
   };
-  if (typeof options?.assignee !== "undefined") {
-    docData.assignee = options.assignee;
-  }
-  if (typeof options?.recurrence !== "undefined") {
-    docData.recurrence = options.recurrence;
-  }
-  if (typeof options?.attachments !== "undefined") {
-    docData.attachments = options.attachments;
-  }
-  const ref = await addDoc(col(uid, "tasks"), docData as Task);
+  if (typeof options?.assignee !== "undefined") docData.assignee = options.assignee;
+  if (typeof options?.recurrence !== "undefined") docData.recurrence = options.recurrence;
+  if (typeof options?.attachments !== "undefined") docData.attachments = options.attachments;
+
+  const fb = await getFirebase();
+  const ref = await _addDoc(fb.col(uid, "tasks"), docData as Task);
 
   await logActivity(uid, "task", ref.id, title, "created", {
-    description: `Created task: ${title}`
+    description: `Created task: ${title}`,
   });
   return ref.id;
 }
 
+/** Update a task with partial fields and log changes */
 export async function updateTask(
   uid: string,
   taskId: string,
   data: Partial<Pick<Task, "title" | "description" | "priority" | "dueDate" | "projectId" | "status" | "order" | "assignee" | "recurrence" | "attachments" | "comments" | "subtasks" | "dependencies">>
 ) {
-  const payload: Record<string, unknown> = { updatedAt: serverTimestamp() };
+  const fb = await getFirebase();
+  const { serverTimestamp: _serverTimestamp, doc: _doc, getDoc: _getDoc, updateDoc: _updateDoc } = await import('firebase/firestore');
+  const payload: Record<string, unknown> = { updatedAt: _serverTimestamp() };
 
   if (typeof data.title !== "undefined") payload.title = data.title;
   if (typeof data.description !== "undefined") payload.description = data.description;
@@ -176,11 +68,11 @@ export async function updateTask(
   if (typeof data.dependencies !== "undefined") payload.dependencies = data.dependencies;
 
   // Get current task data for change tracking
-  const taskRef = doc(db, `users/${uid}/tasks/${taskId}`);
-  const taskSnap = await getDoc(taskRef);
-  const currentTask = taskSnap.exists() ? taskSnap.data() as Task : null;
-  
-  await updateDoc(taskRef, payload);
+  const taskRef = _doc(fb.db, `users/${uid}/tasks/${taskId}`);
+  const taskSnap = await _getDoc(taskRef);
+  const currentTask = taskSnap.exists() ? (taskSnap.data() as Task) : null;
+
+  await _updateDoc(taskRef, payload);
 
   // Build changes object for activity logging
   const changes: Record<string, { from: any; to: any }> = {};
@@ -203,7 +95,7 @@ export async function updateTask(
     changes.projectId = { from: currentTask?.projectId || null, to: data.projectId || null };
   }
   if (typeof data.dueDate !== "undefined" && currentTask?.dueDate !== data.dueDate) {
-    changes.dueDate = { from: currentTask?.dueDate || null, to: data.dueDate || null };
+    changes.dueDate = { from: currentTask?.dueDate || null, to: data.dueDate ?? null };
   }
   if (typeof data.comments !== "undefined" && currentTask?.comments !== data.comments) {
     changes.comments = { from: currentTask?.comments || null, to: data.comments || null };
@@ -219,57 +111,149 @@ export async function updateTask(
   if (Object.keys(changes).length > 0) {
     const action = changes.status ? "status_changed" : "updated";
     const taskTitle = data.title || currentTask?.title || "Unknown Task";
-    
+
     await logActivity(uid, "task", taskId, taskTitle, action, {
       changes,
-      description: `Updated task: ${Object.keys(changes).join(', ')}`
+      description: `Updated task: ${Object.keys(changes).join(", ")}`,
     });
   }
 
   try {
     if (typeof data.status !== "undefined" || typeof data.projectId !== "undefined") {
-      const tSnap = await getDoc(doc(db, `users/${uid}/tasks/${taskId}`));
+      const tSnap = await _getDoc(_doc(fb.db, `users/${uid}/tasks/${taskId}`));
       const projectId = tSnap.exists() ? ((tSnap.data() as Task).projectId ?? null) : null;
       if (projectId) await reevaluateProjectBlockedState(uid, projectId);
     }
-  } catch (e) {
-    console.error("reevaluateProjectBlockedState after updateTask failed:", e);
+  } catch (e: any) {
+    const { logError } = await import('../utils/logger');
+    logError("reevaluateProjectBlockedState after updateTask failed:", e?.message ?? e);
   }
 }
 
+/** Remove a task */
 export async function removeTask(uid: string, taskId: string) {
+  const fb = await getFirebase();
   let parentProjectId: string | null = null;
   let taskTitle = "Unknown Task";
+  const { doc: _doc, getDoc: _getDoc, writeBatch: _writeBatch } = await import('firebase/firestore');
   try {
-    const tSnap = await getDoc(doc(db, `users/${uid}/tasks/${taskId}`));
+    const tSnap = await _getDoc(_doc(fb.db, `users/${uid}/tasks/${taskId}`));
     if (tSnap.exists()) {
       const taskData = tSnap.data() as Task;
       parentProjectId = taskData.projectId ?? null;
       taskTitle = taskData.title || "Unknown Task";
     }
-  } catch (e) {
-    console.error("Failed to fetch task before delete:", e);
+  } catch (e: any) {
+    const { logError } = await import('../utils/logger');
+    logError("Failed to fetch task before delete:", e?.message ?? e);
   }
 
-  const batch = writeBatch(db);
-  batch.delete(doc(db, `users/${uid}/tasks/${taskId}`));
+  const batch = _writeBatch(fb.db);
+  batch.delete(_doc(fb.db, `users/${uid}/tasks/${taskId}`));
   // blockers cleanup done in blockers service during project delete; safe to keep simple here
   await batch.commit();
-  
+
   await logActivity(uid, "task", taskId, taskTitle, "deleted", {
-    description: `Deleted task: ${taskTitle}`
+    description: `Deleted task: ${taskTitle}`,
   });
 
   try {
     if (parentProjectId) await reevaluateProjectBlockedState(uid, parentProjectId);
-  } catch (e) {
-    console.error("reevaluateProjectBlockedState after delete failed:", e);
+  } catch (e: any) {
+    const { logError } = await import('../utils/logger');
+    logError("reevaluateProjectBlockedState after delete failed:", e?.message ?? e);
   }
+}
+
+/** Subtask CRUD operations */
+export async function addSubtask(uid: string, taskId: string, title: string): Promise<Subtask> {
+  const fb = await getFirebase();
+  const subtask: Subtask = { id: generateId(), title, done: false };
+  const { doc: _doc, getDoc: _getDoc, updateDoc: _updateDoc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
+  const ref = _doc(fb.db, `users/${uid}/tasks/${taskId}`);
+  const snap = await _getDoc(ref);
+  if (!snap.exists()) throw new Error("Task not found");
+  const task = snap.data() as Task;
+  const subtasks = Array.isArray(task.subtasks) ? [...task.subtasks, subtask] : [subtask];
+  await _updateDoc(ref, { subtasks, updatedAt: _serverTimestamp() });
+
+  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
+    description: `Added subtask: ${title}`,
+  });
+  return subtask;
+}
+
+export async function updateSubtask(
+  uid: string,
+  taskId: string,
+  subtaskId: string,
+  data: Partial<Pick<Subtask, "title" | "done">>
+): Promise<void> {
+  const fb = await getFirebase();
+  const { doc: _doc, getDoc: _getDoc, updateDoc: _updateDoc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
+  const ref = _doc(fb.db, `users/${uid}/tasks/${taskId}`);
+  const snap = await _getDoc(ref);
+  if (!snap.exists()) throw new Error("Task not found");
+  const task = snap.data() as Task;
+  const subtasks = (task.subtasks || []).map((s) => (s.id === subtaskId ? { ...s, ...data } : s));
+  await _updateDoc(ref, { subtasks, updatedAt: _serverTimestamp() });
+
+  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
+    description: `Updated subtask: ${subtaskId}`,
+  });
+}
+
+export async function deleteSubtask(uid: string, taskId: string, subtaskId: string): Promise<void> {
+  const fb = await getFirebase();
+  const { doc: _doc, getDoc: _getDoc, updateDoc: _updateDoc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
+  const ref = _doc(fb.db, `users/${uid}/tasks/${taskId}`);
+  const snap = await _getDoc(ref);
+  if (!snap.exists()) throw new Error("Task not found");
+  const task = snap.data() as Task;
+  const subtasks = (task.subtasks || []).filter((s) => s.id !== subtaskId);
+  await _updateDoc(ref, { subtasks, updatedAt: _serverTimestamp() });
+
+  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
+    description: `Deleted subtask: ${subtaskId}`,
+  });
+}
+
+/** Dependency helpers */
+export async function addDependency(uid: string, taskId: string, dependencyTaskId: string): Promise<void> {
+  const fb = await getFirebase();
+  const { doc: _doc, getDoc: _getDoc, updateDoc: _updateDoc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
+  const ref = _doc(fb.db, `users/${uid}/tasks/${taskId}`);
+  const snap = await _getDoc(ref);
+  if (!snap.exists()) throw new Error("Task not found");
+  const task = snap.data() as Task;
+  const dependencies = Array.isArray(task.dependencies)
+    ? Array.from(new Set([...(task.dependencies || []), dependencyTaskId]))
+    : [dependencyTaskId];
+  await _updateDoc(ref, { dependencies, updatedAt: _serverTimestamp() });
+
+  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
+    description: `Added dependency: ${dependencyTaskId}`,
+  });
+}
+
+export async function removeDependency(uid: string, taskId: string, dependencyTaskId: string): Promise<void> {
+  const fb = await getFirebase();
+  const { doc: _doc, getDoc: _getDoc, updateDoc: _updateDoc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
+  const ref = _doc(fb.db, `users/${uid}/tasks/${taskId}`);
+  const snap = await _getDoc(ref);
+  if (!snap.exists()) throw new Error("Task not found");
+  const task = snap.data() as Task;
+  const dependencies = (task.dependencies || []).filter((id) => id !== dependencyTaskId);
+  await _updateDoc(ref, { dependencies, updatedAt: _serverTimestamp() });
+
+  await logActivity(uid, "task", taskId, task.title || "Unknown Task", "updated", {
+    description: `Removed dependency: ${dependencyTaskId}`,
+  });
 }
 
 /** Archive / Unarchive */
 export const archiveTask = (uid: string, taskId: string) =>
-  updateTask(uid, taskId, { status: "archived" });
+  updateTask(uid, taskId, { status: "archived" as TaskStatus });
 
 export const unarchiveTask = (uid: string, taskId: string) =>
-  updateTask(uid, taskId, { status: "in_progress" });
+  updateTask(uid, taskId, { status: "in_progress" as TaskStatus });

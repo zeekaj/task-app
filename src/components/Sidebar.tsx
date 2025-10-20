@@ -1,6 +1,6 @@
 // src/components/Sidebar.tsx
 import React, { useState, useMemo } from "react";
-import { useDroppable } from "@dnd-kit/core";
+// dnd-kit removed: no drag/drop required
 import { getProjectProgress } from '../services/progress';
 import { getUrgencyColor } from '../utils/urgency';
 
@@ -29,14 +29,10 @@ function SidebarProjectDroppable({
   setEditingProjectTitle,
   allTasks,
 }: SidebarProjectDroppableProps) {
-  const { setNodeRef } = useDroppable({ id: `sidebar-project-${project.id}` });
   const projectTasks = allTasks.filter((t: any) => t.projectId === project.id);
   const progress = getProjectProgress(projectTasks);
   return (
-    <li
-      ref={setNodeRef}
-      className="group flex items-center pr-2 rounded-lg transition-colors duration-200"
-    >
+    <li className="group flex items-center pr-2 rounded-lg transition-colors duration-200">
       {editingProjectId === project.id ? (
         <input
           type="text"
@@ -120,12 +116,8 @@ type SidebarQuickTasksDroppableProps = {
 };
 
 function SidebarQuickTasksDroppable({ currentView, setCurrentView }: SidebarQuickTasksDroppableProps) {
-  const { setNodeRef, isOver } = useDroppable({ id: "sidebar-quicktasks" });
   return (
-    <li
-      ref={setNodeRef}
-      className={isOver ? "dark:bg-accent/30 bg-blue-200 rounded-lg" : ""}
-    >
+    <li>
       <button
         onClick={() => setCurrentView({ type: "tasks", id: null })}
         className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-left transition-colors duration-200 ${
@@ -141,6 +133,7 @@ function SidebarQuickTasksDroppable({ currentView, setCurrentView }: SidebarQuic
   );
 }
 import { useProjects } from "../hooks/useProjects";
+import { useTasks } from "../hooks/useTasks";
 import Icon from "./Icon";
 import { createProject, updateProject } from "../services/projects";
 import type { WithId, Project } from "../types";
@@ -156,9 +149,9 @@ export const Sidebar: React.FC<{
   uid: string;
   currentView: View;
   setCurrentView: (v: View) => void;
-  allTasks: any[];
-}> = ({ uid, currentView, setCurrentView, allTasks }) => {
+}> = ({ uid, currentView, setCurrentView }) => {
   const projects = useProjects(uid);
+  const allTasks = useTasks(uid);
   const [newProjectTitle, setNewProjectTitle] = useState("");
   const [newProjectAssignee, setNewProjectAssignee] = useState("");
   const [showAddProject, setShowAddProject] = useState(false);

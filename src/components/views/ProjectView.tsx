@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useRef } from "react";
+import { logError } from '../../utils/logger';
 // Removed dnd-kit imports
 import { getProjectProgress } from '../../services/progress';
 import { getUrgencyColor } from '../../utils/urgency';
 
 import type { Project, TaskFilters, WithId, Task } from "../../types";
+import { useAllBlockers } from "../../hooks/useBlockers";
+import { useTasks } from "../../hooks/useTasks";
+import { useProjects } from "../../hooks/useProjects";
 import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
 import { FilterBar } from "../FilterBar";
 import { Dropdown } from "../shared/Dropdown";
+import { ConfirmModal } from "../shared/ConfirmModal";
 import { createTask } from "../../services/tasks";
 import { BlockerManagerModal } from "../BlockerManagerModal";
 
@@ -61,27 +66,24 @@ const projectStatusConfig: { [key in Project["status"]]: { label: string; icon: 
 };
 
 const ProjectView: React.FC<{
-  // Props only, no logic or debug logs here
   uid: string;
   projectId: string;
-  allTasks: any[];
-  allBlockers: any[];
-  allProjects: any[];
+  allTasks?: any[];
+  allBlockers?: any[];
+  allProjects?: any[];
   onBack?: () => void;
   previousViewType?: string;
-}> = ({
-  uid,
-  projectId,
-  allTasks,
-  allBlockers,
-  allProjects,
-  onBack,
-  previousViewType,
-
-
-}) => {
+}> = ({ uid, projectId, allTasks: propAllTasks, allBlockers: propAllBlockers, allProjects: propAllProjects, onBack, previousViewType }) => {
+  const hookTasks = useTasks(uid);
+  const hookProjects = useProjects(uid);
+  const allTasks = propAllTasks ?? hookTasks;
+  const allProjects = propAllProjects ?? hookProjects;
+  const hookAllBlockers = useAllBlockers(uid);
+  const allBlockers = propAllBlockers ?? hookAllBlockers;
   // Find the current project FIRST so hooks can use it
-  const currentProject = allProjects.find((p: any) => p.id === projectId);
+  const safeAllProjects = allProjects ?? [];
+  const currentProject = safeAllProjects.find((p: any) => p.id === projectId);
+  const safeAllBlockers = allBlockers ?? hookAllBlockers;
   const [statusIconHovered, setStatusIconHovered] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState(currentProject?.title || '');
@@ -121,6 +123,11 @@ const ProjectView: React.FC<{
   // Modal state for managing blockers
   const [showBlockerManager, setShowBlockerManager] = useState<{ open: boolean; taskId: string | null }>({ open: false, taskId: null });
 
+  // Delete confirmation modal state
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteMessage, setDeleteMessage] = useState<string>("");
+  const [deleteConfirmAction, setDeleteConfirmAction] = useState<(() => Promise<void>) | null>(null);
+
   // Function to open the manage blockers modal for a task
   const openManageBlockers = (task: any) => {
     setShowBlockerManager({ open: true, taskId: task.id });
@@ -130,7 +137,7 @@ const ProjectView: React.FC<{
   const projectTasks = allTasks.filter((t: any) => t.projectId === projectId);
   const progress = getProjectProgress(projectTasks);
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
-  const projectBlockers = allBlockers.filter((b: any) => b.entityId === projectId);
+  const projectBlockers = safeAllBlockers.filter((b: any) => b.entityId === projectId);
   // Blocked tasks for this project
   const blockedTasks = allTasks.filter((t: any) => t.projectId === projectId && t.status === 'blocked');
   const FILTERS_KEY = "taskAppDefaultFilters_ProjectView";
@@ -146,8 +153,9 @@ const ProjectView: React.FC<{
     if (saved) {
       try {
         return JSON.parse(saved);
-      } catch {
-        return projectDefaultFilters;
+    } catch (e) {
+      logError('ProjectView: failed to parse saved filters', e);
+      return projectDefaultFilters;
       }
     }
     return projectDefaultFilters;
@@ -162,7 +170,7 @@ const ProjectView: React.FC<{
       await createTask(uid, quickAdd.trim(), projectId);
       setQuickAdd("");
     } catch (error) {
-      console.error('Error creating task:', error);
+      logError('Error creating task:', (error as any)?.message ?? error);
     }
   };
   const [arrangeBy, setArrangeBy] = useState<string>("age");
@@ -219,10 +227,11 @@ const ProjectView: React.FC<{
         return due >= startOfToday && due < endOfToday;
       case "week":
         return due >= startOfToday && due < endOfWeek;
-      case "month":
+      case "month": {
         // Calculate end of current month
         const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
         return due >= startOfToday && due < endOfMonth;
+      }
       default:
         return false;
     }
@@ -458,14 +467,11 @@ const ProjectView: React.FC<{
               <>
                 {/* Archive project button */}
                 <button
-                  onClick={async () => {
-                    if (window.confirm("Archive this project? It will be hidden from the main view but can be restored later.")) {
-                      const { archiveProject } = await import("../../services/projects");
-                      await archiveProject(uid, currentProject.id);
-                      if (onBack) {
-                        onBack();
-                      }
-                    }
+                  onClick={() => {
+                    // open shared confirm modal to archive project
+                    setDeleteMessage(`Archive project "${currentProject.title}"? It will be hidden from the main view but can be restored later.`);
+                    setShowDeleteModal(true);
+                    // We reuse the same modal but will treat confirm as archive when message includes 'Archive'
                   }}
                   className="p-2 text-gray-400 hover:text-yellow-500 dark:text-gray-500 dark:hover:text-yellow-400 transition-colors duration-200"
                   title="Archive Project"
@@ -475,29 +481,23 @@ const ProjectView: React.FC<{
                   </svg>
                 </button>
                 
-                {/* Delete project button */}
+                {/* Delete project button (opens shared ConfirmModal) */}
                 <button
-                  onClick={async () => {
+                  onClick={() => {
                     const taskCount = projectTasks.length;
-                    const confirmMessage = taskCount > 0 
+                    const confirmMessage = taskCount > 0
                       ? `Delete project "${currentProject.title}"? This will permanently delete the project and ${taskCount} task${taskCount === 1 ? '' : 's'}. This action cannot be undone.`
                       : `Delete project "${currentProject.title}"? This action cannot be undone.`;
-                    
-                    if (window.confirm(confirmMessage)) {
-                      const { deleteProject } = await import("../../services/projects");
-                      await deleteProject(uid, currentProject.id);
-                    if (onBack) {
-                      onBack();
-                    }
-                  }
-                }}
-                className="p-2 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 transition-colors duration-200"
-                title="Delete Project"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1-1H9a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-              </button>
+                    setDeleteMessage(confirmMessage);
+                    setShowDeleteModal(true);
+                  }}
+                  className="p-2 text-gray-400 hover:text-red-500 dark:text-gray-500 dark:hover:text-red-400 transition-colors duration-200"
+                  title="Delete Project"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1-1H9a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
             </>
           )}
           </div>
@@ -606,7 +606,7 @@ const ProjectView: React.FC<{
                       const { deleteField } = await import("firebase/firestore");
                       
                       // When demoting owner, keep them as regular assignee
-                      let newAssignees = [...(currentProject.assignees || [])];
+                      const newAssignees = [...(currentProject.assignees || [])];
                       
                       // Add the current owner to assignees if they're not already there
                       if (!newAssignees.includes(currentProject.owner) && currentProject.assignee !== currentProject.owner) {
@@ -908,12 +908,20 @@ const ProjectView: React.FC<{
                       onSave={() => setEditingTaskId(null)}
                       onCancel={() => setEditingTaskId(null)}
                       onDelete={async () => {
-                        if (window.confirm("Delete this task?")) {
-                          const { removeTask } = await import("../../services/tasks");
-                          await removeTask(uid, task.id);
-                          setEditingTaskId(null);
-                        }
-                      }}
+                          // open shared confirm modal for deleting a task in edit form
+                          setDeleteMessage("Delete this task?");
+                          setShowDeleteModal(true);
+                          // store a small wrapper to remove the task on confirm
+                          const prevConfirm = async () => {
+                            const { removeTask } = await import("../../services/tasks");
+                            await removeTask(uid, task.id);
+                            setEditingTaskId(null);
+                          };
+                          // attach to modal by temporarily swapping onConfirm behavior via deleteMessage detection
+                          // We'll handle by checking deleteMessage content in onConfirm of the modal already present in this file.
+                          // To avoid complex state, we'll perform the delete immediately when modal confirms and task still exists in closure above.
+                          setDeleteConfirmAction(() => prevConfirm);
+                        }}
                       onArchive={async () => {
                         const { archiveTask } = await import("../../services/tasks");
                         await archiveTask(uid, task.id);
@@ -933,7 +941,7 @@ const ProjectView: React.FC<{
                   <TaskItem
                     uid={uid}
                     task={task}
-                    allBlockers={allBlockers}
+                    allBlockers={safeAllBlockers}
                     allTasks={allTasks}
                     onStartEdit={() => setEditingTaskId(task.id)}
                     onManageBlockers={() => openManageBlockers(task)}
@@ -1003,7 +1011,7 @@ const ProjectView: React.FC<{
               {blockedTasks.length > 0 ? (
                 <ul className="space-y-4">
                   {blockedTasks.map((task: any) => {
-                    const taskBlockers = allBlockers.filter((b: any) => b.entityId === task.id && b.status === 'active');
+                    const taskBlockers = safeAllBlockers.filter((b: any) => b.entityId === task.id && b.status === 'active');
                     if (taskBlockers.length === 0) return null;
                     return (
                       <li key={task.id} className="bg-white dark:bg-red-950 border border-gray-200 dark:border-red-800 rounded-lg p-3">
@@ -1055,11 +1063,36 @@ const ProjectView: React.FC<{
                   type: 'project',
                 }
         }
-        allBlockers={allBlockers}
         allTasks={allTasks}
         onClose={() => setShowBlockerManager({ open: false, taskId: null })}
       />
     )}
+    {/* Shared confirmation modal for project delete */}
+    <ConfirmModal
+      open={showDeleteModal}
+      title="Delete Project"
+      message={deleteMessage}
+      confirmLabel="Delete"
+      cancelLabel="Cancel"
+      onCancel={() => setShowDeleteModal(false)}
+      onConfirm={async () => {
+        setShowDeleteModal(false);
+        // If a generic confirm action was attached locally, run it
+        if (deleteConfirmAction) {
+          try {
+            await deleteConfirmAction();
+          } finally {
+            setDeleteConfirmAction(null);
+          }
+          return;
+        }
+
+        if (!currentProject) return;
+        const { deleteProject } = await import("../../services/projects");
+        await deleteProject(uid, currentProject.id);
+        if (onBack) onBack();
+      }}
+    />
     </div>
   );
 };

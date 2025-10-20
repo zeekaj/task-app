@@ -1,24 +1,23 @@
 // src/App.tsx
-import React, { useState } from "react";
+import React, { useState, Suspense } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation, useParams } from "react-router-dom";
-import { DndContext, pointerWithin, closestCorners, DragOverlay } from "@dnd-kit/core";
+// drag/drop removed: no @dnd-kit usage
 import { useAuth } from "./hooks/useAuth";
-import { useProjects } from "./hooks/useProjects";
-import { useTasks } from "./hooks/useTasks";
-import { useAllBlockers } from "./hooks/useBlockers";
+// useMaybeProjects/useMaybeTasks are used instead to defer subscriptions from App
+// firebase helper removed from App-level; views manage their own firebase subscriptions
 
 import { Header } from "./components/Header";
-import { updateTask } from "./services/tasks";
+// updateTask not used at App-level after removing drag/drop
 import { Sidebar } from "./components/Sidebar";
-import { TasksView } from "./components/views/TasksView";
-import { ProjectView } from "./components/views/ProjectView";
-import { BlockedView } from "./components/views/BlockedView";
-import { CalendarView } from "./components/views/CalendarView";
-import { TechsView } from "./components/views/TechsView";
+const TasksView = React.lazy(() => import("./components/views/TasksView").then(m => ({ default: m.TasksView })));
+const ProjectView = React.lazy(() => import("./components/views/ProjectView").then(m => ({ default: m.ProjectView })));
+const BlockedView = React.lazy(() => import("./components/views/BlockedView").then(m => ({ default: m.BlockedView })));
+const CalendarView = React.lazy(() => import("./components/views/CalendarView").then(m => ({ default: m.CalendarView })));
+const TechsView = React.lazy(() => import("./components/views/TechsView").then(m => ({ default: m.TechsView })));
 import { BlockerModal } from "./components/BlockerModal";
 import { BlockerManagerModal } from "./components/BlockerManagerModal";
 import { PromotionModal } from "./components/PromotionModal";
-import { TaskItem } from "./components/TaskItem";
+// TaskItem not used at app-level (used in views)
 import { signIn } from "./firebase";
 
 type View =
@@ -32,19 +31,13 @@ type View =
 // Route wrapper components that use useParams
 const ProjectRoute: React.FC<{
   uid: string;
-  allTasks: any[];
-  allBlockers: any[];
-  allProjects: any[];
   onBack: () => void;
-}> = ({ uid, allTasks, allBlockers, allProjects, onBack }) => {
+}> = ({ uid, onBack }) => {
   const { projectId } = useParams<{ projectId: string }>();
   return (
     <ProjectView
       uid={uid}
       projectId={projectId!}
-      allTasks={allTasks}
-      allBlockers={allBlockers}
-      allProjects={allProjects}
       onBack={onBack}
       previousViewType={undefined}
     />
@@ -53,19 +46,13 @@ const ProjectRoute: React.FC<{
 
 const TechRoute: React.FC<{
   uid: string;
-  allTasks: any[];
-  allBlockers: any[];
-  allProjects: any[];
   onNavigateToAllTechs: () => void;
   onNavigateToProject: (projectId: string) => void;
-}> = ({ uid, allTasks, allBlockers, allProjects, onNavigateToAllTechs, onNavigateToProject }) => {
+}> = ({ uid, onNavigateToAllTechs, onNavigateToProject }) => {
   const { techId } = useParams<{ techId: string }>();
   return (
     <TechsView
       uid={uid}
-      allTasks={allTasks}
-      allBlockers={allBlockers}
-      allProjects={allProjects}
       selectedTech={techId || null}
       onNavigateToAllTechs={onNavigateToAllTechs}
       onNavigateToProject={onNavigateToProject}
@@ -99,8 +86,7 @@ const getCurrentViewFromPath = (pathname: string): View => {
 };
 
 const App: React.FC = () => {
-  // Track currently dragged task id
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+  // Drag/drop removed — no active drag state
   const user = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -136,9 +122,7 @@ const App: React.FC = () => {
     navigate(-1);
   };
 
-  const allProjects = useProjects(user?.uid);
-  const allTasks = useTasks(user?.uid);
-  const allBlockers = useAllBlockers(user?.uid);
+  // Views manage their own subscriptions.
 
   const [promotingTask, setPromotingTask] = useState<any | null>(null);
   const [modalState, setModalState] = useState<{ type: null | "block" | "manage_blockers"; target: any }>({
@@ -162,123 +146,11 @@ const App: React.FC = () => {
     );
   }
 
-  // dnd-kit drag-and-drop handler
-  const handleDragStart = ({ active }: any) => {
-    setActiveDragId(active?.id ?? null);
-  };
-
-  const handleDragEnd = ({ active, over }: any) => {
-    setActiveDragId(null);
-    if (!over) {
-      return;
-    }
-    if (!over) return;
-    // Sidebar droppable ids: "sidebar-quicktasks" or "sidebar-project-<id>"
-    if (over.id === "sidebar-quicktasks") {
-  // Move to Tasks (remove projectId)
-      const task = allTasks.find(t => t.id === active.id);
-      if (task && task.projectId !== null) {
-        updateTask(user.uid, task.id, { projectId: null });
-        navigateToView({ type: "tasks", id: null });
-        // Optimistically update local state
-        task.projectId = null;
-      }
-      return;
-    }
-    if (typeof over.id === "string" && over.id.startsWith("sidebar-project-")) {
-      const projectId = over.id.replace("sidebar-project-", "");
-      let taskId = active.id;
-      if (typeof taskId === "string" && taskId.startsWith("crosslist-")) {
-        taskId = taskId.replace("crosslist-", "");
-      }
-      const task = allTasks.find(t => t.id === taskId);
-      if (task && task.projectId !== projectId) {
-        // Only move if actually dropped on sidebar project
-        const targetTasks = allTasks.filter(t => t.projectId === projectId);
-        const newOrder = targetTasks.length;
-        updateTask(user.uid, task.id, { projectId, order: newOrder });
-        navigateToView({ type: "project", id: projectId });
-        task.projectId = projectId;
-        task.order = newOrder;
-      }
-      return;
-    }
-  // Handle in-list reordering for Tasks
-  // Only reorder if both active and over are in Tasks (no projectId)
-    const activeTask = allTasks.find(t => t.id === active.id);
-    const overTask = allTasks.find(t => t.id === over.id);
-    if (activeTask && overTask) {
-  // Tasks reordering
-      if (!activeTask.projectId && !overTask.projectId) {
-        const quickTasks = allTasks.filter(t => !t.projectId);
-        const oldIndex = quickTasks.findIndex(t => t.id === active.id);
-        const newIndex = quickTasks.findIndex(t => t.id === over.id);
-        if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-          const reordered = [...quickTasks];
-          const [removed] = reordered.splice(oldIndex, 1);
-          reordered.splice(newIndex, 0, removed);
-          for (let i = 0; i < reordered.length; ++i) {
-            if (reordered[i].order !== i) {
-              updateTask(user.uid, reordered[i].id, { order: i });
-              reordered[i].order = i;
-            }
-          }
-        }
-        return;
-      }
-      // Project tasks reordering
-      if (
-        activeTask.projectId &&
-        overTask.projectId &&
-        activeTask.projectId === overTask.projectId
-      ) {
-        const projectTasks = allTasks.filter(t => t.projectId === activeTask.projectId);
-        const oldIndex = projectTasks.findIndex(t => t.id === active.id);
-        const newIndex = projectTasks.findIndex(t => t.id === over.id);
-        if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
-          const reordered = [...projectTasks];
-          const [removed] = reordered.splice(oldIndex, 1);
-          reordered.splice(newIndex, 0, removed);
-          for (let i = 0; i < reordered.length; ++i) {
-            if (reordered[i].order !== i) {
-              updateTask(user.uid, reordered[i].id, { order: i });
-              reordered[i].order = i;
-            }
-          }
-        }
-      }
-    }
-  };
-
-  // Custom collision detection: prioritize sortable list reordering, then sidebar droppables
-  function customCollisionDetection(args: Parameters<typeof closestCorners>[0]) {
-    // Get pointer coordinates
-    const pointer = args?.pointerCoordinates;
-    // Get all droppable containers
-    const containers = args?.droppableContainers || [];
-    // Sidebar region: left 0-300px (assuming sidebar width is 300px)
-    const isPointerInSidebar = pointer && pointer.x < 300;
-    if (isPointerInSidebar) {
-      // Only consider sidebar droppables
-      const sidebarDroppables = containers.filter(c => typeof c.id === 'string' && c.id.startsWith('sidebar-'));
-      // Use pointerWithin for sidebar
-      return pointerWithin({ ...args, droppableContainers: sidebarDroppables });
-    } else {
-      // Only consider non-sidebar droppables (tasks, etc.)
-      const listDroppables = containers.filter(c => typeof c.id === 'string' && !c.id.startsWith('sidebar-'));
-      // Use closestCorners for in-list reordering
-      return closestCorners({ ...args, droppableContainers: listDroppables });
-    }
-  }
+  // Drag/drop removed — no handlers
 
   return (
-    <DndContext
-      collisionDetection={customCollisionDetection}
-      onDragStart={handleDragStart}
-      onDragEnd={handleDragEnd}
-    >
-  <div className="flex h-screen font-sans">
-  <Sidebar uid={user.uid} currentView={currentView} setCurrentView={navigateToView} allTasks={allTasks} />
+    <div className="flex h-screen font-sans">
+  <Sidebar uid={user.uid} currentView={currentView} setCurrentView={navigateToView} />
         <main className="flex-1 flex flex-col h-screen">
           <Header
             user={user}
@@ -290,9 +162,10 @@ const App: React.FC = () => {
             {promotingTask && <PromotionModal uid={user.uid} task={promotingTask} onClose={() => setPromotingTask(null)} />}
             {modalState.type === "block" && <BlockerModal uid={user.uid} entity={modalState.target} onClose={closeModal} />}
             {modalState.type === "manage_blockers" && (
-              <BlockerManagerModal uid={user.uid} entity={modalState.target} allBlockers={allBlockers} onClose={closeModal} />
+              <BlockerManagerModal uid={user.uid} entity={modalState.target} onClose={closeModal} />
             )}
 
+            <Suspense fallback={<div className="p-6">Loading...</div>}>
             <Routes>
               <Route path="/" element={<Navigate to="/tasks" replace />} />
               <Route 
@@ -300,9 +173,6 @@ const App: React.FC = () => {
                 element={
                   <TasksView
                     uid={user.uid}
-                    allTasks={allTasks}
-                    allBlockers={allBlockers}
-                    allProjects={allProjects}
                   />
                 } 
               />
@@ -311,9 +181,6 @@ const App: React.FC = () => {
                 element={
                   <ProjectRoute
                     uid={user.uid}
-                    allTasks={allTasks}
-                    allBlockers={allBlockers}
-                    allProjects={allProjects}
                     onBack={goBack}
                   />
                 } 
@@ -323,9 +190,6 @@ const App: React.FC = () => {
                 element={
                   <BlockedView
                     uid={user.uid}
-                    allTasks={allTasks}
-                    allBlockers={allBlockers}
-                    allProjects={allProjects}
                     setCurrentView={navigateToView}
                   />
                 } 
@@ -334,7 +198,6 @@ const App: React.FC = () => {
                 path="/calendar" 
                 element={
                   <CalendarView
-                    tasks={allTasks}
                     onTaskClick={(task) => {
                       if (task.projectId) {
                         navigateToView({ type: "project", id: task.projectId });
@@ -350,9 +213,6 @@ const App: React.FC = () => {
                 element={
                   <TechsView
                     uid={user.uid}
-                    allTasks={allTasks}
-                    allBlockers={allBlockers}
-                    allProjects={allProjects}
                     selectedTech={null}
                     onNavigateToAllTechs={() => navigateToView({ type: "techs", id: null })}
                     onNavigateToProject={(projectId) => navigateToView({ type: "project", id: projectId })}
@@ -364,42 +224,16 @@ const App: React.FC = () => {
                 element={
                   <TechRoute
                     uid={user.uid}
-                    allTasks={allTasks}
-                    allBlockers={allBlockers}
-                    allProjects={allProjects}
                     onNavigateToAllTechs={() => navigateToView({ type: "techs", id: null })}
                     onNavigateToProject={(projectId) => navigateToView({ type: "project", id: projectId })}
                   />
                 } 
               />
             </Routes>
+            </Suspense>
           </div>
         </main>
-        <DragOverlay>
-          {activeDragId ? (
-            (() => {
-              const draggedTask = allTasks.find(t => t.id === activeDragId);
-              if (!draggedTask) return null;
-              return (
-                <TaskItem
-                  uid={user.uid}
-                  task={draggedTask}
-                  allBlockers={allBlockers}
-                  onStartEdit={() => {}}
-                  onManageBlockers={() => {}}
-                  onStartBlock={() => {}}
-                  onArchive={() => {}}
-                  onDelete={() => {}}
-                  onUnarchive={() => {}}
-                  onStatusChange={() => {}}
-                  dragHandleProps={{}}
-                />
-              );
-            })()
-          ) : null}
-        </DragOverlay>
       </div>
-    </DndContext>
   );
 };
 

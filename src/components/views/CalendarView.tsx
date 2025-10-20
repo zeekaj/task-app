@@ -3,12 +3,17 @@ import Calendar from "react-calendar";
 import "react-calendar/dist/Calendar.css";
 import type { WithId, Task } from "../../types";
 
+import { useTasks } from "../../hooks/useTasks";
+
 interface CalendarViewProps {
-  tasks: WithId<Task>[];
+  uid?: string;
+  tasks?: WithId<Task>[];
   onTaskClick?: (task: WithId<Task>) => void;
 }
 
-export const CalendarView: React.FC<CalendarViewProps> = ({ tasks, onTaskClick }) => {
+export const CalendarView: React.FC<CalendarViewProps> = ({ uid, tasks: propTasks, onTaskClick }) => {
+  const hookTasks = useTasks(uid);
+  const tasks = propTasks ?? hookTasks;
   // Group tasks by due date (ISO string, yyyy-mm-dd)
   const tasksByDate = useMemo(() => {
     const map: Record<string, WithId<Task>[]> = {};

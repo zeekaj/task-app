@@ -9,7 +9,9 @@ import { useClickOutside } from "../hooks/useClickOutside";
 import { Timestamp } from "firebase/firestore";
 
 import { useTasks } from "../hooks/useTasks";
-import type { WithId, Task, Project, Subtask, Blocker, RecurrencePattern, TaskAttachment } from "../types";
+import { ConfirmModal } from "./shared/ConfirmModal";
+import { logError } from "../utils/logger";
+import type { WithId, Task, Project, Subtask, RecurrencePattern, TaskAttachment } from "../types";
 import { updateTask } from "../services/tasks";
 import { logActivity } from "../services/activityHistory";
 
@@ -17,7 +19,6 @@ type Props = {
   uid: string;
   task: WithId<Task>;
   allProjects?: WithId<Project>[];
-  allBlockers?: Blocker[];
   onSave: () => void;
   onCancel: () => void;
   onDelete: () => void;
@@ -33,7 +34,6 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     uid,
     task,
     allProjects = [],
-    allBlockers = [],
     onSave,
     onCancel,
     onDelete,
@@ -48,6 +48,9 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   const [recurrence, setRecurrence] = useState<RecurrencePattern>(task.recurrence || { type: "none" });
   const allTasks = useTasks(uid);
   const [showBlockerManager, setShowBlockerManager] = useState(false);
+  const [confirmAttachmentOpen, setConfirmAttachmentOpen] = useState(false);
+  const [confirmAttachmentMessage, setConfirmAttachmentMessage] = useState<string>("");
+  const [confirmAttachmentAction, setConfirmAttachmentAction] = useState<(() => Promise<void>) | null>(null);
   const [isAutosaving, setIsAutosaving] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const [title, setTitle] = useState(task.title);
@@ -134,7 +137,8 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         parts.push(text.slice(lastIndex));
       }
       return parts;
-    } catch {
+    } catch (err) {
+      logError('Error highlighting text:', (err as any)?.message ?? err);
       return text;
     }
   };
@@ -169,13 +173,13 @@ export const TaskEditForm: React.FC<Props> = (props) => {
       );
       onSave();
     } catch (err) {
-      console.error("Error saving task:", err);
+      logError("Error saving task:", (err as any)?.message ?? err);
       alert("Failed to save task: " + (err instanceof Error ? err.message : String(err)));
     }
   };
 
   // Autosave function with debouncing
-  const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const autosaveTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   
   const handleAutosave = useCallback(async () => {
     if (!title.trim()) {
@@ -203,7 +207,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
       );
       // Don't call onSave() for autosave to avoid closing modal
     } catch (err) {
-      console.error("Error autosaving task:", err);
+      logError("Error autosaving task:", (err as any)?.message ?? err);
     } finally {
       setTimeout(() => setIsAutosaving(false), 300); // Show briefly for 300ms
     }
@@ -255,7 +259,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         changes: { attachments: { from: attachments, to: updatedAttachments } }
       });
     } catch (err) {
-      console.error("Error uploading file:", err);
+      logError("Error uploading file:", (err as any)?.message ?? err);
       alert("Failed to upload file: " + (err instanceof Error ? err.message : String(err)));
     } finally {
       setUploading(false);
@@ -288,13 +292,13 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     setDependencies(task.dependencies || []);
     setSubtasks(task.subtasks || []);
     setRecurrence(task.recurrence || { type: "none" });
-  }, [task.id]);
+  }, [task.id, task.dependencies, task.recurrence, task.subtasks]);
 
   // Sync attachments separately only when task.id changes OR when task.attachments length changes
   // This allows real-time updates while preventing overwrites during upload
   useEffect(() => {
     setAttachments(task.attachments || []);
-  }, [task.id, task.attachments?.length]);
+  }, [task.id, task.attachments]);
 
   // Handle escape key to cancel edit using custom hook
   useKeydown({
@@ -364,47 +368,61 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     const attachmentToRemove = attachments.find(a => a.id === id);
     if (!attachmentToRemove) return;
 
-    // If it's a file, prompt for confirmation and delete from Storage
     if (attachmentToRemove.type === 'file') {
-      const confirmed = window.confirm(
-        `Are you sure you want to permanently delete the file "${attachmentToRemove.name}" from Storage? This cannot be undone.`
-      );
-      if (!confirmed) return;
-      try {
-        // Parse the path from the URL (after "/o/")
-        // Example: https://firebasestorage.googleapis.com/v0/b/BUCKET/o/attachments%2Fuid%2Ffile.pdf?alt=media&token=...
-        const url = attachmentToRemove.url;
-        let path = '';
-        const match = url.match(/\/o\/(.+?)\?/);
-        if (match && match[1]) {
-          path = decodeURIComponent(match[1]);
-        } else {
-          // fallback: reconstruct from our upload logic
-          path = `attachments/${uid}/${attachmentToRemove.name}`;
+      setConfirmAttachmentMessage(`Are you sure you want to permanently delete the file "${attachmentToRemove.name}" from Storage? This cannot be undone.`);
+  // store id in closure via action; no separate id state needed
+      const action = async () => {
+        // Delete from Storage
+        try {
+          const url = attachmentToRemove.url;
+          let path = '';
+          const match = url.match(/\/o\/(.+?)\?/);
+          if (match && match[1]) {
+            path = decodeURIComponent(match[1]);
+          } else {
+            path = `attachments/${uid}/${attachmentToRemove.name}`;
+          }
+          const storage = getStorage();
+          const fileRef = storageRef(storage, path);
+          await deleteObject(fileRef);
+        } catch (err) {
+          logError("Error deleting file from Storage:", (err as any)?.message ?? err);
+          alert("Failed to delete file from Storage: " + (err instanceof Error ? err.message : String(err)));
+          throw err;
         }
-        const storage = getStorage();
-        const fileRef = storageRef(storage, path);
-        await deleteObject(fileRef);
-      } catch (err) {
-        console.error("Error deleting file from Storage:", err);
-        alert("Failed to delete file from Storage: " + (err instanceof Error ? err.message : String(err)));
-        return; // Don't remove from Firestore if Storage deletion failed
-      }
+
+        // Remove from Firestore
+        const updatedAttachments = attachments.filter(a => a.id !== id);
+        setAttachments(updatedAttachments);
+        try {
+          await updateTask(uid, task.id, { attachments: updatedAttachments });
+          await logActivity(uid, "task", task.id, title, "updated", {
+            description: `Removed file: ${attachmentToRemove.name}`,
+            changes: { attachments: { from: attachments, to: updatedAttachments } }
+          });
+        } catch (err) {
+          logError("Error removing attachment:", (err as any)?.message ?? err);
+          alert("Failed to remove attachment: " + (err instanceof Error ? err.message : String(err)));
+          setAttachments(attachments);
+        }
+      };
+      setConfirmAttachmentAction(() => action);
+      setConfirmAttachmentOpen(true);
+      return;
     }
 
-    // Remove from Firestore (for both file and link)
+    // Link type - remove immediately
     const updatedAttachments = attachments.filter(a => a.id !== id);
     setAttachments(updatedAttachments);
     try {
       await updateTask(uid, task.id, { attachments: updatedAttachments });
       await logActivity(uid, "task", task.id, title, "updated", {
-        description: `Removed ${attachmentToRemove.type === 'file' ? 'file' : 'link'}: ${attachmentToRemove.name}`,
+        description: `Removed link: ${attachmentToRemove.name}`,
         changes: { attachments: { from: attachments, to: updatedAttachments } }
       });
     } catch (err) {
-      console.error("Error removing attachment:", err);
+      logError("Error removing attachment:", (err as any)?.message ?? err);
       alert("Failed to remove attachment: " + (err instanceof Error ? err.message : String(err)));
-      // Revert local state on error
       setAttachments(attachments);
     }
   };
@@ -1356,11 +1374,24 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         <BlockerManagerModal
           uid={uid}
           entity={{ id: task.id, title: typeof task.title === 'string' ? task.title : String(task.title), type: 'task' }}
-          allBlockers={allBlockers.filter((b): b is WithId<Blocker> => typeof b.id === 'string')}
           onClose={() => setShowBlockerManager(false)}
         />
       )}
+      <ConfirmModal
+        open={confirmAttachmentOpen}
+        title="Confirm"
+        message={confirmAttachmentMessage}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onCancel={() => setConfirmAttachmentOpen(false)}
+        onConfirm={async () => {
+          setConfirmAttachmentOpen(false);
+          if (confirmAttachmentAction) await confirmAttachmentAction();
+          setConfirmAttachmentAction(null);
+          // no-op: cleanup handled by clearing action
+        }}
+      />
     </div>
 
   );
-}
+};

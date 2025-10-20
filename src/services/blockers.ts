@@ -9,7 +9,7 @@ import {
   updateDoc,
   where,
 } from "firebase/firestore";
-import { db, col } from "../firebase";
+import { getFirebase } from "../firebase";
 import type {
   Blocker,
   BlockerEntityType,
@@ -33,17 +33,20 @@ export async function createBlocker(
   let currentStatus: TaskStatus | ProjectStatus | null = null;
 
   if (entity.type === "task") {
-    const snap = await getDoc(doc(db, "users", uid, "tasks", entity.id));
+    const fb = await getFirebase();
+    const snap = await getDoc(doc(fb.db, "users", uid, "tasks", entity.id));
     currentStatus = snap.exists() ? ((snap.data() as any).status ?? null) : null;
   } else {
-    const snap = await getDoc(doc(db, "users", uid, "projects", entity.id));
+    const fb = await getFirebase();
+    const snap = await getDoc(doc(fb.db, "users", uid, "projects", entity.id));
     currentStatus = snap.exists() ? ((snap.data() as any).status ?? null) : null;
   }
 
   const shouldCapturePrev =
     currentStatus != null && currentStatus !== "blocked" && currentStatus !== "archived";
 
-  await addDoc(col(uid, "blockers"), {
+  const fb2 = await getFirebase();
+  await addDoc(fb2.col(uid, "blockers"), {
     reason: data.reason,
     waitingOn: data.waitingOn ?? "",
     expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
@@ -61,11 +64,13 @@ export async function createBlocker(
 
     // If task belongs to a project, re-evaluate project state
     try {
-      const tSnap = await getDoc(doc(db, "users", uid, "tasks", entity.id));
+      const fb3 = await getFirebase();
+      const tSnap = await getDoc(doc(fb3.db, "users", uid, "tasks", entity.id));
       const projectId = tSnap.exists() ? (tSnap.data() as any).projectId : null;
       if (projectId) await reevaluateProjectBlockedState(uid, projectId);
-    } catch (e) {
-      console.error("reevaluate after task blocked failed:", e);
+    } catch (e: any) {
+      const { logError } = await import('../utils/logger');
+      logError("reevaluate after task blocked failed:", e?.message ?? e);
     }
   } else {
     await updateProject(uid, entity.id, { status: "blocked" as ProjectStatus });
@@ -90,7 +95,8 @@ export async function updateBlocker(
   }
 
   if (Object.keys(payload).length > 0) {
-    await updateDoc(doc(db, `users/${uid}/blockers/${blockerId}`), payload);
+    const fb4 = await getFirebase();
+    await updateDoc(doc(fb4.db, `users/${uid}/blockers/${blockerId}`), payload);
     // Activity logging handled by calling functions
   }
 }
@@ -115,7 +121,8 @@ export async function resolveBlocker(
   const cleaned = (clearedReason ?? "").trim();
 
   // Mark this blocker as cleared
-  await updateDoc(doc(db, `users/${uid}/blockers/${blockerToResolve.id}`), {
+  const fb = await getFirebase();
+  await updateDoc(doc(fb.db, `users/${uid}/blockers/${blockerToResolve.id}`), {
     status: "cleared",
     clearedReason: cleaned || null,
     clearedAt: serverTimestamp(),
@@ -125,8 +132,9 @@ export async function resolveBlocker(
   const { entityId, entityType } = blockerToResolve;
 
   // Any other active blockers on this entity?
+  const fb5 = await getFirebase();
   const qActive = query(
-    col(uid, "blockers"),
+    fb5.col(uid, "blockers"),
     where("entityId", "==", entityId),
     where("entityType", "==", entityType),
     where("status", "==", "active")
@@ -141,16 +149,19 @@ export async function resolveBlocker(
 
     // Re-evaluate the parent project if any
     try {
-      const tSnap = await getDoc(doc(db, "users", uid, "tasks", entityId));
+    const fb6 = await getFirebase();
+    const tSnap = await getDoc(doc(fb6.db, "users", uid, "tasks", entityId));
       const projectId = tSnap.exists() ? (tSnap.data() as any).projectId : null;
       if (projectId) await reevaluateProjectBlockedState(uid, projectId);
-    } catch (e) {
-      console.error("reevaluate after task unblocked failed:", e);
+    } catch (e: any) {
+      const { logError } = await import('../utils/logger');
+      logError("reevaluate after task unblocked failed:", e?.message ?? e);
     }
   } else {
     // For projects, ensure there are no blocked tasks remaining.
+    const fb7 = await getFirebase();
     const blockedTasksSnap = await getDocs(
-      query(col(uid, "tasks"), where("projectId", "==", entityId), where("status", "==", "blocked"))
+      query(fb7.col(uid, "tasks"), where("projectId", "==", entityId), where("status", "==", "blocked"))
     );
 
     if (blockedTasksSnap.empty) {

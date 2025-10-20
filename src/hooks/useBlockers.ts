@@ -1,13 +1,6 @@
 // src/hooks/useBlockers.ts
 import { useEffect, useState } from "react";
-import {
-  onSnapshot,
-  query,
-  orderBy,
-  collection,
-  type QueryConstraint,
-} from "firebase/firestore";
-import { db } from "../firebase";
+import { getFirebase } from "../firebase";
 import type { Blocker, WithId } from "../types";
 
 /**
@@ -22,17 +15,14 @@ export function useAllBlockers(uid?: string) {
       return;
     }
 
-    const constraints: QueryConstraint[] = [orderBy("createdAt", "desc")];
-    const ref = collection(db, `users/${uid}/blockers`);
-    const q = query(ref, ...constraints);
-
-    const unsub = onSnapshot(q, (snap) => {
-      setBlockers(
-        snap.docs.map((d) => ({ id: d.id, ...(d.data() as Blocker) }))
-      );
-    });
-
+    (async () => {
+    const fb = await getFirebase();
+    const { onSnapshot, orderBy, query } = await import('firebase/firestore');
+    const ref = fb.col(uid, 'blockers');
+    const q = query(ref, orderBy("createdAt", "desc"));
+  const unsub = onSnapshot(q, (snap: any) => setBlockers(snap.docs.map((d: any) => ({ id: d.id, ...(d.data() as Blocker) }))));
     return () => unsub();
+  })();
   }, [uid]);
 
   return blockers;

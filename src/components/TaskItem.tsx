@@ -1,9 +1,11 @@
 // src/components/TaskItem.tsx
 import React, { useState, useRef, useMemo } from "react";
 import type { Task, Blocker, WithId } from "../types";
+import { useAllBlockers } from "../hooks/useBlockers";
 import { updateTask } from "../services/tasks";
 import Icon from "./Icon";
 import { useClickOutside } from "../hooks/useClickOutside";
+// ConfirmModal removed from TaskItem; parent views handle confirmations
 
 const taskStatusConfig: { [key in Task["status"]]: { label: string; classes: string } } = {
   not_started: { label: "Not Started", classes: "dark:bg-surface bg-white dark:hover:bg-background hover:bg-gray-50 dark:border-gray-700 border-gray-200" },
@@ -36,7 +38,7 @@ const getPriorityBgGradient = (priority: number): string => {
 interface TaskItemProps {
   uid: string;
   task: WithId<Task>;
-  allBlockers: WithId<Blocker>[];
+  allBlockers?: WithId<Blocker>[];
   allTasks?: WithId<Task>[];
   onStartEdit: () => void;
   // onStartPromote removed
@@ -52,6 +54,8 @@ interface TaskItemProps {
 }
 
 export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, searchQuery = '' }) => {
+  const hookAllBlockers = useAllBlockers(uid);
+  const safeAllBlockers = allBlockers ?? hookAllBlockers;
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [editingDueDate, setEditingDueDate] = useState(false);
   const [editingAssignee, setEditingAssignee] = useState(false);
@@ -63,7 +67,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
   );
   const prioritySliderRef = useRef<HTMLDivElement>(null);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
-  const priorityHideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const priorityHideTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   
   // Close priority slider when clicking outside
   useClickOutside({
@@ -87,7 +91,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
   // Helper to handle priority slider mouse leave with delay
   const handlePriorityMouseLeave = () => {
     if (priorityHideTimeoutRef.current) {
-      clearTimeout(priorityHideTimeoutRef.current);
+      window.clearTimeout(priorityHideTimeoutRef.current);
     }
     priorityHideTimeoutRef.current = setTimeout(() => {
       setShowPrioritySlider(false);
@@ -96,7 +100,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
 
   const handlePriorityMouseEnter = () => {
     if (priorityHideTimeoutRef.current) {
-      clearTimeout(priorityHideTimeoutRef.current);
+      window.clearTimeout(priorityHideTimeoutRef.current);
       priorityHideTimeoutRef.current = null;
     }
     setShowPrioritySlider(true);
@@ -106,7 +110,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
   React.useEffect(() => {
     return () => {
       if (priorityHideTimeoutRef.current) {
-        clearTimeout(priorityHideTimeoutRef.current);
+        window.clearTimeout(priorityHideTimeoutRef.current);
       }
     };
   }, []);
@@ -119,6 +123,8 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
   };
   
   // Memoized calculations to prevent expensive operations on every render
+  const createdAtTs = (task as any).createdAt ? String((task as any).createdAt?.seconds ?? (task as any).createdAt?.toDate?.().getTime() ?? '') : '';
+  const updatedAtTs = (task as any).updatedAt ? String((task as any).updatedAt?.seconds ?? (task as any).updatedAt?.toDate?.().getTime() ?? '') : '';
   const dateInfo = useMemo(() => {
     const dueDateObj = task.dueDate ? new Date(task.dueDate) : null;
     const createdAtObj = (task as any).createdAt?.toDate ? (task as any).createdAt.toDate() : null;
@@ -138,18 +144,18 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
         ? dueDateObj.toLocaleDateString(undefined, { month: "short", day: "numeric" })
         : "",
     };
-  }, [task.dueDate, (task as any).createdAt, (task as any).updatedAt]);
+  }, [task.dueDate, createdAtTs, updatedAtTs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Memoized status calculations
   const statusInfo = useMemo(() => {
     const isBlocked = task.status === "blocked";
     const isArchived = task.status === "archived";
     const activeTaskBlockers = isBlocked
-      ? allBlockers.filter((b) => b.entityId === task.id && b.status === "active")
+      ? safeAllBlockers.filter((b) => b.entityId === task.id && b.status === "active")
       : [];
     
     return { isBlocked, isArchived, activeTaskBlockers };
-  }, [task.status, task.id, allBlockers]);
+  }, [task.status, task.id, safeAllBlockers]);
 
   // Memoized subtask calculations
   const subtaskInfo = useMemo(() => {
@@ -259,7 +265,8 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
         parts.push(text.slice(lastIndex));
       }
       return parts;
-    } catch {
+    } catch (e) {
+      (async () => { const { logError } = await import('../utils/logger'); logError('highlightText error', e); })();
       return text;
     }
   };
@@ -765,13 +772,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                   >
                     <Icon path="M5 5h14v2H5zM7 9h10v10H7z" />
                   </button>
-                  <button
-                    onClick={e => { e.stopPropagation(); onDelete(); }}
-                    className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-red-400 hover:text-red-500"
-                    title="Delete Task"
-                  >
-                    <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-                  </button>
+                  <div className="relative inline-block">
+                    <button
+                      onClick={e => { e.stopPropagation(); onDelete(); }}
+                      className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-red-400 hover:text-red-500"
+                      title="Delete Task"
+                    >
+                      <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                    </button>
+                  </div>
                 </>
               ) : (
                 <>
@@ -782,13 +791,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                   >
                     <Icon path="M5 5h14v2H5zm2 4h10v10H7z" />
                   </button>
-                  <button
-                    onClick={e => { e.stopPropagation(); onDelete(); }}
-                    className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-red-400 hover:text-red-500"
-                    title="Delete Task"
-                  >
-                    <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
-                  </button>
+                  <div className="relative inline-block">
+                    <button
+                      onClick={e => { e.stopPropagation(); onDelete(); }}
+                      className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-red-400 hover:text-red-500"
+                      title="Delete Task"
+                    >
+                      <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                    </button>
+                  </div>
                 </>
               )}
             </div>

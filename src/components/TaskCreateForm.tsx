@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import type { WithId, Project } from "../types";
 import { createTask } from "../services/tasks";
+import { logError } from "../utils/logger";
 
 type Props = {
   uid: string;
@@ -39,7 +40,6 @@ export const TaskCreateForm: React.FC<Props> = ({
     if (value === 0) return "#9ca3af"; // gray
     if (value <= 20) return "#60a5fa"; // blue
     if (value <= 40) return "#4ade80"; // green
-    if (value <= 60) return "#facc15"; // yellow
     if (value <= 80) return "#fb923c"; // orange
     return "#ef4444"; // red
   };
@@ -73,7 +73,7 @@ export const TaskCreateForm: React.FC<Props> = ({
 
       onCreated?.(id);
     } catch (err: any) {
-      console.error("createTask failed", err);
+      logError("createTask failed", (err as any)?.message ?? err);
       setError(err?.message || "Failed to create task.");
     } finally {
       setSaving(false);

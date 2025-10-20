@@ -1,6 +1,8 @@
 // src/components/views/TasksView.tsx
 import React, { useState, useMemo } from "react";
+import { ConfirmModal } from "../shared/ConfirmModal";
 import { Dropdown } from "../shared/Dropdown";
+import { logError } from "../../utils/logger";
 import type { WithId, Task, Blocker, TaskFilters, Project, TaskAssignee, DueFilter, StatusFilter } from "../../types";
 import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
@@ -13,21 +15,32 @@ import { FilterBar, defaultFilters } from "../FilterBar";
 
 // Main TasksView component
 
+import { useAllBlockers } from "../../hooks/useBlockers";
+import { useTasks } from "../../hooks/useTasks";
+import { useProjects } from "../../hooks/useProjects";
+
 interface TasksViewProps {
   uid: string;
-  allTasks: WithId<Task>[];
-  allProjects: WithId<Project>[];
-  allBlockers: WithId<Blocker>[];
+  allTasks?: WithId<Task>[];
+  allProjects?: WithId<Project>[];
+  allBlockers?: WithId<Blocker>[];
 }
 
-function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) {
+function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, allBlockers: propAllBlockers }: TasksViewProps) {
+  const hookAllBlockers = useAllBlockers(uid);
+  const safeAllBlockers = propAllBlockers ?? hookAllBlockers;
+  const hookTasks = useTasks(uid);
+  const hookProjects = useProjects(uid);
+  const allTasks = propAllTasks ?? hookTasks;
+  const allProjects = propAllProjects ?? hookProjects;
   const FILTERS_KEY = "taskAppDefaultFilters_TasksView";
   const [filters, setFiltersState] = useState(() => {
     const saved = localStorage.getItem(FILTERS_KEY);
     if (saved) {
       try {
         return JSON.parse(saved);
-      } catch {
+      } catch (err) {
+        logError("Error parsing saved filters:", err);
         return defaultFilters;
       }
     }
@@ -47,6 +60,9 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
   // Removed streamlined UI toggle; always using classic FilterBar
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmMessage, setConfirmMessage] = useState("");
+  const [confirmAction, setConfirmAction] = useState<(() => Promise<void>) | null>(null);
   const filtersPanelRef = React.useRef<HTMLDivElement | null>(null);
   const toggleButtonRef = React.useRef<HTMLButtonElement | null>(null);
 
@@ -119,10 +135,11 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
         return due >= startOfToday && due < endOfToday;
       case "week":
         return due >= startOfToday && due < endOfWeek;
-      case "month":
+      case "month": {
         // Calculate end of current month
         const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
         return due >= startOfToday && due < endOfMonth;
+      }
       default:
         return true;
     }
@@ -205,15 +222,13 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
   // Memoized unique assignees list to prevent recalculation
   const uniqueAssignees = useMemo(() => {
     return Array.from(new Set(
-      allTasks.map((t) => 
-        typeof t.assignee === "string" ? t.assignee : t.assignee?.name
-      ).filter((v): v is string => Boolean(v))
+      allTasks.map((t) => typeof t.assignee === "string" ? t.assignee : (t.assignee as any)?.name).filter((v): v is string => Boolean(v))
     ));
   }, [allTasks]);
 
-  // Sort tasks by arrangeBy
-  function sortTasks(tasks: WithId<Task>[]): WithId<Task>[] {
-    let list = [...tasks];
+  // Sort tasks by arrangeBy (stable via useCallback)
+  const sortTasks = React.useCallback((tasks: WithId<Task>[]): WithId<Task>[] => {
+    const list = [...tasks];
     switch (arrangeBy) {
       case "status":
         list.sort((a, b) => a.status.localeCompare(b.status));
@@ -255,10 +270,10 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
           return aTime - bTime;
         });
         break;
-    }
+      }
     if (reverseOrder) list.reverse();
     return list;
-  }
+    }, [arrangeBy, reverseOrder]);
 
   // Memoized grouped and sorted tasks to prevent recalculation on every render
   const groupedTasks = useMemo(() => {
@@ -287,7 +302,7 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
     }
     
     return groupTasks(filteredTasks, filters.groupBy || "none");
-  }, [filteredTasks, filters.groupBy, arrangeBy, reverseOrder]);
+  }, [filteredTasks, filters.groupBy, sortTasks]);
 
   // Remove effect that updates dragList from backend unless a drag is in progress
 
@@ -388,6 +403,19 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
               <span className="inline-block rotate-180">↑</span>
             </button>
           </div>
+          <ConfirmModal
+            open={confirmOpen}
+            title="Confirm"
+            message={confirmMessage}
+            confirmLabel="Delete"
+            cancelLabel="Cancel"
+            onCancel={() => setConfirmOpen(false)}
+            onConfirm={async () => {
+              setConfirmOpen(false);
+              if (confirmAction) await confirmAction();
+              setConfirmAction(null);
+            }}
+          />
         </div>
         {showFilters && (
           <div id="filters-panel" ref={filtersPanelRef} className="absolute z-20 mt-2 left-0 right-0 bg-white dark:bg-surface border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-4" role="region" aria-label="Filters">
@@ -455,17 +483,19 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
                           uid={uid}
                           task={t}
                           allProjects={allProjects}
-                          allBlockers={allBlockers}
                           searchQuery={searchQuery}
                           onSave={() => setEditingTaskId(null)}
                           onCancel={() => setEditingTaskId(null)}
                           // ...existing code...
                           onDelete={async () => {
-                            if (window.confirm("Delete this task?")) {
+                            const action = async () => {
                               const { removeTask } = await import("../../services/tasks");
                               await removeTask(uid, t.id);
                               setEditingTaskId(null);
-                            }
+                            };
+                            setConfirmMessage("Delete this task?");
+                            setConfirmAction(() => action);
+                            setConfirmOpen(true);
                           }}
                           onArchive={async () => {
                             const { archiveTask } = await import("../../services/tasks");
@@ -486,7 +516,7 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
                       <TaskItem
                         uid={uid}
                         task={t}
-                        allBlockers={allBlockers}
+                        allBlockers={safeAllBlockers}
                         allTasks={filteredTasks}
                         searchQuery={searchQuery}
                         onStartEdit={() => setEditingTaskId(t.id)}
@@ -498,8 +528,13 @@ function TasksView({ uid, allTasks, allProjects, allBlockers }: TasksViewProps) 
                           await archiveTask(uid, t.id);
                         }}
                         onDelete={async () => {
-                          const { removeTask } = await import("../../services/tasks");
-                          await removeTask(uid, t.id);
+                          const action = async () => {
+                            const { removeTask } = await import("../../services/tasks");
+                            await removeTask(uid, t.id);
+                          };
+                          setConfirmMessage("Delete this task?");
+                          setConfirmAction(() => action);
+                          setConfirmOpen(true);
                         }}
                         onUnarchive={async () => {
                           const { unarchiveTask } = await import("../../services/tasks");

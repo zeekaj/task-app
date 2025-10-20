@@ -1,5 +1,6 @@
 // src/components/views/AssigneesView.tsx
 import React, { useState, useMemo } from "react";
+import { ConfirmModal } from "../shared/ConfirmModal";
 import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
 import { FilterBar } from "../FilterBar";
@@ -9,24 +10,38 @@ import type { WithId, Task, Blocker, TaskFilters } from "../../types";
 
 interface TechsViewProps {
   uid: string;
-  allTasks: WithId<Task>[];
-  allBlockers: WithId<Blocker>[];
+  allTasks?: WithId<Task>[];
+  allBlockers?: WithId<Blocker>[];
   allProjects?: any[];
   selectedTech?: string | null;
   onNavigateToAllTechs?: () => void;
   onNavigateToProject?: (projectId: string) => void;
 }
 
+import { useAllBlockers } from "../../hooks/useBlockers";
+import { useTasks } from "../../hooks/useTasks";
+import { useProjects } from "../../hooks/useProjects";
+import { logError } from "../../utils/logger";
+
 export const TechsView: React.FC<TechsViewProps> = ({
   uid,
-  allTasks,
-  allBlockers,
-  allProjects = [],
+  allTasks: propAllTasks,
+  allBlockers: propAllBlockers,
+  allProjects: propAllProjectProp = [],
   selectedTech,
   onNavigateToAllTechs,
   onNavigateToProject,
 }) => {
+  const hookAllBlockers = useAllBlockers(uid);
+  const safeAllBlockers = propAllBlockers ?? hookAllBlockers;
+  const hookTasks = useTasks(uid);
+  const hookProjects = useProjects(uid);
+  const allTasks = propAllTasks ?? hookTasks;
+  const allProjects = propAllProjectProp ?? hookProjects;
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmMessage, setConfirmMessage] = useState("");
+  const [confirmAction, setConfirmAction] = useState<(() => Promise<void>) | null>(null);
 
   // Filter state
   const FILTERS_KEY = "taskAppDefaultFilters_TechsView";
@@ -42,7 +57,8 @@ export const TechsView: React.FC<TechsViewProps> = ({
     if (saved) {
       try {
         return JSON.parse(saved);
-      } catch {
+      } catch (err) {
+        logError("Error parsing saved tech filters:", err);
         return techsDefaultFilters;
       }
     }
@@ -102,10 +118,11 @@ export const TechsView: React.FC<TechsViewProps> = ({
         return due >= startOfToday && due < endOfToday;
       case "week":
         return due >= startOfToday && due < endOfWeek;
-      case "month":
+      case "month": {
         // Calculate end of current month
         const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
         return due >= startOfToday && due < endOfMonth;
+      }
       default:
         return false;
     }
@@ -230,18 +247,19 @@ export const TechsView: React.FC<TechsViewProps> = ({
             result = b.priority - a.priority; // Higher priority first by default
             break;
           case "age":
-          default:
+          default: {
             const aTime = a.createdAt && typeof a.createdAt === 'object' && 'toDate' in a.createdAt ? a.createdAt.toDate().getTime() : 0;
             const bTime = b.createdAt && typeof b.createdAt === 'object' && 'toDate' in b.createdAt ? b.createdAt.toDate().getTime() : 0;
             result = aTime - bTime; // Older first by default
             break;
+          }
         }
         return reverseOrder ? -result : result;
       });
     });
 
     return groups;
-  }, [allTasks, filters, showAll, arrangeBy, reverseOrder]);
+  }, [allTasks, filters, showAll, arrangeBy, reverseOrder, allProjects]);
 
   const assigneeNames = Object.keys(tasksByAssignee)
     .filter(name => selectedTech ? name === selectedTech : true)
@@ -521,15 +539,17 @@ export const TechsView: React.FC<TechsViewProps> = ({
                           uid={uid}
                           task={task}
                           allProjects={allProjects || []}
-                          allBlockers={allBlockers}
                           onSave={() => setEditingTaskId(null)}
                           onCancel={() => setEditingTaskId(null)}
                           onDelete={async () => {
-                            if (window.confirm("Delete this task?")) {
+                            const action = async () => {
                               const { removeTask } = await import("../../services/tasks");
                               await removeTask(uid, task.id);
                               setEditingTaskId(null);
-                            }
+                            };
+                            setConfirmMessage("Delete this task?");
+                            setConfirmAction(() => action);
+                            setConfirmOpen(true);
                           }}
                           onArchive={async () => {
                             const { archiveTask } = await import("../../services/tasks");
@@ -549,7 +569,7 @@ export const TechsView: React.FC<TechsViewProps> = ({
                       <TaskItem
                         uid={uid}
                         task={task}
-                        allBlockers={allBlockers}
+                        allBlockers={safeAllBlockers}
                         allTasks={allTasks}
                         onStartEdit={() => setEditingTaskId(task.id)}
                         onManageBlockers={() => {
@@ -583,6 +603,19 @@ export const TechsView: React.FC<TechsViewProps> = ({
           );
         })
       )}
+      <ConfirmModal
+        open={confirmOpen}
+        title="Confirm"
+        message={confirmMessage}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        onCancel={() => setConfirmOpen(false)}
+        onConfirm={async () => {
+          setConfirmOpen(false);
+          if (confirmAction) await confirmAction();
+          setConfirmAction(null);
+        }}
+      />
     </div>
   );
 };

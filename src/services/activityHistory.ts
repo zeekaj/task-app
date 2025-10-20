@@ -1,14 +1,5 @@
-import { 
-  collection, 
-  addDoc, 
-  query, 
-  where, 
-  orderBy, 
-  limit,
-  getDocs,
-  Timestamp 
-} from "firebase/firestore";
-import { auth, db } from '../firebase';
+import { addDoc, query, where, orderBy, limit, getDocs, Timestamp } from "firebase/firestore";
+import { getFirebase } from '../firebase';
 import type { Activity, ActivityEntityType, ActivityType } from '../types';
 
 /**
@@ -45,8 +36,15 @@ export async function logActivity(
   try {
     // Try to get the user's display name from Firebase Auth
     let userName = options?.userName;
-    if (!userName && auth.currentUser) {
-      userName = auth.currentUser.displayName || auth.currentUser.email || "Unknown User";
+    if (!userName) {
+      try {
+        const fb = await getFirebase();
+        if (fb.auth && fb.auth.currentUser) {
+          userName = fb.auth.currentUser.displayName || fb.auth.currentUser.email || "Unknown User";
+        }
+      } catch (e) {
+        // ignore
+      }
     }
     
     const activityData: Omit<Activity, 'id'> = {
@@ -64,10 +62,12 @@ export async function logActivity(
     // Clean any undefined values before storing to Firebase
     const cleanedActivityData = removeUndefinedValues(activityData);
 
-    const activitiesRef = collection(db, `users/${uid}/activities`);
-    await addDoc(activitiesRef, cleanedActivityData);
-  } catch (error) {
-    console.error("Error logging activity:", error);
+  const fb = await getFirebase();
+  const activitiesRef = fb.col(uid, `activities`);
+  await addDoc(activitiesRef, cleanedActivityData);
+  } catch (error: any) {
+    const { logError } = await import('../utils/logger');
+    logError("Error logging activity:", error?.message ?? error);
     // Don't throw - activity logging should not break the main operation
   }
 }
@@ -82,9 +82,9 @@ export async function getEntityActivityHistory(
   limitCount: number = 50
 ): Promise<Activity[]> {
   try {
-    const activitiesRef = collection(db, `users/${uid}/activities`);
-    
-    // Revert to simple query without orderBy to avoid index issues
+    const fb = await getFirebase();
+    const activitiesRef = fb.col(uid, `activities`);
+
     const q = query(
       activitiesRef,
       where("entityType", "==", entityType),
@@ -93,13 +93,13 @@ export async function getEntityActivityHistory(
     );
 
     const querySnapshot = await getDocs(q);
-    const activities = querySnapshot.docs.map(doc => ({
+    const activities = querySnapshot.docs.map((doc: any) => ({
       id: doc.id,
-      ...doc.data()
+      ...(doc.data() as any)
     } as Activity));
 
     // Sort manually - newest first
-    return activities.sort((a, b) => {
+    return activities.sort((a: Activity, b: Activity) => {
       const aTime = a.createdAt && typeof a.createdAt === 'object' && 'toDate' in a.createdAt 
         ? a.createdAt.toDate().getTime() 
         : (a.createdAt && typeof a.createdAt === 'object' && 'seconds' in a.createdAt 
@@ -114,8 +114,9 @@ export async function getEntityActivityHistory(
             
       return bTime - aTime; // Most recent first
     });
-  } catch (error) {
-    console.error("Error fetching activity history:", error);
+  } catch (error: any) {
+    const { logError } = await import('../utils/logger');
+    logError("Error fetching activity history:", error?.message ?? error);
     return [];
   }
 }
@@ -128,7 +129,8 @@ export async function getRecentActivity(
   limitCount: number = 100
 ): Promise<Activity[]> {
   try {
-    const activitiesRef = collection(db, `users/${uid}/activities`);
+    const fb = await getFirebase();
+    const activitiesRef = fb.col(uid, `activities`);
     const q = query(
       activitiesRef,
       orderBy("createdAt", "desc"),
@@ -136,12 +138,10 @@ export async function getRecentActivity(
     );
 
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data()
-    } as Activity));
-  } catch (error) {
-    console.error("Error fetching recent activity:", error);
+  return querySnapshot.docs.map((doc: any) => ({ id: doc.id, ...(doc.data() as any) } as Activity));
+  } catch (error: any) {
+    const { logError } = await import('../utils/logger');
+    logError("Error fetching recent activity:", error?.message ?? error);
     return [];
   }
 }

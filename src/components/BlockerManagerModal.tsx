@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { WithId, Blocker } from "../types";
 import { resolveBlocker, updateBlocker } from "../services/blockers";
 import { BlockerModal } from "./BlockerModal";
+import { useAllBlockers } from "../hooks/useBlockers";
 
 const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = ({
   uid,
@@ -37,7 +38,8 @@ const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = (
       });
       setIsEditing(false);
     } catch (error) {
-      console.error("Error saving blocker:", error);
+      const { logError } = await import('../utils/logger');
+      logError("Error saving blocker:", (error as any)?.message ?? error);
       alert("An error occurred while saving. See console for details.");
     }
   };
@@ -162,11 +164,11 @@ const ActiveBlockerItem: React.FC<{ uid: string; blocker: WithId<Blocker> }> = (
 export const BlockerManagerModal: React.FC<{
   uid: string;
   entity: { id: string; title: string; type: "task" | "project"; showAll?: boolean };
-  allBlockers: WithId<Blocker>[];
   allTasks?: any[];
   onClose: () => void;
-}> = ({ uid, entity, allBlockers, allTasks = [], onClose }) => {
-  const safeBlockers = Array.isArray(allBlockers) ? allBlockers : [];
+}> = ({ uid, entity, allTasks = [], onClose }) => {
+  const allBlockers = useAllBlockers(uid);
+  const safeBlockers = React.useMemo(() => (Array.isArray(allBlockers) ? allBlockers : []), [allBlockers]);
   const [showBlockerModal, setShowBlockerModal] = useState(false);
   const [bulkResolveNote, setBulkResolveNote] = useState("");
 

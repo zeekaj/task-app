@@ -18,22 +18,20 @@ export const ActivityHistory: React.FC<ActivityHistoryProps> = ({
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(false);
   useEffect(() => {
-    if (entityId) {
-      loadActivityHistory();
-    }
-  }, [entityId]);
-
-  const loadActivityHistory = async () => {
-    setLoading(true);
-    try {
-      const history = await getEntityActivityHistory(uid, entityType, entityId, 20);
-      setActivities(history);
-    } catch (error) {
-      console.error("Error loading activity history:", error);
-    } finally {
-      setLoading(false);
-    }
-  };
+    if (!entityId) return;
+    (async () => {
+      setLoading(true);
+      try {
+        const history = await getEntityActivityHistory(uid, entityType, entityId, 20);
+        setActivities(history);
+      } catch (error) {
+        const { logError } = await import('../utils/logger');
+        logError("Error loading activity history:", (error as any)?.message ?? error);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [uid, entityType, entityId]);
 
   const formatDate = (timestamp: any) => {
     if (!timestamp) return "Unknown date";
