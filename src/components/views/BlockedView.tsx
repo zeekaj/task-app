@@ -3,6 +3,7 @@ import React, { useState } from "react";
 import type { WithId, Project, Task, Blocker } from "../../types";
 import { TaskItem } from "../TaskItem";
 import { ConfirmModal } from "../shared/ConfirmModal";
+import { BlockerManagerModal } from "../BlockerManagerModal";
 import { useAllBlockers } from "../../hooks/useBlockers";
 import { useProjects } from "../../hooks/useProjects";
 import { useTasks } from "../../hooks/useTasks";
@@ -26,6 +27,7 @@ export const BlockedView: React.FC<{
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState<string>("");
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
+  const [blockerManagerTask, setBlockerManagerTask] = useState<{ id: string; title: string; type: "task" } | null>(null);
   // Removed unused 'byProject' and related type issues
   
   return (
@@ -60,7 +62,7 @@ export const BlockedView: React.FC<{
               allBlockers={safeAllBlockers}
               allTasks={blockedTasks}
               onStartEdit={() => {}}
-              onManageBlockers={() => {}}
+              onManageBlockers={() => setBlockerManagerTask({ id: t.id, title: t.title, type: "task" })}
               onStartBlock={() => {}}
               onArchive={async () => {
                 const { archiveTask } = await import("../../services/tasks");
@@ -82,6 +84,7 @@ export const BlockedView: React.FC<{
                 const { updateTask } = await import("../../services/tasks");
                 await updateTask(uid, t.id, { status: newStatus });
               }}
+              onUndo={async () => false}
             />
           ))}
         </ul>
@@ -101,6 +104,13 @@ export const BlockedView: React.FC<{
         if (confirmAction) await confirmAction();
       }}
     />
+    {blockerManagerTask && (
+      <BlockerManagerModal
+        uid={uid}
+        entity={blockerManagerTask}
+        onClose={() => setBlockerManagerTask(null)}
+      />
+    )}
     </>
   );
 };

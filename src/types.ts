@@ -96,7 +96,7 @@ export interface Activity {
   entityId: string;
   entityTitle: string;
   action: ActivityType;
-  changes?: Record<string, { from: any; to: any }>; // field changes
+  changes?: Record<string, { from: any; to: any; type?: string }>; // field changes with optional type info
   description?: string; // human-readable description
   userId: string; // who made the change
   userName?: string; // name of user who made the change

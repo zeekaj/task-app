@@ -103,9 +103,8 @@ const ProjectView: React.FC<{
     return d.toISOString().split('T')[0];
   });
 
-  // Sync local state when project changes
+  // Sync local state when project changes (avoid stomping user typing)
   useEffect(() => {
-    setR2NumberInput(currentProject?.r2Number || '');
     setTitleInput(currentProject?.title || '');
     if (!currentProject?.installDate) {
       setInstallDateInput('');
@@ -118,7 +117,13 @@ const ProjectView: React.FC<{
       }
       setInstallDateInput(d.toISOString().split('T')[0]);
     }
-  }, [currentProject?.r2Number, currentProject?.installDate, currentProject?.id, currentProject?.title]);
+  }, [currentProject?.installDate, currentProject?.id, currentProject?.title]);
+
+  // Keep R2# in sync only when it actually changes
+  useEffect(() => {
+    const newVal = currentProject?.r2Number || '';
+    if (newVal !== r2NumberInput) setR2NumberInput(newVal);
+  }, [currentProject?.r2Number]);
   // Your component logic here
   // Modal state for managing blockers
   const [showBlockerManager, setShowBlockerManager] = useState<{ open: boolean; taskId: string | null }>({ open: false, taskId: null });
@@ -162,6 +167,7 @@ const ProjectView: React.FC<{
   });
   const [showAll, setShowAll] = useState(false);
   const [quickAdd, setQuickAdd] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   // Quick add handler for project tasks
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -244,38 +250,71 @@ const ProjectView: React.FC<{
   const computeProjectTasks = () => {
     let list = allTasks.filter((t: any) => t.projectId === projectId && t.status !== 'blocked');
     if (showAll) return list;
-    if (!filters.includeArchived) {
-      list = list.filter((t: any) => t.status !== "archived");
+    
+    // Apply search filter first - if searching, skip other filters
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      list = list.filter((t: any) => 
+        t.title.toLowerCase().includes(query) ||
+        (t.description && t.description.toLowerCase().includes(query)) ||
+        (t.comments && t.comments.toLowerCase().includes(query)) ||
+        (t.assignee && typeof t.assignee === 'string' && t.assignee.toLowerCase().includes(query)) ||
+        (t.assignee && typeof t.assignee === 'object' && t.assignee.name && t.assignee.name.toLowerCase().includes(query))
+      );
+      // When searching, still exclude archived unless explicitly included
+      if (!filters.includeArchived) {
+        list = list.filter((t: any) => t.status !== "archived");
+      }
+      // Skip all other filters when searching - return early after sorting
+    } else {
+      // Only apply filters when NOT searching
+      if (!filters.includeArchived) {
+        list = list.filter((t: any) => t.status !== "archived");
+      }
+      if (filters.status && filters.status.length > 0) {
+        list = list.filter((t: any) => {
+          const statusMap: Record<string, string[]> = {
+            active: ["not_started", "in_progress", "blocked"],
+            blocked: ["blocked"],
+            done: ["done"],
+            archived: ["archived"],
+          };
+          return filters.status.some((f) => statusMap[f]?.includes(t.status));
+        });
+      }
+      if (filters.minPriority && filters.minPriority.length > 0) {
+        list = list.filter((t: any) => {
+          const taskPriority = t.priority ?? 0;
+          // Map task priority (0-100) to priority range category (0-4)
+          // 0: 0-20, 1: 21-40, 2: 41-60, 3: 61-80, 4: 81-100
+          let priorityCategory: number;
+          if (taskPriority <= 20) priorityCategory = 0;
+          else if (taskPriority <= 40) priorityCategory = 1;
+          else if (taskPriority <= 60) priorityCategory = 2;
+          else if (taskPriority <= 80) priorityCategory = 3;
+          else priorityCategory = 4;
+          
+          return filters.minPriority.includes(priorityCategory);
+        });
+      }
+      if (filters.due && filters.due.length > 0) {
+        list = list.filter((t: any) => (filters.due as DueFilter[]).some((d) => isWithinDueFilter(t.dueDate, d)));
+      }
+      if (filters.assigned && filters.assigned.length > 0) {
+        list = list.filter((t: any) => {
+          const isNone = !t.assignee || t.assignee === null || t.assignee === undefined;
+          if (filters.assigned && filters.assigned.includes("(None)")) {
+            if (isNone) return true;
+          }
+          if (typeof t.assignee === "object" && t.assignee !== null) {
+            return filters.assigned && (filters.assigned.includes(t.assignee.name) || filters.assigned.includes(t.assignee.id));
+          }
+          return filters.assigned && filters.assigned.includes(t.assignee);
+        });
+      }
     }
-    if (filters.status && filters.status.length > 0) {
-      list = list.filter((t: any) => {
-        const statusMap: Record<string, string[]> = {
-          active: ["not_started", "in_progress", "blocked"],
-          blocked: ["blocked"],
-          done: ["done"],
-          archived: ["archived"],
-        };
-        return filters.status.some((f) => statusMap[f]?.includes(t.status));
-      });
-    }
-    if (filters.minPriority && filters.minPriority.length > 0) {
-      list = list.filter((t: any) => filters.minPriority.some((p) => t.priority === p));
-    }
-    if (filters.due && filters.due.length > 0) {
-      list = list.filter((t: any) => (filters.due as DueFilter[]).some((d) => isWithinDueFilter(t.dueDate, d)));
-    }
-    if (filters.assigned && filters.assigned.length > 0) {
-      list = list.filter((t: any) => {
-        const isNone = !t.assignee || t.assignee === null || t.assignee === undefined;
-        if (filters.assigned && filters.assigned.includes("(None)")) {
-          if (isNone) return true;
-        }
-        if (typeof t.assignee === "object" && t.assignee !== null) {
-          return filters.assigned && (filters.assigned.includes(t.assignee.name) || filters.assigned.includes(t.assignee.id));
-        }
-        return filters.assigned && filters.assigned.includes(t.assignee);
-      });
-    }
+    
+    // Sort the list (applies to both search and filter results)
     list = [...list];
     switch (arrangeBy) {
       case "status":
@@ -327,6 +366,9 @@ const ProjectView: React.FC<{
   const hiddenProjectTasksCount = () => {
     if (showAll) return 0;
     
+    // When searching, don't show "hidden by filters" message
+    if (searchQuery.trim()) return 0;
+    
     const allProjectTasks = allTasks.filter((t: any) => t.projectId === projectId);
     const activeAndBlockedProjectTasks = allProjectTasks.filter((t: any) => 
       t.status === "not_started" || t.status === "in_progress" || t.status === "blocked"
@@ -343,7 +385,7 @@ const ProjectView: React.FC<{
   // dnd-kit drag-and-drop handlers
 
   return (
-    <div className="dark:bg-background bg-white rounded-xl p-6 shadow-lg transition-colors duration-200 max-w-full overflow-hidden">
+    <div className="bg-white/80 dark:bg-surface/80 backdrop-blur rounded-xl p-6 shadow-lg mt-2 transition-colors duration-200 max-w-full overflow-visible">
       {/* Back button */}
       {onBack && (
         <button
@@ -514,10 +556,26 @@ const ProjectView: React.FC<{
                 <input
                   type="text"
                   value={r2NumberInput}
-                  onChange={async (e) => {
+                  onChange={(e) => {
+                    // Update local state only; persist on blur/enter to avoid focus loss
                     setR2NumberInput(e.target.value);
+                  }}
+                  onBlur={async (e) => {
+                    const newVal = e.currentTarget.value;
+                    if (!currentProject) return;
+                    if ((currentProject.r2Number || "") === newVal) return; // no-op if unchanged
                     const { updateProject } = await import("../../services/projects");
-                    await updateProject(uid, currentProject.id, { r2Number: e.target.value });
+                    await updateProject(uid, currentProject.id, { r2Number: newVal });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      (e.currentTarget as HTMLInputElement).blur();
+                    }
+                    if (e.key === 'Escape') {
+                      // Revert to server value and exit
+                      setR2NumberInput(currentProject?.r2Number || '');
+                      (e.currentTarget as HTMLInputElement).blur();
+                    }
                   }}
                   className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300 w-24"
                   placeholder="R2#"
@@ -529,12 +587,38 @@ const ProjectView: React.FC<{
                 <input
                   type="date"
                   value={installDateInput}
-                  onChange={async (e) => {
+                  onChange={(e) => {
+                    // Update local only; persist on blur to avoid focus loss
                     setInstallDateInput(e.target.value);
+                  }}
+                  onBlur={async (e) => {
+                    if (!currentProject) return;
+                    const newVal = e.currentTarget.value;
+                    const prev = currentProject.installDate
+                      ? (typeof currentProject.installDate === 'object' && 'toDate' in currentProject.installDate
+                        ? (currentProject.installDate as any).toDate().toISOString().split('T')[0]
+                        : new Date(currentProject.installDate as string).toISOString().split('T')[0])
+                      : '';
+                    if (newVal === prev) return;
                     const { updateProject } = await import("../../services/projects");
-                    await updateProject(uid, currentProject.id, { 
-                      installDate: e.target.value ? new Date(e.target.value) : undefined 
+                    await updateProject(uid, currentProject.id, {
+                      installDate: newVal ? new Date(newVal) : undefined,
                     });
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur();
+                    if (e.key === 'Escape') {
+                      // Revert to server value
+                      if (currentProject?.installDate) {
+                        const d = typeof currentProject.installDate === 'object' && 'toDate' in currentProject.installDate
+                          ? (currentProject.installDate as any).toDate()
+                          : new Date(currentProject.installDate as string);
+                        setInstallDateInput(d.toISOString().split('T')[0]);
+                      } else {
+                        setInstallDateInput('');
+                      }
+                      (e.currentTarget as HTMLInputElement).blur();
+                    }
                   }}
                   className="px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-300"
                 />
@@ -829,7 +913,22 @@ const ProjectView: React.FC<{
         </form>
         {/* Filters, Show All, Group/Arrange controls (match TasksView) */}
         <div className="mt-4 flex flex-col md:flex-row md:items-center md:gap-4">
-          <div className="flex flex-wrap items-center gap-3 bg-white/80 dark:bg-surface/80 rounded-2xl shadow px-4 py-3 border border-gray-200 dark:border-gray-700 w-full">
+          <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-surface rounded-xl shadow-lg px-4 py-3 border border-gray-200 dark:border-gray-700 w-full">
+            {/* Search bar first */}
+            <div className="relative">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search tasks..."
+                className="pl-10 pr-3 py-2 text-sm border dark:border-gray-700 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-56 dark:bg-gray-800 dark:text-gray-100"
+              />
+            </div>
+            
+            {/* Filter bar */}
             <FilterBar
               filters={filters}
               onChange={setFilters}
@@ -889,12 +988,14 @@ const ProjectView: React.FC<{
               >
                 {reverseOrder ? "↓" : "↑"}
               </button>
+
             </div>
           </div>
         </div>
-        {computeProjectTasks().length > 0 ? (
-          <ul className="space-y-2 max-w-full overflow-hidden">
-            {computeProjectTasks().map((task: WithId<Task>) => (
+        <div className="bg-surface dark:bg-background rounded-lg p-4 mt-4">
+            {computeProjectTasks().length > 0 ? (
+            <ul className="space-y-2 max-w-full overflow-hidden">
+              {computeProjectTasks().map((task: WithId<Task>) => (
               <li
                 key={task.id}
                 className="max-w-full overflow-hidden"
@@ -958,6 +1059,11 @@ const ProjectView: React.FC<{
                       const { unarchiveTask } = await import("../../services/tasks");
                       await unarchiveTask(uid, task.id);
                     }}
+                    onUndo={async () => {
+                      const { updateTask } = await import("../../services/tasks");
+                      await updateTask(uid, task.id, { status: 'not_started' });
+                      return true;
+                    }}
                     onStatusChange={async (newStatus) => {
                       const { updateTask } = await import("../../services/tasks");
                       await updateTask(uid, task.id, { status: newStatus });
@@ -1014,7 +1120,7 @@ const ProjectView: React.FC<{
                     const taskBlockers = safeAllBlockers.filter((b: any) => b.entityId === task.id && b.status === 'active');
                     if (taskBlockers.length === 0) return null;
                     return (
-                      <li key={task.id} className="bg-white dark:bg-red-950 border border-gray-200 dark:border-red-800 rounded-lg p-3">
+                      <li key={task.id} className="bg-white dark:bg-surface border border-gray-200 dark:border-gray-700 rounded-lg p-3">
                         <div className="font-semibold text-gray-800 dark:text-red-200 mb-1">Task: {typeof task.title === 'string' ? task.title : JSON.stringify(task.title)}</div>
                         <ul className="space-y-2">
                           {taskBlockers.map((blocker: any) => (
@@ -1094,7 +1200,8 @@ const ProjectView: React.FC<{
       }}
     />
     </div>
+    </div>
   );
-};
+}
 
 export { ProjectView };

@@ -8,16 +8,16 @@ import { Dropdown } from "./shared/Dropdown";
 import type { TaskFilters } from "../types";
 
 const priorities = [
-  { value: 0, label: "Any" },
-  { value: 25, label: "≥ Low (25+)" },
-  { value: 50, label: "≥ Medium (50+)" },
-  { value: 75, label: "≥ High (75+)" },
-  { value: 90, label: "≥ Urgent (90+)" },
+  { value: 0, min: 0, max: 20, label: "None (0-20)" },
+  { value: 1, min: 21, max: 40, label: "Low (21-40)" },
+  { value: 2, min: 41, max: 60, label: "Medium (41-60)" },
+  { value: 3, min: 61, max: 80, label: "High (61-80)" },
+  { value: 4, min: 81, max: 100, label: "Urgent (81-100)" },
 ] as const;
 
 export const defaultFilters: TaskFilters = {
   status: ["active"],
-  minPriority: [0],
+  minPriority: [0, 1, 2, 3, 4], // Include all priority ranges by default
   due: ["any"],
   assigned: [],
   includeArchived: false,
@@ -95,7 +95,7 @@ export const FilterBar: React.FC<{
   </Dropdown>
                           <Dropdown label="Priority">
                             {(() => {
-                              const allLevels = [0, 25, 50, 75, 90] as const;
+                              const allLevels = [0, 1, 2, 3, 4] as const;
                               const allSelected = allLevels.every((l) => filters.minPriority.includes(l));
                               return (
                                 <>
@@ -219,7 +219,7 @@ export const FilterBar: React.FC<{
                               className={
                                 `relative rounded-full px-4 py-1 text-sm font-medium border shadow bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 ml-2 hover:bg-gray-200 dark:hover:bg-gray-700 items-center transition-colors duration-200 ${saved ? 'bg-green-100 border-green-400 text-green-700' : ''}`
                               }
-                              title="Save these filters as your default"
+                              title="Save these filters as your default for this view only"
                               disabled={saved}
                             >
                               {saved ? (

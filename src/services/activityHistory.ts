@@ -190,7 +190,12 @@ export function generateActivityDescription(activity: Activity, contextEntityId?
             }
             return `attachments: ${fromCount} → ${toCount}`;
           }
-          return `${field}: "${change.from}" → "${change.to}"`;
+          if (change.type === 'string') {
+            const fromStr = change.from === undefined ? '(empty)' : `"${change.from}"`;
+            const toStr = change.to === undefined ? '(empty)' : `"${change.to}"`;
+            return `${field}: ${fromStr} → ${toStr}`;
+          }
+          return `${field}: ${change.from} → ${change.to}`;
         }).join(", ");
         return `${user} updated${entityRef}${isInContext ? '' : ':'} ${fieldChanges}`;
       }

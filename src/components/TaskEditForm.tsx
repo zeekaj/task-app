@@ -73,7 +73,52 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [statusDropdownPos, setStatusDropdownPos] = useState<{ top: number; left: number } | null>(null);
-  // Removed unused saving and error state to resolve warnings
+  
+  // Track if any field has changed
+  const hasUnsavedChanges = useCallback(() => {
+    return (
+      title !== task.title ||
+      description !== (task.description ?? "") ||
+      priority !== (task.priority ?? 0) ||
+      dueDate !== (task.dueDate ?? "") ||
+      projectId !== (task.projectId ?? "") ||
+      assignee !== (typeof task.assignee === "string" ? task.assignee : task.assignee?.id ?? "") ||
+      comments !== (task.comments ?? "") ||
+      JSON.stringify(subtasks) !== JSON.stringify(task.subtasks || []) ||
+      JSON.stringify(dependencies) !== JSON.stringify(task.dependencies || []) ||
+      JSON.stringify(recurrence) !== JSON.stringify(task.recurrence || { type: "none" }) ||
+      JSON.stringify(attachments) !== JSON.stringify(task.attachments || [])
+    );
+  }, [
+    title, description, priority, dueDate, projectId, assignee, comments,
+    subtasks, dependencies, recurrence, attachments,
+    task.title, task.description, task.priority, task.dueDate, task.projectId,
+    task.assignee, task.comments, task.subtasks, task.dependencies, task.recurrence,
+    task.attachments
+  ]);
+  // Handle keyboard shortcuts
+  useKeydown(
+    {
+      Enter: async (e: KeyboardEvent) => {
+        // Ctrl/Cmd + Enter to save
+        if ((e.ctrlKey || e.metaKey) && !e.shiftKey) {
+          const syntheticEvent = new Event('submit') as unknown as React.FormEvent;
+          await handleSave(syntheticEvent);
+        }
+      },
+      Escape: () => handleCancel()
+    },
+    true // enabled
+  );
+
+  // Handle cancel with unsaved changes check
+  const handleCancel = useCallback(() => {
+    if (hasUnsavedChanges()) {
+      setShowDiscardConfirm(true);
+    } else {
+      onCancel();
+    }
+  }, [hasUnsavedChanges, onCancel]);
 
   // Priority helper functions (0-100 scale)
   const getPriorityLabel = (value: number): string => {
@@ -146,20 +191,22 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   // Handler functions (must be after state/props, before return)
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    // (removed duplicate state/prop declarations above)
+    e.stopPropagation();
+
+    // Validate required fields
     if (!title.trim()) {
-      // setError("Title is required.");
+      alert("Title is required.");
       return;
     }
-    // setError(null);
-    // setSaving(true);
+
     try {
+      // Save task changes
       await updateTask(
         uid,
         task.id,
         {
           title: title.trim(),
-          description: description.trim() || undefined,
+          description: description.trim(),
           comments: comments,
           priority,
           dueDate: dueDate || null,
@@ -171,10 +218,16 @@ export const TaskEditForm: React.FC<Props> = (props) => {
           dependencies,
         }
       );
-      onSave();
+
+      // Only close modal if this wasn't triggered by autosave
+      if (!isAutosaving) {
+        onSave(); // This should close the modal
+      }
     } catch (err) {
       logError("Error saving task:", (err as any)?.message ?? err);
       alert("Failed to save task: " + (err instanceof Error ? err.message : String(err)));
+      // Don't close modal if save failed
+      return;
     }
   };
 
@@ -193,7 +246,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         task.id,
         {
           title: title.trim(),
-          description: description.trim() || undefined,
+          description: description.trim(),
           comments: comments,
           priority,
           dueDate: dueDate || null,
@@ -289,10 +342,20 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   // Only sync dependencies, subtasks, and recurrence from task prop when switching tasks
   // Note: Attachments are NOT synced here because they're saved immediately on upload
   useEffect(() => {
-    setDependencies(task.dependencies || []);
-    setSubtasks(task.subtasks || []);
     setRecurrence(task.recurrence || { type: "none" });
-  }, [task.id, task.dependencies, task.recurrence, task.subtasks]);
+  }, [task.id, task.recurrence]);
+
+  // Sync dependencies only when task ID changes (not on every dependencies update)
+  // This prevents overwriting local edits during autosave
+  useEffect(() => {
+    setDependencies(task.dependencies || []);
+  }, [task.id]);
+
+  // Sync subtasks only when task ID changes (not on every subtasks update)
+  // This prevents overwriting local edits during autosave
+  useEffect(() => {
+    setSubtasks(task.subtasks || []);
+  }, [task.id]);
 
   // Sync attachments separately only when task.id changes OR when task.attachments length changes
   // This allows real-time updates while preventing overwrites during upload
@@ -1132,6 +1195,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                     rows={3}
                     value={comments}
                     onChange={e => setComments(e.target.value)}
+                    onBlur={triggerAutosave}
                     placeholder="Add discussion notes, updates, or additional context..."
                   />
                   {searchQuery && comments && (
@@ -1250,7 +1314,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
               </button>
               <button
                 type="button"
-                onClick={onCancel}
+                onClick={handleCancel}
                 className="px-3 py-1.5 bg-gray-200 text-gray-800 text-sm rounded hover:bg-gray-300 focus:ring-2 focus:ring-gray-500"
               >
                 Cancel

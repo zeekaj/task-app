@@ -1,5 +1,6 @@
 // src/components/views/TasksView.tsx
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useLayoutEffect } from "react";
+import { createPortal } from 'react-dom';
 import { ConfirmModal } from "../shared/ConfirmModal";
 import { Dropdown } from "../shared/Dropdown";
 import { logError } from "../../utils/logger";
@@ -8,6 +9,7 @@ import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
 import { createTask } from "../../services/tasks";
 import { BlockerModal } from "../BlockerModal";
+import { BlockerManagerModal } from "../BlockerManagerModal";
 import { FilterBar, defaultFilters } from "../FilterBar";
 // Removed SimpleFilterBar
 
@@ -63,19 +65,55 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState("");
   const [confirmAction, setConfirmAction] = useState<(() => Promise<void>) | null>(null);
+  const [blockerManagerTask, setBlockerManagerTask] = useState<{ id: string; title: string; type: "task" } | null>(null);
   const filtersPanelRef = React.useRef<HTMLDivElement | null>(null);
   const toggleButtonRef = React.useRef<HTMLButtonElement | null>(null);
+  const controlsWrapperRef = React.useRef<HTMLDivElement | null>(null);
+  const [badgePos, setBadgePos] = useState<{ top: number; left: number } | null>(null);
+  const [showHiddenTooltip, setShowHiddenTooltip] = useState(false);
+  const [hiddenBadgePos, setHiddenBadgePos] = useState<{ top: number; left: number } | null>(null);
+  const hiddenBadgeRef = React.useRef<HTMLDivElement | null>(null);
 
   // Count active (non-default) filters for badge display
   const activeFilterCount = useMemo(() => {
+    // If "Show All" is active, filters are bypassed so count = 0
+    if (showAll) return 0;
+    
     let count = 0;
-    if (filters.status && filters.status.length > 0) count++;
-    // Priority filter is active if it doesn't include 0 (Any) or doesn't have all thresholds
-    if (filters.minPriority && filters.minPriority.length > 0 && !filters.minPriority.includes(0) && filters.minPriority.length < 5) count++;
-    if (filters.due && filters.due.length > 0 && !filters.due.includes("any")) count++;
+    // Status filter is active only if it's not the default ["active"]
+    if (filters.status && filters.status.length > 0 && !(filters.status.length === 1 && filters.status[0] === "active")) count++;
+    // Priority filter is active if it doesn't have all 5 ranges (default is [0, 1, 2, 3, 4])
+    if (filters.minPriority && filters.minPriority.length > 0 && filters.minPriority.length < 5) count++;
+    // Due filter is active only if it's not the default ["any"]
+    if (filters.due && filters.due.length > 0 && !(filters.due.length === 1 && filters.due[0] === "any")) count++;
+    // Assigned filter is active if it has any values (default is empty)
     if (filters.assigned && filters.assigned.length > 0) count++;
     return count;
-  }, [filters]);
+  }, [filters, showAll]);
+
+  // Measure and position the floating badge (rendered in a portal) so it won't be clipped
+  useLayoutEffect(() => {
+    function updatePos() {
+      const btn = toggleButtonRef.current;
+      if (!btn || activeFilterCount <= 0) {
+        setBadgePos(null);
+        return;
+      }
+      const rect = btn.getBoundingClientRect();
+      // Use fixed positioning (relative to viewport) instead of absolute
+      const top = rect.top - 8; // slightly above the button
+      const left = rect.left + rect.width - 10; // near the right edge
+      setBadgePos({ top, left });
+    }
+
+    updatePos();
+    window.addEventListener('resize', updatePos);
+    window.addEventListener('scroll', updatePos, { passive: true });
+    return () => {
+      window.removeEventListener('resize', updatePos);
+      window.removeEventListener('scroll', updatePos);
+    };
+  }, [toggleButtonRef, activeFilterCount]);
 
   // Close on outside click
   React.useEffect(() => {
@@ -101,6 +139,8 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
       document.removeEventListener('keydown', handleKey);
     };
   }, [showFilters]);
+  
+  // Filters placement logic removed; inline bar is always visible like Project View
   // Removed unused promotingTask state
   const [blockerModalTask, setBlockerModalTask] = useState<{ id: string; title: string; type: "task" } | null>(null);
 
@@ -185,14 +225,22 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
       });
     }
     if (filters.minPriority && filters.minPriority.length > 0) {
-      // If includes 0 or all thresholds [0, 25, 50, 75, 90], show all tasks
-      const hasAllPriorities = filters.minPriority.includes(0) || (filters.minPriority.length === 5 && [0, 25, 50, 75, 90].every(p => filters.minPriority.includes(p)));
+      // If all priority ranges selected (0-4), show all tasks
+      const hasAllPriorities = filters.minPriority.length === 5 && [0, 1, 2, 3, 4].every(p => filters.minPriority.includes(p));
       
       if (!hasAllPriorities) {
-        // Show tasks that meet at least one of the selected priority thresholds
         list = list.filter((t: WithId<Task>) => {
-          // For each selected threshold, check if task priority >= threshold
-          return filters.minPriority.some((threshold: number) => t.priority >= threshold);
+          const taskPriority = t.priority ?? 0;
+          // Map task priority (0-100) to priority range category (0-4)
+          // 0: 0-20, 1: 21-40, 2: 41-60, 3: 61-80, 4: 81-100
+          let priorityCategory: number;
+          if (taskPriority <= 20) priorityCategory = 0;
+          else if (taskPriority <= 40) priorityCategory = 1;
+          else if (taskPriority <= 60) priorityCategory = 2;
+          else if (taskPriority <= 80) priorityCategory = 3;
+          else priorityCategory = 4;
+          
+          return filters.minPriority.includes(priorityCategory);
         });
       }
     }
@@ -218,6 +266,39 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
     return list;
   }, [allTasks, showAll, filters, searchQuery]);
 
+  // Calculate how many tasks are hidden by filters and which ones
+  const hiddenTasksInfo = useMemo(() => {
+    if (showAll) return { count: 0, tasks: [] };
+    const unfilteredTasks = allTasks.filter((t: WithId<Task>) => !t.projectId);
+    const filteredTaskIds = new Set(filteredTasks.map(t => t.id));
+    const hiddenTasks = unfilteredTasks.filter(t => !filteredTaskIds.has(t.id));
+    return { count: hiddenTasks.length, tasks: hiddenTasks };
+  }, [allTasks, filteredTasks, showAll]);
+
+  const hiddenTaskCount = hiddenTasksInfo.count;
+
+  // Track hidden badge position for tooltip portal
+  useLayoutEffect(() => {
+    function updateHiddenBadgePos() {
+      const badge = hiddenBadgeRef.current;
+      if (!badge || hiddenTaskCount <= 0) {
+        setHiddenBadgePos(null);
+        return;
+      }
+      const rect = badge.getBoundingClientRect();
+      const top = rect.top;
+      const left = rect.left;
+      setHiddenBadgePos({ top, left });
+    }
+
+    updateHiddenBadgePos();
+    window.addEventListener('resize', updateHiddenBadgePos);
+    window.addEventListener('scroll', updateHiddenBadgePos, { passive: true });
+    return () => {
+      window.removeEventListener('resize', updateHiddenBadgePos);
+      window.removeEventListener('scroll', updateHiddenBadgePos);
+    };
+  }, [hiddenTaskCount]);
 
   // Memoized unique assignees list to prevent recalculation
   const uniqueAssignees = useMemo(() => {
@@ -318,7 +399,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
 
   // ...existing code...
   return (
-  <div className="rounded-xl p-6 shadow-lg transition-colors duration-200">
+  <div className="rounded-xl p-6 shadow-lg transition-colors duration-200 overflow-visible">
       <div className="flex items-end justify-between">
   <h1 className="text-2xl font-bold dark:text-accent text-gray-900">Tasks</h1>
       </div>
@@ -332,11 +413,11 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
         />
       </form>
 
-      {/* Filters Dropdown */}
-      <div className="mt-4 relative">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-3">
-            {/* Persistent Search */}
+      {/* Filters Bar (match Project View) */}
+      <div className="mt-4">
+        <div ref={controlsWrapperRef} className="flex flex-col">
+          <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-surface rounded-xl shadow-lg px-4 py-3 border border-gray-200 dark:border-gray-700 w-full">
+            {/* Search first */}
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -346,63 +427,80 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search tasks..."
-                className="pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-56"
+                className="pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-56 dark:bg-gray-800 dark:text-gray-100"
               />
             </div>
-            <button
-              type="button"
-              aria-haspopup="true"
-              aria-expanded={showFilters}
-              aria-controls="filters-panel"
-              ref={toggleButtonRef}
-              onClick={() => setShowFilters((v) => !v)}
-              className={`relative flex items-center gap-2 px-3 py-2 text-sm rounded-lg border shadow transition-colors ${showFilters ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
-            >
-              <svg className={`w-4 h-4 ${showFilters ? 'text-blue-600' : 'text-gray-600'}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M6 8h12M9 12h6M11 16h2" /></svg>
-              <span>Filters</span>
-              {activeFilterCount > 0 && (
-                <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full leading-none">{activeFilterCount}</span>
-              )}
-              <svg className={`w-3 h-3 ml-1 transition-transform ${showFilters ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-            </button>
-            {/* Mode toggle removed */}
+
+            {/* Inline FilterBar like Project View */}
+            <FilterBar
+              filters={filters}
+              onChange={setFiltersWithPersistence}
+              allAssignees={uniqueAssignees}
+              localStorageKey={FILTERS_KEY}
+              compact={false}
+              showAll={showAll}
+              onToggleShowAll={() => setShowAll((v) => !v)}
+            />
+
+            {/* Hidden tasks indicator */}
+            {!showAll && hiddenTaskCount > 0 && (
+              <div 
+                ref={hiddenBadgeRef}
+                onMouseEnter={() => setShowHiddenTooltip(true)}
+                onMouseLeave={() => setShowHiddenTooltip(false)}
+                className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1 cursor-default"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd"/>
+                  <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z"/>
+                </svg>
+                <span>{hiddenTaskCount} task{hiddenTaskCount === 1 ? '' : 's'} hidden by filters</span>
+              </div>
+            )}
+
+            {/* Separator */}
+            <div className="h-8 w-px bg-gray-300 dark:bg-gray-700 mx-2" />
+
+            {/* Group by and Arrange by controls */}
+            <div className="flex items-center gap-2">
+              <Dropdown label={`Group by${filters.groupBy && filters.groupBy !== "none" ? `: ${["None","Status","Priority","Due","Assignee"][ ["none","status","priority","due","assigned"].indexOf(filters.groupBy) ]}` : ""}`}>
+                { ["none","status","priority","due","assigned"].map((val, i) => (
+                  <label key={val} className="flex items-center gap-2 px-2 py-1">
+                    <input
+                      type="radio"
+                      name="groupBy"
+                      checked={(filters.groupBy || "none") === val}
+                      onChange={() => setFiltersWithPersistence({ ...filters, groupBy: val as TaskFilters["groupBy"] })}
+                    />
+                    <span>{["None","Status","Priority","Due","Assignee"][i]}</span>
+                  </label>
+                ))}
+              </Dropdown>
+              <Dropdown label={`Arrange by${arrangeBy ? `: ${arrangeOptions.find(o => o.value === arrangeBy)?.label}` : ""}`}>
+                {arrangeOptions.map(opt => (
+                  <label key={opt.value} className="flex items-center gap-2 px-2 py-1">
+                    <input
+                      type="radio"
+                      name="arrangeBy"
+                      checked={arrangeBy === opt.value}
+                      onChange={() => setArrangeBy(opt.value)}
+                    />
+                    <span>{opt.label}</span>
+                  </label>
+                ))}
+              </Dropdown>
+              <button
+                type="button"
+                className={`ml-2 px-2 py-1 rounded border text-xs dark:bg-surface ${reverseOrder ? "bg-gray-200" : "bg-white"}`}
+                title={reverseOrder ? "Descending" : "Ascending"}
+                onClick={() => setReverseOrder((v) => !v)}
+              >
+                {reverseOrder ? "↓" : "↑"}
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Dropdown label={`Group by${filters.groupBy && filters.groupBy !== "none" ? `: ${["None","Status","Priority","Due","Assignee"][ ["none","status","priority","due","assigned"].indexOf(filters.groupBy) ]}` : ""}`}> 
-              { ["none","status","priority","due","assigned"].map((val, i) => (
-                <label key={val} className="flex items-center gap-2 px-2 py-1">
-                  <input
-                    type="radio"
-                    name="groupBy"
-                    checked={(filters.groupBy || "none") === val}
-                    onChange={() => setFiltersWithPersistence({ ...filters, groupBy: val as TaskFilters["groupBy"] })}
-                  />
-                  <span>{["None","Status","Priority","Due","Assignee"][i]}</span>
-                </label>
-              ))}
-            </Dropdown>
-            <Dropdown label={`Arrange by${arrangeBy ? `: ${arrangeOptions.find(o => o.value === arrangeBy)?.label}` : ""}`}> 
-              {arrangeOptions.map(opt => (
-                <label key={opt.value} className="flex items-center gap-2 px-2 py-1">
-                  <input
-                    type="radio"
-                    name="arrangeBy"
-                    checked={arrangeBy === opt.value}
-                    onChange={() => setArrangeBy(opt.value)}
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              ))}
-            </Dropdown>
-            <button
-              type="button"
-              className="rounded px-2 py-1 border"
-              onClick={() => setReverseOrder((v) => !v)}
-              title="Reverse order"
-            >
-              <span className="inline-block rotate-180">↑</span>
-            </button>
-          </div>
+
+          {/* Keep confirm modal here */}
           <ConfirmModal
             open={confirmOpen}
             title="Confirm"
@@ -417,19 +515,6 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
             }}
           />
         </div>
-        {showFilters && (
-          <div id="filters-panel" ref={filtersPanelRef} className="absolute z-20 mt-2 left-0 right-0 bg-white dark:bg-surface border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg p-4" role="region" aria-label="Filters">
-            <FilterBar
-              filters={filters}
-              onChange={setFiltersWithPersistence}
-              allAssignees={uniqueAssignees}
-              localStorageKey={FILTERS_KEY}
-              compact={false}
-              showAll={showAll}
-              onToggleShowAll={() => setShowAll((v) => !v)}
-            />
-          </div>
-        )}
       </div>
 
 
@@ -438,7 +523,13 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
         {(() => {
           const grouped = groupedTasks;
           const groupKeys = Object.keys(grouped);
+          const totalUnfiltered = allTasks.filter((t: WithId<Task>) => !t.projectId).length;
           if (groupKeys.length === 1 && groupKeys[0] === "" && grouped[""]?.length === 0) {
+            // If there are no tasks at all in this view, show a neutral message. Otherwise
+            // indicate that no tasks match the current filters.
+            if (totalUnfiltered === 0) {
+              return <div className="text-sm dark:text-gray-500 text-gray-500 py-6 text-center">No tasks yet.</div>;
+            }
             return <div className="text-sm dark:text-gray-500 text-gray-500 py-6 text-center">No tasks match your filters.</div>;
           }
           return groupKeys.map((group) => (
@@ -474,9 +565,9 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                     : group.charAt(0).toUpperCase() + group.slice(1)}
                 </div>
               )}
-              <ul className="space-y-2">
+              <ul className="space-y-2 relative">
                 {grouped[group].map((t: WithId<Task>) => (
-                  <li key={t.id}>
+                  <li key={t.id} className="relative">
                     {editingTaskId === t.id ? (
                       <div className="mt-2">
                         <TaskEditForm
@@ -521,7 +612,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                         searchQuery={searchQuery}
                         onStartEdit={() => setEditingTaskId(t.id)}
                         // ...existing code...
-                        onManageBlockers={() => {}}
+                        onManageBlockers={() => setBlockerManagerTask({ id: t.id, title: t.title, type: "task" })}
                         onStartBlock={() => setBlockerModalTask({ id: t.id, title: t.title, type: "task" })}
                         onArchive={async () => {
                           const { archiveTask } = await import("../../services/tasks");
@@ -544,6 +635,10 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                           const { updateTask } = await import("../../services/tasks");
                           await updateTask(uid, t.id, { status: newStatus });
                         }}
+                        onUndo={async () => {
+                          const { undoLastChange } = await import("../../services/undo");
+                          return await undoLastChange(uid, "task", t.id);
+                        }}
                       />
                     )}
                   </li>
@@ -560,6 +655,58 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
           entity={blockerModalTask}
           onClose={() => setBlockerModalTask(null)}
         />
+      )}
+      {/* Blocker manager modal for managing existing blockers */}
+      {blockerManagerTask && (
+        <BlockerManagerModal
+          uid={uid}
+          entity={blockerManagerTask}
+          onClose={() => setBlockerManagerTask(null)}
+        />
+      )}
+      {/* Portal badge to avoid clipping by ancestor overflow */}
+      {badgePos && activeFilterCount > 0 && createPortal(
+        <div 
+          style={{ 
+            position: 'fixed',
+            top: `${badgePos.top}px`, 
+            left: `${badgePos.left}px`, 
+            zIndex: 99999,
+            pointerEvents: 'none'
+          }}
+        >
+          <span 
+            className="inline-block text-center font-semibold bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full leading-none min-w-[20px] shadow-lg border-2 border-white"
+          >
+            {activeFilterCount}
+          </span>
+        </div>,
+        document.body
+      )}
+      {/* Portal tooltip for hidden tasks */}
+      {showHiddenTooltip && hiddenBadgePos && hiddenTaskCount > 0 && createPortal(
+        <div 
+          style={{ 
+            position: 'fixed',
+            top: `${hiddenBadgePos.top - 10}px`,
+            left: `${hiddenBadgePos.left}px`,
+            transform: 'translateY(-100%)',
+            zIndex: 99999,
+            pointerEvents: 'none'
+          }}
+          className="w-64 max-h-48 overflow-y-auto bg-gray-900/60 backdrop-blur-sm text-white text-xs rounded-lg px-3 py-2 border border-gray-700/30 animate-tooltip"
+        >
+          <div className="font-semibold mb-1">Hidden tasks:</div>
+          <ul className="space-y-1">
+            {hiddenTasksInfo.tasks.slice(0, 10).map((task) => (
+              <li key={task.id} className="truncate">• {task.title}</li>
+            ))}
+            {hiddenTasksInfo.tasks.length > 10 && (
+              <li className="text-gray-400 italic">...and {hiddenTasksInfo.tasks.length - 10} more</li>
+            )}
+          </ul>
+        </div>,
+        document.body
       )}
     </div>
   );

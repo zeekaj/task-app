@@ -75,12 +75,23 @@ export async function updateTask(
   await _updateDoc(taskRef, payload);
 
   // Build changes object for activity logging
-  const changes: Record<string, { from: any; to: any }> = {};
+  const changes: Record<string, { from: any; to: any; type?: string }> = {};
   if (typeof data.title !== "undefined" && currentTask?.title !== data.title) {
     changes.title = { from: currentTask?.title || null, to: data.title || null };
   }
   if (typeof data.description !== "undefined" && currentTask?.description !== data.description) {
-    changes.description = { from: currentTask?.description || null, to: data.description || null };
+    console.log('Description change detected:', {
+      currentDescription: currentTask?.description,
+      newDescription: data.description,
+      currentType: typeof currentTask?.description,
+      newType: typeof data.description
+    });
+    changes.description = { 
+      from: currentTask?.description === undefined ? undefined : currentTask.description,
+      to: data.description === undefined ? undefined : data.description,
+      type: 'string'
+    };
+    console.log('Change recorded as:', changes.description);
   }
   if (typeof data.status !== "undefined" && currentTask?.status !== data.status) {
     changes.status = { from: currentTask?.status || null, to: data.status };

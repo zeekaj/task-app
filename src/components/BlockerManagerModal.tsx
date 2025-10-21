@@ -221,7 +221,9 @@ export const BlockerManagerModal: React.FC<{
           {/* Project-level blockers */}
           <div>
             <div className="flex items-end justify-between mb-2">
-              <h3 className="text-lg font-semibold text-red-800">Project Blockers</h3>
+              <h3 className="text-lg font-semibold text-red-800">
+                {entity.type === "project" ? "Project Blockers" : "Task Blockers"}
+              </h3>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setShowBlockerModal(true)}
@@ -257,7 +259,9 @@ export const BlockerManagerModal: React.FC<{
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-gray-500">No active project blockers.</p>
+              <p className="text-sm text-gray-500">
+                No active {entity.type === "project" ? "project" : "task"} blockers.
+              </p>
             )}
           </div>
 
@@ -290,7 +294,9 @@ export const BlockerManagerModal: React.FC<{
 
           {/* Cleared project blockers */}
           <div>
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">Cleared Project Blockers</h3>
+            <h3 className="text-lg font-semibold text-gray-700 mb-2">
+              Cleared {entity.type === "project" ? "Project" : "Task"} Blockers
+            </h3>
             {projectBlockers.filter((b) => b.status === "cleared").length > 0 ? (
               <ul className="space-y-2">
                 {projectBlockers.filter((b) => b.status === "cleared").map((b) => (
@@ -310,7 +316,9 @@ export const BlockerManagerModal: React.FC<{
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-gray-500">No cleared project blockers.</p>
+              <p className="text-sm text-gray-500">
+                No cleared {entity.type === "project" ? "project" : "task"} blockers.
+              </p>
             )}
           </div>
         </div>

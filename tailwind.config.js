@@ -21,6 +21,15 @@ export default {
           DEFAULT: '#6366f1', // indigo
         },
       },
+      keyframes: {
+        tooltip: {
+          '0%': { opacity: '0', transform: 'translateY(-95%)' },
+          '100%': { opacity: '1', transform: 'translateY(-100%)' }
+        }
+      },
+      animation: {
+        tooltip: 'tooltip 0.2s ease-out forwards'
+      },
     },
   },
   plugins: []
