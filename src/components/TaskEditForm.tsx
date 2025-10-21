@@ -365,9 +365,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
 
   // Handle escape key to cancel edit using custom hook
   useKeydown({
-    enabled: true,
-    key: "Escape",
-    onKeyDown: () => {
+    Escape: () => {
       // Don't cancel if we're in a modal (block/resolve)
       if (!showBlockModal && !showResolveModal && !showDiscardConfirm) {
         onCancel();

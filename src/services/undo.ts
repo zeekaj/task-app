@@ -8,7 +8,6 @@ import {
 } from "firebase/firestore";
 import { getFirebase } from '../firebase';
 import type { Activity, Task, Project, WithId } from '../types';
-import type { QueryDocumentSnapshot } from "firebase/firestore";
 import { updateTask } from './tasks';
 import { updateProject } from './projects';
 
