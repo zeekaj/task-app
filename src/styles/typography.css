@@ -1,0 +1,106 @@
+/* Typography System (Momentum) */
+:root {
+  /* font sizes */
+  --type-display: 3rem;      /* 48px */
+  --type-h1: 2.25rem;        /* 36px */
+  --type-h2: 1.875rem;       /* 30px */
+  --type-h3: 1.5rem;         /* 24px */
+  --type-h4: 1.25rem;        /* 20px */
+  --type-h5: 1.125rem;       /* 18px */
+  --type-h6: 1rem;           /* 16px */
+  --type-body-lg: 1.125rem;  /* 18px */
+  --type-body: 1rem;         /* 16px */
+  --type-body-sm: 0.875rem;  /* 14px */
+  --type-caption: 0.75rem;   /* 12px */
+
+  /* line heights */
+  --lh-tight: 1.2;
+  --lh-snug: 1.35;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.7;
+
+  /* weights */
+  --wt-regular: 400;
+  --wt-medium: 500;
+  --wt-semibold: 600;
+  --wt-bold: 700;
+}
+
+/* Display & Headings (Manrope) */
+.type-display { font-family: var(--font-sans); font-size: var(--type-display); line-height: var(--lh-tight); font-weight: 800; letter-spacing: -0.02em; }
+.type-h1 { font-family: var(--font-sans); font-size: var(--type-h1); line-height: var(--lh-tight); font-weight: 800; letter-spacing: -0.01em; }
+.type-h2 { font-family: var(--font-sans); font-size: var(--type-h2); line-height: var(--lh-snug); font-weight: 600; }
+.type-h3 { font-family: var(--font-sans); font-size: var(--type-h3); line-height: var(--lh-snug); font-weight: 600; }
+.type-h4 { font-family: var(--font-sans); font-size: var(--type-h4); line-height: var(--lh-normal); font-weight: 600; }
+.type-h5 { font-family: var(--font-sans); font-size: var(--type-h5); line-height: var(--lh-normal); font-weight: 600; }
+.type-h6 { font-family: var(--font-sans); font-size: var(--type-h6); line-height: var(--lh-normal); font-weight: 500; }
+
+/* Body Large - Inter Regular */
+.type-body-lg {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: 1.125rem;
+  line-height: 1.6;
+}
+
+/* Body - Inter Regular */
+.type-body {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+/* Body Small - Inter Regular */
+.type-body-sm {
+  font-family: var(--font-sans);
+  font-weight: 400;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+/* Metric (large numbers/stats) - Manrope SemiBold */
+.type-metric {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: 2rem;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Label (UI labels, buttons) - Manrope Medium */
+.type-label {
+  font-family: var(--font-ui);
+  font-weight: 500;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+
+/* Caption - Manrope Regular */
+.type-caption {
+  font-family: var(--font-ui);
+  font-weight: 400;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+.type-caption { font-family: var(--font-ui); font-size: var(--type-caption); line-height: var(--lh-normal); font-weight: 500; opacity: 0.9; }
+
+/* Utilities */
+.type-muted { color: var(--color-text-secondary); }
+.type-strong { font-weight: var(--wt-semibold); }
+
+/* Metrics / Labels (Inter) */
+.type-metric { font-family: var(--font-ui); font-weight: 500; }
+.type-label { font-family: var(--font-ui); font-weight: 400; }
+
+/* Glow effect utility for headings */
+.type-glow { 
+  text-shadow: 0 0 12px rgba(0, 208, 255, 0.6), 0 0 24px rgba(163, 139, 255, 0.4);
+}
+
+/* Prose overrides (optional) */
+.prose-dark :where(h1,h2,h3,h4,h5,h6){ color: var(--color-text-primary); }
+.prose-dark :where(p,li,small){ color: var(--color-text-secondary); }
