@@ -152,7 +152,7 @@ export async function getRecentActivity(
 export function generateActivityDescription(activity: Activity, contextEntityId?: string): string {
   const { action, entityType, entityTitle, changes, userName, entityId } = activity;
   const user = userName || "Someone";
-  const entity = entityType === "task" ? "task" : "project";
+  const entity = entityType === "task" ? "task" : (entityType === "team" ? "team" : "project");
   
   // If we're viewing activity within the context of a specific entity, don't repeat the entity name
   const isInContext = contextEntityId && entityId === contextEntityId;
@@ -160,7 +160,7 @@ export function generateActivityDescription(activity: Activity, contextEntityId?
 
   switch (action) {
     case "created":
-      return isInContext ? `${user} created this ${entity}` : `${user} created ${entity} "${entityTitle}"`;
+  return isInContext ? `${user} created this ${entity}` : `${user} created ${entity} "${entityTitle}"`;
     case "updated":
       if (changes) {
         const fieldChanges = Object.keys(changes).map(field => {
@@ -199,7 +199,7 @@ export function generateActivityDescription(activity: Activity, contextEntityId?
         }).join(", ");
         return `${user} updated${entityRef}${isInContext ? '' : ':'} ${fieldChanges}`;
       }
-      return `${user} updated${entityRef}`;
+  return `${user} updated${entityRef}`;
     case "status_changed":
       if (changes?.status) {
         return `${user} changed${entityRef} status from "${changes.status.from}" to "${changes.status.to}"`;

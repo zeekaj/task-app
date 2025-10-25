@@ -1,21 +1,34 @@
 // src/types.ts
 import type { Timestamp, FieldValue } from "firebase/firestore";
 
-export type ProjectStatus = "not_started" | "in_progress" | "blocked" | "completed" | "archived";
+export type ProjectStatus = "not_started" | "planning" | "executing" | "post_event" | "completed" | "blocked" | "archived";
 export type TaskStatus = "not_started" | "in_progress" | "done" | "blocked" | "archived";
 
 // Firebase timestamp type for consistent usage
 export type FirebaseTimestamp = Timestamp | FieldValue;
 
+// Project status mode: 'auto' uses date-based status, 'manual' allows PM to set status
+export type ProjectStatusMode = "auto" | "manual";
+
 export interface Project {
   id?: string;
   title: string;
   status: ProjectStatus;
+  statusMode?: ProjectStatusMode; // 'auto' or 'manual' - controls how status is computed
   assignee?: string; // user ID of the assigned individual (legacy single assignee)
   assignees?: string[]; // array of user IDs for multiple assignees
   owner?: string; // user ID of the project owner/lead
+  projectManager?: string; // user ID of the project manager who can mark completed
   r2Number?: string; // R2# identifier
   installDate?: Timestamp | Date | string; // Install Date (due date for the project)
+  prepDate?: Timestamp | Date | string; // Prep Date - when project moves to 'executing'
+  shipDate?: Timestamp | Date | string; // Ship Date - when equipment ships out
+  loadInDate?: Timestamp | Date | string; // Load-In Date - when equipment is loaded in at venue
+  eventBeginDate?: Timestamp | Date | string; // Event Begin Date - when event starts
+  eventEndDate?: Timestamp | Date | string; // Event End Date - when event ends
+  strikeDate?: Timestamp | Date | string; // Strike Date - teardown/strike
+  pickupDate?: Timestamp | Date | string; // Pickup Date - equipment pickup
+  returnDate?: Timestamp | Date | string; // Return Date - when project moves to 'post_event'
   createdAt?: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
 }
@@ -88,7 +101,7 @@ export type WithId<T> = T & { id: string };
 
 /** Activity/Audit Trail */
 export type ActivityType = "created" | "updated" | "status_changed" | "assigned" | "blocked" | "unblocked" | "archived" | "deleted";
-export type ActivityEntityType = "task" | "project";
+export type ActivityEntityType = "task" | "project" | "team";
 
 export interface Activity {
   id?: string;
@@ -113,4 +126,39 @@ export interface TaskFilters {
   assigned?: string[]; // filter by assigned user(s)
   includeArchived: boolean;
   groupBy?: "none" | "status" | "priority" | "due" | "assigned";
+}
+
+/** Team Members */
+export type TeamMemberRole = "owner" | "admin" | "member" | "viewer";
+
+export interface SkillAssessment {
+  audio?: number; // 0-10
+  graphicDesign?: number;
+  truckDriving?: number;
+  video?: number;
+  rigging?: number;
+  lighting?: number;
+  stageDesign?: number;
+  electric?: number;
+}
+
+export interface TeamMember {
+  id?: string;
+  name: string;
+  email: string;
+  role: TeamMemberRole;
+  organizationId: string; // The UID of the organization owner (admin who created this)
+  title?: string; // Job title (e.g., "Audio Engineer", "Stage Manager")
+  userId?: string; // Firebase Auth UID (set after first login)
+  hasPassword?: boolean; // Whether user has completed first-time password setup
+  invitedAt?: Timestamp | FieldValue; // When admin created the record
+  lastLoginAt?: Timestamp | FieldValue; // Last login timestamp
+  skills?: SkillAssessment; // Skill ratings 0-10
+  availability?: number; // 0-100%
+  workload?: number; // 0-100%
+  viewerPermissions?: string[]; // For viewer role - what they can view
+  avatar?: string; // Avatar URL
+  active: boolean;
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
 }

@@ -12,6 +12,7 @@ export async function createProject(uid: string, title: string, assignees?: stri
     const docData: any = {
       title,
       status: "not_started" as ProjectStatus,
+      statusMode: "auto",
       createdAt: _serverTimestamp(),
       updatedAt: _serverTimestamp(),
     };
@@ -45,7 +46,7 @@ export async function createProject(uid: string, title: string, assignees?: stri
 export async function updateProject(
   uid: string,
   projectId: string,
-  data: Partial<Pick<Project, "title" | "status" | "assignee" | "assignees" | "owner" | "r2Number" | "installDate">>
+  data: Partial<Pick<Project, "title" | "status" | "statusMode" | "assignee" | "assignees" | "owner" | "projectManager" | "r2Number" | "installDate" | "prepDate" | "returnDate">>
 ) {
   // Get current project for change tracking
   const { getDoc: _getDoc, doc: _doc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
@@ -66,6 +67,12 @@ export async function updateProject(
     payload.status = data.status;
     if (currentProject?.status !== data.status) {
       changes.status = { from: currentProject?.status, to: data.status };
+    }
+  }
+  if (typeof data.statusMode !== "undefined") {
+    payload.statusMode = data.statusMode;
+    if (currentProject?.statusMode !== data.statusMode) {
+      changes.statusMode = { from: currentProject?.statusMode, to: data.statusMode };
     }
   }
   if (typeof data.assignee !== "undefined") {
@@ -95,6 +102,15 @@ export async function updateProject(
       };
     }
   }
+  if (typeof data.projectManager !== "undefined") {
+    payload.projectManager = data.projectManager;
+    if (currentProject?.projectManager !== data.projectManager) {
+      changes.projectManager = { 
+        from: currentProject?.projectManager || null, 
+        to: data.projectManager || null 
+      };
+    }
+  }
   if (typeof data.r2Number !== "undefined") {
     payload.r2Number = data.r2Number;
     if (currentProject?.r2Number !== data.r2Number) {
@@ -120,6 +136,42 @@ export async function updateProject(
       changes.installDate = { 
         from: currentInstallDate, 
         to: newInstallDate 
+      };
+    }
+  }
+  if (typeof data.prepDate !== "undefined") {
+    payload.prepDate = data.prepDate;
+    const normalizeDate = (date: any): Date | null => {
+      if (!date) return null;
+      if (date.toDate) return date.toDate();
+      return new Date(date);
+    };
+    
+    const currentPrepDate = normalizeDate(currentProject?.prepDate);
+    const newPrepDate = normalizeDate(data.prepDate);
+    
+    if (currentPrepDate?.getTime() !== newPrepDate?.getTime()) {
+      changes.prepDate = { 
+        from: currentPrepDate, 
+        to: newPrepDate 
+      };
+    }
+  }
+  if (typeof data.returnDate !== "undefined") {
+    payload.returnDate = data.returnDate;
+    const normalizeDate = (date: any): Date | null => {
+      if (!date) return null;
+      if (date.toDate) return date.toDate();
+      return new Date(date);
+    };
+    
+    const currentReturnDate = normalizeDate(currentProject?.returnDate);
+    const newReturnDate = normalizeDate(data.returnDate);
+    
+    if (currentReturnDate?.getTime() !== newReturnDate?.getTime()) {
+      changes.returnDate = { 
+        from: currentReturnDate, 
+        to: newReturnDate 
       };
     }
   }
@@ -212,7 +264,8 @@ export async function reevaluateProjectBlockedState(uid: string, projectId: stri
     if (currentStatus === "completed" || currentStatus === "archived") {
       targetStatus = null;
     } else {
-      targetStatus = "in_progress";
+      // Default to 'executing' if unblocking (was previously blocked)
+      targetStatus = "executing";
     }
   }
 
@@ -234,4 +287,4 @@ export const archiveProject = (uid: string, projectId: string) =>
   updateProject(uid, projectId, { status: "archived" as ProjectStatus });
 
 export const unarchiveProject = (uid: string, projectId: string) =>
-  updateProject(uid, projectId, { status: "in_progress" as ProjectStatus });
+  updateProject(uid, projectId, { status: "not_started" as ProjectStatus });

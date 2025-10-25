@@ -1,5 +1,6 @@
+/* eslint-disable react/prop-types */
 // src/components/PromotionModal.tsx
-import React, { useState } from "react";
+import { useState } from "react";
 import { createProject } from "../services/projects";
 import { updateTask } from "../services/tasks";
 import { useKeydown } from "../hooks/useKeydown";
@@ -12,9 +13,7 @@ export const PromotionModal: React.FC<{
   const [projectName, setProjectName] = useState(task.title);
 
   useKeydown({
-    enabled: true,
-    key: "Escape",
-    onKeyDown: onClose
+    Escape: onClose,
   });
 
   const handlePromote = async () => {

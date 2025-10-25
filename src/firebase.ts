@@ -59,6 +59,9 @@ export async function getAuth() {
       const getAuth = authModule.getAuth;
       const GoogleAuthProvider = authModule.GoogleAuthProvider;
       const signInWithPopup = authModule.signInWithPopup;
+      const signInWithEmailAndPassword = authModule.signInWithEmailAndPassword;
+      const createUserWithEmailAndPassword = authModule.createUserWithEmailAndPassword;
+      const updateProfile = authModule.updateProfile;
       const firebaseSignOutFn = authModule.signOut;
 
       const auth = getAuth(app);
@@ -78,7 +81,15 @@ export async function getAuth() {
         await firebaseSignOutFn(auth);
       };
 
-      authCached = { app, auth, signIn, signOut };
+      authCached = { 
+        app, 
+        auth, 
+        signIn, 
+        signOut,
+        signInWithEmailAndPassword,
+        createUserWithEmailAndPassword,
+        updateProfile
+      };
       return authCached;
     })();
   }
