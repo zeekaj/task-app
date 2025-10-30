@@ -2,7 +2,8 @@
 
 ## Project Overview
 - **Stack:** React + TypeScript + Vite, Tailwind CSS, Firebase (Firestore, Auth)
-- **Purpose:** Task and project management with blockers, team management, and activity logging
+- **Purpose:** Single-user task and project management for production/event management with blocker tracking and activity logging
+- **User Model:** Single primary user with team member records for assignment/coordination tracking (not multi-user collaboration)
 - **UI Design:** Dark glass-morphism design system with neon cyan/blue accents
 - **Key Directories:**
   - `src/components/` — UI components (views, modals, layout, shared, ui primitives)
@@ -19,17 +20,19 @@
 - **Authentication:** Email/password authentication via Firebase Auth; team member records link users to organizations
 - **Team Structure:** 
   - Global `teamMembers` collection with `organizationId` field
-  - Role-based access: admin, member, viewer
-  - Team members linked to Firebase Auth via `userId` field
+  - Team members represent contractors/freelancers you coordinate with (not real-time collaborators)
+  - Role-based access: owner, admin, technician, freelance (read-only), viewer
+  - Team members linked to Firebase Auth via `userId` field (for future expansion)
 - **Blockers:**
   - Blockers can be attached to tasks or projects
   - Creating a blocker sets the entity's status to `blocked` and stores the previous status
   - Project status is auto-updated based on blockers and blocked tasks (see `reevaluateProjectBlockedState`)
 - **Activity Logging:** All major actions (create, update, block, unblock, delete) are logged via `logActivity` in `src/services/activityHistory.ts`
 - **Project Status Engine:**
-  - **Automatic Mode:** Date-based transitions (not_started → planning → executing → post_event → completed)
-  - **Manual Mode:** PM can override and set any allowed status
-  - Logic in `src/utils/projectStatus.ts` (`computeProjectStatus`, `getAllowedStatusTransitions`)
+  - **Purely Automatic:** Date-based transitions (not_started → planning → executing → post_event → completed)
+  - **Manual Toggle:** Before prep date, users can toggle between "Not Started" and "Planning" by clicking the status badge
+  - All other statuses (Executing, Post-Event, Completed) are automatic based on prep/return dates
+  - Logic in `src/utils/projectStatus.ts` (`computeProjectStatus`)
 
 ## Developer Workflows
 - **Start Dev Server:** `npm run dev` (Vite, port 5173)
@@ -80,22 +83,36 @@
 
 ### Projects View (`ProjectsView.tsx`)
 - Three display modes: Cards, List, Kanban
-- **Cards View:** Grid with status stripes, context menu (archive, delete)
-- **List View:** Table with inline editing (dates, PM, R2#, status), visual save feedback
+- **Cards View:** Grid with status stripes, clickable status badge to toggle Not Started/Planning, context menu (archive, delete)
+- **List View:** Table with inline editing (dates, PM, R2#), visual save feedback
 - **Kanban View:** 5 columns by effectiveStatus (not_started, planning, executing, post_event, completed)
-- Status engine with automatic/manual mode toggle
+- Status is purely automatic based on dates (with manual toggle for Not Started/Planning before prep date)
 - Filter and search functionality
+
+### Project Detail Modal (`ProjectDetailView.tsx`)
+- Tabs: Overview, Tasks, Timeline, Team, Activity
+- Status badge at top; manual toggle allowed only pre-prep (Not Started/Planning)
+- Tasks tab
+  - Renders the same `TaskItem` rows as Tasks view for full interaction parity
+  - Quick add task at top
+  - Arrange controls only (no filters): Created, Status, Title, Due Date, Priority, Assignee + reverse toggle
+  - Blockers built-in: open Blocker modal/manager directly from task lines
+- Header shows team avatars (initials) alongside status and PM (up to 4 + overflow)
+- Team tab for add/remove members (click-outside close; filters active members)
+- Activity tab shows project-level history via `ActivityHistory`
 
 ### Tasks View (`TasksView.tsx`)
 - All standalone tasks with advanced filtering
 - Filter by status, priority, due date, assignee
 - Search across task titles and descriptions
 - Quick add task functionality
+- Team member dropdown for assignee selection (using React Portal)
 
 ### Team View (`TeamView.tsx`)
 - Manage team members with role-based access
 - Create, edit, archive team members
 - View skills, availability, assignments
+- Roles: Owner, Admin, Technician, Freelance (read-only), Viewer
 
 ### Dashboard View (`DashboardView.tsx`)
 - Overview of tasks, projects, and team activity
@@ -106,13 +123,14 @@
 - Login via email/password (`LoginView.tsx`)
 - First-time password setup (`FirstTimePasswordView.tsx`)
 - Admin setup flow (`AdminSetup.tsx`)
-- Role-based access control (admin, member, viewer)
+- Role-based access control (owner, admin, technician, freelance, viewer)
 
 ## Special Notes
+- **Single-user application** — designed for one user managing their own projects and team coordination
 - **No server-side code** — all logic is client-side and in Firestore
 - **No test suite** — do not expect or require tests unless added
 - **Always update activity log** for user-facing changes
-- **Drag-and-drop references** — Code may contain `@dnd-kit` references, but this is not currently implemented in the UI (historical)
+- **Team members are for tracking only** — not for real-time collaboration or multi-user features
 
 ## Documentation
 - **[README.md](../README.md)** — Current project overview and developer guide

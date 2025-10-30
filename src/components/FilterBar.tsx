@@ -46,7 +46,7 @@ export const FilterBar: React.FC<{
       {/* Show all tasks toggle */}
       <button
         type="button"
-        className={`rounded-full px-4 py-1 text-sm font-medium border shadow items-center ${showAll ? "bg-accent text-white border-accent" : "bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200"}`}
+          className={`rounded-full px-4 py-1 text-sm font-medium border shadow items-center transition-all ${showAll ? "bg-brand-cyan text-black border-brand-cyan" : "bg-white/5 border-white/10 text-gray-300 hover:bg-white/10"}`}
         onClick={onToggleShowAll}
         aria-pressed={showAll}
       >
@@ -217,7 +217,7 @@ export const FilterBar: React.FC<{
                                 setSaved(true);
                               }}
                               className={
-                                `relative rounded-full px-4 py-1 text-sm font-medium border shadow bg-gray-100 dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 ml-2 hover:bg-gray-200 dark:hover:bg-gray-700 items-center transition-colors duration-200 ${saved ? 'bg-green-100 border-green-400 text-green-700' : ''}`
+                                `relative rounded-full px-4 py-1 text-sm font-medium border shadow bg-white/5 border-white/10 text-gray-300 ml-2 hover:bg-white/10 items-center transition-colors duration-200 ${saved ? 'bg-brand-success/20 border-brand-success text-brand-success' : ''}`
                               }
                               title="Save these filters as your default for this view only"
                               disabled={saved}

@@ -47,13 +47,22 @@ export async function logActivity(
       }
     }
     
+    // Use client timestamp for immediate query visibility
+    const now = new Date();
+    const timestamp = Timestamp.fromDate(now);
+    console.log('Creating activity with timestamp:', {
+      date: now.toISOString(),
+      seconds: timestamp.seconds,
+      nanoseconds: timestamp.nanoseconds
+    });
+    
     const activityData: Omit<Activity, 'id'> = {
       entityType,
       entityId,
       entityTitle,
       action,
       userId: uid,
-      createdAt: Timestamp.fromDate(new Date()), // Use client timestamp for immediate readability
+      createdAt: timestamp, // Client timestamp for immediate query visibility
       ...(options?.changes && { changes: options.changes }),
       ...(options?.description && { description: options.description }),
       ...(userName && { userName }),
@@ -62,9 +71,10 @@ export async function logActivity(
     // Clean any undefined values before storing to Firebase
     const cleanedActivityData = removeUndefinedValues(activityData);
 
-  const fb = await getFirebase();
-  const activitiesRef = fb.col(uid, `activities`);
-  await addDoc(activitiesRef, cleanedActivityData);
+    const fb = await getFirebase();
+    const activitiesRef = fb.col(uid, `activities`);
+    await addDoc(activitiesRef, cleanedActivityData);
+    console.log('Activity document written to Firestore with client timestamp:', { entityId, entityTitle, action });
   } catch (error: any) {
     const { logError } = await import('../utils/logger');
     logError("Error logging activity:", error?.message ?? error);

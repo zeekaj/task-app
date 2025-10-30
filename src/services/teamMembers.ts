@@ -43,7 +43,7 @@ export async function createTeamMember(
   const payload = stripUndefined({
     name: (member.name || '').trim(),
     email: (member.email || '').trim().toLowerCase(),
-    role: member.role || 'member',
+    role: member.role || 'technician',
     title: member.title ? member.title.trim() : undefined,
     userId: member.userId || undefined,
     hasPassword: false,
@@ -52,7 +52,8 @@ export async function createTeamMember(
     skills: sanitizeSkills(member.skills),
     availability: typeof member.availability === 'number' && !Number.isNaN(member.availability) ? member.availability : 100,
     workload: typeof member.workload === 'number' && !Number.isNaN(member.workload) ? member.workload : 0,
-    viewerPermissions: member.role === 'viewer' ? (member.viewerPermissions || []) : [],
+    // Freelance is read-only; treat like viewer with no granular permissions for now
+    viewerPermissions: member.role === 'viewer' ? (member.viewerPermissions || []) : (member.role === 'freelance' ? [] : []),
     avatar: member.avatar || undefined,
     active: member.active !== false,
     organizationId,
@@ -182,12 +183,24 @@ export async function transferOwnership(organizationId: string, newOwnerMemberId
 export async function updateTeamMember(memberId: string, updates: Partial<TeamMember>) {
   const { db } = await getFirestoreClient();
   const ref = doc(db, 'teamMembers', memberId);
+  // Determine viewerPermissions handling for role changes
+  let viewerPermissions: any = updates.viewerPermissions ?? undefined;
+  if (updates.role === 'viewer') {
+    viewerPermissions = updates.viewerPermissions || [];
+  } else if (updates.role === 'freelance') {
+    // Freelance is read-only; clear granular permissions field
+    viewerPermissions = [];
+  } else if (typeof updates.role === 'string') {
+    // For other roles, omit viewerPermissions field from update
+    viewerPermissions = undefined;
+  }
+
   const payload = stripUndefined({
     ...updates,
     title: updates.title ? updates.title.trim() : updates.title,
     email: updates.email ? updates.email.trim().toLowerCase() : updates.email,
     skills: sanitizeSkills(updates.skills),
-    viewerPermissions: updates.role === 'viewer' ? (updates.viewerPermissions || []) : updates.viewerPermissions ?? undefined,
+    viewerPermissions,
     updatedAt: serverTimestamp(),
   });
   await updateDoc(ref, payload as any);

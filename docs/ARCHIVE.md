@@ -2,6 +2,8 @@
 
 This file contains documentation from earlier iterations of the app that is no longer relevant to current development but may be useful for historical reference.
 
+**Note:** This is a single-user productivity application. While the data model supports team member records for assignment tracking, it is not designed for multi-user collaboration or real-time team features.
+
 ---
 
 ## Authentication Restructure (Completed 2025)
@@ -125,10 +127,11 @@ App originally used Google OAuth for authentication. Replaced with email/passwor
 
 ## Historical Progress Tracking (2025)
 
-### October 24, 2025
+### October 24-28, 2025
 - Font hierarchy updated: Inter primary, Manrope secondary (UI labels), Outfit accent
 - Files changed: `src/styles/tokens.css`, `tailwind.config.js`, `src/styles/typography.css`, `src/components/views/StyleGuideView.tsx`
-- Next steps: Replace placeholder logo, consider self-hosting fonts, migrate to brand utilities
+- ✅ Completed: Logo replaced with cropped Momentum PNG, self-hosted fonts via @fontsource, TopNav responsive enhancements
+- Next steps: Migrate component colors to brand utilities (Dashboard, Team views)
 
 ### Earlier October 2025
 - UI redesign foundation completed
@@ -164,6 +167,18 @@ node scripts/migrate-team-members.mjs
 ---
 
 ## End of Archive
+## October 30, 2025 — Project Detail Modal Parity
+
+The Project Detail Modal was brought to parity with the main Tasks view:
+
+- Tasks tab now renders full TaskItem rows and TaskEditForm for edits
+- Added Arrange-by sorting controls with reverse toggle (no filters in modal)
+- Integrated Blocker modals for in-modal block/unblock flows
+- Team member avatars added to the modal header for quick visibility
+- Added Activity tab to show project-level history in place
+
+These changes ensure consistent task interactions across the app and improve visibility directly within project context.
+
 
 For current documentation, see:
 - [`README.md`](../README.md) — Current project overview and developer guide

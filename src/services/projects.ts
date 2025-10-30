@@ -134,8 +134,8 @@ export async function updateProject(
     
     if (currentInstallDate?.getTime() !== newInstallDate?.getTime()) {
       changes.installDate = { 
-        from: currentInstallDate, 
-        to: newInstallDate 
+        from: currentInstallDate ? currentInstallDate.toISOString() : null, 
+        to: newInstallDate ? newInstallDate.toISOString() : null 
       };
     }
   }
@@ -152,8 +152,8 @@ export async function updateProject(
     
     if (currentPrepDate?.getTime() !== newPrepDate?.getTime()) {
       changes.prepDate = { 
-        from: currentPrepDate, 
-        to: newPrepDate 
+        from: currentPrepDate ? currentPrepDate.toISOString() : null, 
+        to: newPrepDate ? newPrepDate.toISOString() : null 
       };
     }
   }
@@ -170,8 +170,8 @@ export async function updateProject(
     
     if (currentReturnDate?.getTime() !== newReturnDate?.getTime()) {
       changes.returnDate = { 
-        from: currentReturnDate, 
-        to: newReturnDate 
+        from: currentReturnDate ? currentReturnDate.toISOString() : null, 
+        to: newReturnDate ? newReturnDate.toISOString() : null 
       };
     }
   }

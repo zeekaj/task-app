@@ -1,10 +1,15 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { createTask } from "../../services/tasks";
 
 export const QuickAddTask: React.FC<{ uid: string; projectId: string }> = ({ uid, projectId }) => {
+  const inputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,6 +30,7 @@ export const QuickAddTask: React.FC<{ uid: string; projectId: string }> = ({ uid
   return (
   <form onSubmit={handleAdd} className="flex gap-2 mb-3 bg-gray-200 bg-opacity-80 rounded-xl shadow-lg p-4">
       <input
+        ref={inputRef}
         className="flex-1 border rounded-lg px-3 py-2 text-base"
         placeholder="Add a new task to this project..."
         value={title}

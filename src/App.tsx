@@ -35,7 +35,9 @@ function MainApp() {
   const user = useAuth();
   const [teamMember, setTeamMember] = useState<(TeamMember & { id: string }) | null | undefined>(undefined);
   const [authView, setAuthView] = useState<AuthView>('login');
-  const [_firstTimeEmail, _setFirstTimeEmail] = useState('');  // Reserved for future first-time setup flow
+  // Reserved hook for future first-time setup flow was removed to satisfy lint (no-unused-vars)
+  
+  console.log('MainApp render, user:', user?.uid, 'activeTab:', localStorage.getItem('activeTab'));
   
   // Load active tab from localStorage, default to 'dashboard'
   const [activeTab, setActiveTab] = useState<TabView>(() => {
@@ -69,12 +71,16 @@ function MainApp() {
               // Ensure membership mirror first (rules allow org owner by UID)
               try {
                 await upsertOrgMembership(candidate.organizationId, user.uid, (candidate.role as any) || 'owner', true);
-              } catch (_) {}
+              } catch (_) {
+                // best-effort mirror; safe to ignore
+              }
               // Then link the document to this user
               try {
                 await updateTeamMember(candidate.id, { userId: user.uid });
                 member = { ...candidate, userId: user.uid } as any;
-              } catch (_) {}
+              } catch (_) {
+                // best-effort link; safe to ignore
+              }
             }
           }
         }
@@ -83,7 +89,9 @@ function MainApp() {
           try {
             await updateTeamMember(member.id, { role: 'owner', title: member.title || 'Organization Owner' });
             member.role = 'owner' as any;
-          } catch (_) {}
+          } catch (_) {
+            // role sync is non-critical here
+          }
         }
         setTeamMember(member);
         // Ensure org membership mirror exists for security rules
@@ -101,12 +109,12 @@ function MainApp() {
     }
   }, [user]);
 
-  const handleLoginSuccess = (_uid: string) => {
+  const handleLoginSuccess = () => {
     // User state will update via useAuth hook
     // Team member check will trigger via useEffect
   };
 
-  const handlePasswordCreated = (_uid: string) => {
+  const handlePasswordCreated = () => {
     // User state will update via useAuth hook
     setAuthView('login');
   };
@@ -202,26 +210,32 @@ function MainApp() {
   }
 
   // Authorized - show main app
-  const renderView = () => {
-    switch (activeTab) {
-      case 'dashboard':
-        return <DashboardView uid={user.uid} />;
-      case 'team':
-        return <TeamView uid={user.uid} />;
-      case 'tasks':
-        return <TasksView uid={user.uid} />;
-      case 'projects':
-        return <ProjectsView uid={user.uid} />;
-      case 'ai-allocation':
-        return <AIAllocationView uid={user.uid} />;
-      case 'settings':
-        return <SettingsView uid={user.uid} />;
-      case 'style-guide':
-        return <StyleGuideView uid={user.uid} />;
-      default:
-        return <DashboardView uid={user.uid} />;
-    }
-  };
+  let viewContent;
+  switch (activeTab) {
+    case 'dashboard':
+      viewContent = <DashboardView uid={user.uid} />;
+      break;
+    case 'team':
+      viewContent = <TeamView uid={user.uid} />;
+      break;
+    case 'tasks':
+      viewContent = <TasksView uid={user.uid} />;
+      break;
+    case 'projects':
+      viewContent = <ProjectsView uid={user.uid} />;
+      break;
+    case 'ai-allocation':
+      viewContent = <AIAllocationView uid={user.uid} />;
+      break;
+    case 'settings':
+      viewContent = <SettingsView uid={user.uid} />;
+      break;
+    case 'style-guide':
+      viewContent = <StyleGuideView uid={user.uid} />;
+      break;
+    default:
+      viewContent = <DashboardView uid={user.uid} />;
+  }
 
   return (
     <AppLayout
@@ -231,12 +245,12 @@ function MainApp() {
         name: teamMember?.name || user.displayName || (user.email ? user.email.split('@')[0] : undefined),
         email: user.email || undefined,
         avatarUrl: teamMember?.avatar,
-        role: teamMember?.role,
+  role: teamMember?.role,
         title: teamMember?.title,
       }}
       onSignOut={async () => { await signOutUser(); }}
     >
-      {renderView()}
+      {viewContent}
     </AppLayout>
   );
 };

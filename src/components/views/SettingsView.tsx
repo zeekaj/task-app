@@ -51,15 +51,13 @@ export function SettingsView({ uid }: SettingsViewProps) {
     }
   ];
 
-  // Sample data
+  // Role legend (informational)
   const sampleRoles = [
-    { name: 'Director of Production', color: 'purple' as const },
-    { name: 'Event Tech III', color: 'blue' as const },
-    { name: 'Event Tech I', color: 'green' as const },
-    { name: 'SR Event Tech', color: 'yellow' as const },
-    { name: 'Designer', color: 'blue' as const },
-    { name: 'Event Tech II', color: 'orange' as const },
-    { name: 'Video Producer', color: 'cyan' as const }
+    { name: 'Owner', color: 'purple' as const, note: 'Full control' },
+    { name: 'Admin', color: 'red' as const, note: 'Manage team & data' },
+    { name: 'Technician', color: 'blue' as const, note: 'Standard contributor' },
+    { name: 'Freelance', color: 'cyan' as const, note: 'Read-only' },
+    { name: 'Viewer', color: 'gray' as const, note: 'Read-only (scoped)' }
   ];
 
   const sampleSkills = [
@@ -103,8 +101,11 @@ export function SettingsView({ uid }: SettingsViewProps) {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {sampleRoles.map((role, idx) => (
-                <Card key={idx} padding="md" hover>
-                  <Badge color={role.color} size="md">{role.name}</Badge>
+                <Card key={idx} padding="md" hover className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Badge color={role.color} size="md">{role.name}</Badge>
+                    <span className="text-sm text-gray-400">{role.note}</span>
+                  </div>
                 </Card>
               ))}
             </div>

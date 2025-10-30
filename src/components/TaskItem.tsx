@@ -1,18 +1,20 @@
 // src/components/TaskItem.tsx
 import React, { useState, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import type { Task, Blocker, WithId } from "../types";
 import { useAllBlockers } from "../hooks/useBlockers";
+import { useTeamMembers } from "../hooks/useTeamMembers";
 import { updateTask } from "../services/tasks";
 import Icon from "./Icon";
 import { useClickOutside } from "../hooks/useClickOutside";
 // ConfirmModal removed from TaskItem; parent views handle confirmations
 
 const taskStatusConfig: { [key in Task["status"]]: { label: string; classes: string } } = {
-  not_started: { label: "Not Started", classes: "dark:bg-surface bg-white dark:hover:bg-background hover:bg-gray-50 dark:border-gray-700 border-gray-200" },
-  in_progress: { label: "In Progress", classes: "dark:bg-indigo-950 bg-white dark:hover:bg-indigo-900 hover:bg-gray-50 dark:border-indigo-900 border-blue-200" },
-  done: { label: "Done", classes: "dark:bg-green-900 bg-white dark:hover:bg-green-800 hover:bg-gray-50 dark:border-green-800 border-green-200" },
-  blocked: { label: "Blocked", classes: "dark:bg-red-900 bg-white dark:hover:bg-red-800 hover:bg-gray-50 dark:border-red-800 border-red-300" },
-  archived: { label: "Archived", classes: "dark:bg-gray-800 bg-gray-100 dark:border-gray-700 border-gray-200 opacity-60" },
+  not_started: { label: "Not Started", classes: "bg-white/5 hover:bg-white/10 border-white/10" },
+  in_progress: { label: "In Progress", classes: "bg-brand-cyan/10 hover:bg-brand-cyan/20 border-brand-cyan/30" },
+  done: { label: "Done", classes: "bg-brand-success/10 hover:bg-brand-success/20 border-brand-success/30" },
+  blocked: { label: "Blocked", classes: "bg-red-500/10 hover:bg-red-500/20 border-red-500/30" },
+  archived: { label: "Archived", classes: "bg-gray-800/50 border-gray-700/50 opacity-60" },
 };
 
 // Helper to get priority label from 0-100 value
@@ -27,12 +29,12 @@ const getPriorityLabel = (priority: number): string => {
 
 // Helper to get background gradient for priority badge
 const getPriorityBgGradient = (priority: number): string => {
-  if (priority === 0) return "bg-gray-200 dark:bg-gray-700";
-  if (priority < 25) return "bg-gradient-to-r from-gray-300 via-gray-400 to-gray-500";
-  if (priority < 50) return "bg-gradient-to-r from-blue-300 via-blue-400 to-blue-500";
-  if (priority < 75) return "bg-gradient-to-r from-green-300 via-green-400 to-green-500";
-  if (priority < 90) return "bg-gradient-to-r from-yellow-300 via-yellow-400 to-orange-400";
-  return "bg-gradient-to-r from-orange-400 via-red-400 to-red-500";
+  if (priority === 0) return "bg-gray-700";
+  if (priority < 25) return "bg-gradient-to-r from-gray-400 via-gray-500 to-gray-600";
+  if (priority < 50) return "bg-gradient-to-r from-brand-violet via-blue-400 to-brand-cyan";
+  if (priority < 75) return "bg-gradient-to-r from-brand-cyan via-green-400 to-brand-success";
+  if (priority < 90) return "bg-gradient-to-r from-brand-success via-yellow-400 to-brand-warning";
+  return "bg-gradient-to-r from-brand-warning via-orange-500 to-red-500";
 };
 
 interface TaskItemProps {
@@ -57,9 +59,13 @@ interface TaskItemProps {
 export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onUndo, searchQuery = '' }) => {
   const hookAllBlockers = useAllBlockers(uid);
   const safeAllBlockers = allBlockers ?? hookAllBlockers;
+  const teamMembers = useTeamMembers(uid);
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
+  const [statusDropdownPos, setStatusDropdownPos] = useState<{ top: number; left: number } | null>(null);
   const [editingDueDate, setEditingDueDate] = useState(false);
-  const [editingAssignee, setEditingAssignee] = useState(false);
+  // removed unused editingAssignee state
+  const [showAssigneeDropdown, setShowAssigneeDropdown] = useState(false);
+  const [assigneeDropdownPos, setAssigneeDropdownPos] = useState<{ top: number; left: number } | null>(null);
   const [showPrioritySlider, setShowPrioritySlider] = useState(false);
   const [tempPriority, setTempPriority] = useState(task.priority);
   const [tempDueDate, setTempDueDate] = useState(task.dueDate || "");
@@ -68,7 +74,30 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
   );
   const prioritySliderRef = useRef<HTMLDivElement>(null);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
+  const statusButtonRef = useRef<HTMLButtonElement>(null);
+  const assigneeButtonRef = useRef<HTMLSpanElement>(null);
+  const assigneeDropdownRef = useRef<HTMLDivElement>(null);
   const priorityHideTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  
+  // Position status dropdown when it opens
+  React.useEffect(() => {
+    if (showStatusDropdown && statusButtonRef.current) {
+      const rect = statusButtonRef.current.getBoundingClientRect();
+      setStatusDropdownPos({ top: rect.bottom + 4, left: rect.left });
+    } else {
+      setStatusDropdownPos(null);
+    }
+  }, [showStatusDropdown]);
+  
+  // Position assignee dropdown when it opens
+  React.useEffect(() => {
+    if (showAssigneeDropdown && assigneeButtonRef.current) {
+      const rect = assigneeButtonRef.current.getBoundingClientRect();
+      setAssigneeDropdownPos({ top: rect.bottom + 4, left: rect.left });
+    } else {
+      setAssigneeDropdownPos(null);
+    }
+  }, [showAssigneeDropdown]);
   
   // Close priority slider when clicking outside
   useClickOutside({
@@ -82,6 +111,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
     enabled: showStatusDropdown,
     onClickOutside: () => setShowStatusDropdown(false),
     selector: `[data-status-dropdown-menu="${task.id}"]`
+  });
+  
+  // Close assignee dropdown when clicking outside
+  useClickOutside({
+    enabled: showAssigneeDropdown,
+    onClickOutside: () => {
+      setShowAssigneeDropdown(false);
+    },
+    selector: `[data-assignee-dropdown-menu="${task.id}"]`
   });
 
   // Update temp priority when task priority changes
@@ -183,15 +221,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
     if (assigneeValue !== currentAssignee) {
       await updateTask(uid, task.id, { assignee: assigneeValue });
     }
-    setEditingAssignee(false);
   };
-
-  // Get all available assignees from tasks
-  const allAssignees = Array.from(new Set(
-    allTasks.map((t) => 
-      typeof t.assignee === "string" ? t.assignee : t.assignee?.name
-    ).filter((v): v is string => Boolean(v))
-  ));
 
   const statusClasses =
     taskStatusConfig[task.status as Task["status"]]?.classes ||
@@ -226,12 +256,6 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
     selector: 'input[type="date"]'
   });
 
-  useClickOutside({
-    enabled: editingAssignee,
-    onClickOutside: handleAssigneeUpdate,
-    selector: 'input[list="assignees-datalist"]'
-  });
-
   // Highlight helper: splits text and wraps matches
   const highlightText = (text: string | undefined | null) => {
     if (!text) return text;
@@ -253,7 +277,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
         parts.push(
           <mark
             key={start + '-' + end}
-            className="bg-yellow-300 text-black px-0.5 rounded-sm"
+            className="bg-brand-warning/30 text-brand-warning px-0.5 rounded-sm"
           >
             {matched}
           </mark>
@@ -312,7 +336,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
 
   return (
       <div
-        className={`flex items-stretch border rounded-lg shadow-sm transition-shadow ${statusClasses} dark:text-gray-100 text-gray-900 max-w-full overflow-hidden`}
+        className={`flex items-stretch border rounded-lg shadow-sm transition-shadow backdrop-blur-sm ${statusClasses} text-brand-text max-w-full overflow-hidden`}
         onClick={e => {
           if (statusInfo.isArchived || editingInline) return;
           const target = e.target as Element;
@@ -344,8 +368,8 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
             >
               {statusInfo.isBlocked ? (
                 <div className="text-left w-full">
-                  <div className="text-sm font-bold dark:text-red-400 text-red-700 mb-1">BLOCKED</div>
-                  <div className="space-y-1 text-xs dark:text-red-300 text-red-900">
+                  <div className="text-sm font-bold text-red-400 mb-1">BLOCKED</div>
+                  <div className="space-y-1 text-xs text-red-300">
                     {statusInfo.activeTaskBlockers.slice(0, 2).map((b) => (
                       <span key={b.id} className="block truncate" title={typeof b.reason === "object" ? JSON.stringify(b.reason) : b.reason}>
                         {typeof b.reason === "object" ? JSON.stringify(b.reason) : b.reason}
@@ -360,6 +384,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                 <div className="relative flex items-center" data-status-dropdown-menu={task.id}>
                   {/* Current status icon - click to show dropdown */}
                   <button
+                    ref={statusButtonRef}
                     type="button"
                     className="p-1 rounded-full transition-all duration-200 relative z-10"
                     title={`Status: ${taskStatusConfig[task.status].label} - Click to change`}
@@ -367,16 +392,6 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                     onClick={(e) => {
                       e.stopPropagation();
                       setShowStatusDropdown(!showStatusDropdown);
-                    }}
-                    ref={(el) => {
-                      if (el && showStatusDropdown) {
-                        const rect = el.getBoundingClientRect();
-                        const dropdown = statusDropdownRef.current;
-                        if (dropdown) {
-                          dropdown.style.top = `${rect.bottom + 4}px`;
-                          dropdown.style.left = `${rect.left}px`;
-                        }
-                      }
                     }}
                   >
                     {task.status === "not_started" && (
@@ -409,18 +424,22 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                     )}
                   </button>
                   
-                  {/* Dropdown menu with other status options */}
-                  {showStatusDropdown && (
+                  {/* Dropdown menu with other status options - rendered via portal to escape overflow:hidden */}
+                  {showStatusDropdown && createPortal(
                     <div
                       ref={statusDropdownRef}
                       data-status-dropdown-menu={task.id}
-                      className="fixed bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-300 dark:border-gray-600 py-1 z-[9999] min-w-[140px]"
+                      className="fixed bg-gray-800/40 border border-brand-cyan/50 rounded-2xl shadow-xl py-1 z-[9999] min-w-[140px] backdrop-blur-xl"
+                      style={{ 
+                        top: statusDropdownPos ? `${statusDropdownPos.top}px` : '0px',
+                        left: statusDropdownPos ? `${statusDropdownPos.left}px` : '0px'
+                      }}
                       onClick={(e) => e.stopPropagation()}
                     >
                       {task.status !== "not_started" && (
                         <button
                           type="button"
-                          className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-sm"
+                          className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center gap-2 text-sm text-brand-text"
                           onClick={() => {
                             onStatusChange("not_started");
                             setShowStatusDropdown(false);
@@ -437,7 +456,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                       {task.status !== "in_progress" && (
                         <button
                           type="button"
-                          className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-sm"
+                          className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center gap-2 text-sm text-brand-text"
                           onClick={() => {
                             onStatusChange("in_progress");
                             setShowStatusDropdown(false);
@@ -454,7 +473,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                       {task.status !== "done" && (
                         <button
                           type="button"
-                          className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-sm"
+                          className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center gap-2 text-sm text-brand-text"
                           onClick={() => {
                             onStatusChange("done");
                             setShowStatusDropdown(false);
@@ -471,7 +490,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                       {task.status !== "blocked" && (
                         <button
                           type="button"
-                          className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-sm"
+                          className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center gap-2 text-sm text-brand-text"
                           onClick={() => {
                             onStartBlock();
                             setShowStatusDropdown(false);
@@ -486,7 +505,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                         </button>
                       )}
                     </div>
-                  )}
+                  , document.body)}
                 </div>
               )}
             </div>
@@ -590,15 +609,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
               {/* Comments/Notes display removed from collapsed line */}
             </div>
             {/* Right tools */}
-            <div className="flex-shrink-0 flex items-center gap-x-2 py-0.5 px-1 text-xs dark:text-gray-300 text-gray-800 min-w-0 overflow-hidden">
+            <div className="flex-shrink-0 flex items-center gap-x-2 py-0.5 px-1 text-xs text-brand-text min-w-0 overflow-hidden">
               {/* Created, Due, Assigned info (left of status dropdown) */}
-              <div className="hidden sm:flex items-center justify-center gap-x-1 mr-1 min-w-[180px] lg:min-w-[200px]">
+              <div className="hidden sm:flex items-center justify-center gap-x-1 mr-1 min-w-[240px] lg:min-w-[280px]">
                 {/* Created */}
-                <span className="flex items-center justify-center w-[70px]" title="Created date">
+                <span className="flex items-center justify-center w-[70px] text-brand-text" title="Created date">
                   <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m4 4V3m-7 4h14M5 7v10a2 2 0 002 2h6a2 2 0 002-2V7" /></svg>
                   {dateInfo.createdAtObj ? dateInfo.latestDateString : '--'}
                 </span>
-                <span className="text-gray-300">|</span>
+                <span className="text-brand-text/50">|</span>
                 {/* Due */}
                 {editingDueDate ? (
                   <div className="flex items-center justify-center w-[70px]">
@@ -615,13 +634,13 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                         }
                       }}
                       onClick={(e) => e.stopPropagation()}
-                      className="w-full px-1 py-0.5 text-xs border rounded dark:bg-background dark:border-gray-600"
+                      className="w-full px-1 py-0.5 text-xs text-brand-text bg-gray-800/60 border border-brand-cyan/50 rounded focus:ring-1 focus:ring-brand-cyan"
                       autoFocus
                     />
                   </div>
                 ) : (
                   <span 
-                    className="flex items-center justify-center w-[70px] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded px-1" 
+                    className="flex items-center justify-center w-[70px] cursor-pointer hover:bg-brand-cyan/10 rounded px-1 text-brand-text" 
                     title="Due date (click to edit)"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -635,49 +654,70 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                     {dateInfo.dueDateObj ? dateInfo.dueDateString : '--'}
                   </span>
                 )}
-                <span className="text-gray-300">|</span>
+                <span className="text-brand-text/50">|</span>
                 {/* Assigned */}
-                {editingAssignee ? (
-                  <div className="flex items-center justify-center w-[70px]">
-                    <input
-                      type="text"
-                      value={tempAssignee}
-                      onChange={(e) => setTempAssignee(e.target.value)}
-                      onBlur={handleAssigneeUpdate}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleAssigneeUpdate();
-                        if (e.key === "Escape") {
-                          setTempAssignee(typeof task.assignee === "string" ? task.assignee : task.assignee?.name || "");
-                          setEditingAssignee(false);
-                        }
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                      className="w-full px-1 py-0.5 text-xs border rounded dark:bg-background dark:border-gray-600"
-                      placeholder="Assignee"
-                      list="assignees-datalist"
-                      autoFocus
-                    />
-                    <datalist id="assignees-datalist">
-                      {allAssignees.map((assignee) => (
-                        <option key={assignee} value={assignee} />
-                      ))}
-                    </datalist>
-                  </div>
-                ) : (
-                  <span 
-                    className="flex items-center justify-center w-[70px] cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 rounded px-1" 
-                    title="Assigned to (click to edit)"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (!statusInfo.isArchived) {
-                        setTempAssignee(typeof task.assignee === "string" ? task.assignee : task.assignee?.name || "");
-                        setEditingAssignee(true);
-                      }
+                <span 
+                  ref={assigneeButtonRef}
+                  className="flex items-center justify-center w-[110px] cursor-pointer hover:bg-brand-cyan/10 rounded px-1 text-brand-text truncate" 
+                  title="Assigned to (click to edit)"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (!statusInfo.isArchived) {
+                      setTempAssignee(typeof task.assignee === "string" ? task.assignee : task.assignee?.name || "");
+                      setShowAssigneeDropdown(true);
+                    }
+                  }}
+                >
+                  <svg className="w-3 h-3 mr-1 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><circle cx="10" cy="7" r="4" stroke="currentColor" strokeWidth="2" /><path strokeLinecap="round" strokeLinejoin="round" d="M4 17v-1a4 4 0 014-4h4a4 4 0 014 4v1" /></svg>
+                  {task.assignee ? (typeof task.assignee === "object" ? (task.assignee.name || task.assignee.id) : task.assignee) : '--'}
+                </span>
+                
+                {/* Assignee Dropdown - rendered via portal to escape overflow:hidden */}
+                {showAssigneeDropdown && createPortal(
+                  <div
+                    ref={assigneeDropdownRef}
+                    data-assignee-dropdown-menu={task.id}
+                    className="fixed bg-gray-800/95 border border-brand-cyan/50 rounded-lg shadow-xl py-1 z-[9999] min-w-[180px] max-h-[300px] overflow-y-auto backdrop-blur-xl"
+                    style={{ 
+                      top: assigneeDropdownPos ? `${assigneeDropdownPos.top}px` : '0px',
+                      left: assigneeDropdownPos ? `${assigneeDropdownPos.left}px` : '0px'
                     }}
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <svg className="w-3 h-3 mr-1 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><circle cx="10" cy="7" r="4" stroke="currentColor" strokeWidth="2" /><path strokeLinecap="round" strokeLinejoin="round" d="M4 17v-1a4 4 0 014-4h4a4 4 0 014 4v1" /></svg>
-                    {task.assignee ? (typeof task.assignee === "object" ? (task.assignee.name || task.assignee.id) : task.assignee) : '--'}
-                  </span>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center gap-2 text-sm text-brand-text/60"
+                      onClick={() => {
+                        setTempAssignee("");
+                        handleAssigneeUpdate();
+                        setShowAssigneeDropdown(false);
+                      }}
+                    >
+                      — Unassigned —
+                    </button>
+                    {teamMembers && teamMembers.length > 0 ? (
+                      teamMembers.filter(m => m.active).map((member) => (
+                        <button
+                          key={member.id}
+                          type="button"
+                          className={`w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center gap-2 text-sm text-brand-text ${
+                            tempAssignee === member.name ? 'bg-brand-cyan/20' : ''
+                          }`}
+                          onClick={() => {
+                            setTempAssignee(member.name);
+                            handleAssigneeUpdate();
+                            setShowAssigneeDropdown(false);
+                          }}
+                        >
+                          {member.name}
+                          {member.title && <span className="text-xs text-brand-text/60">({member.title})</span>}
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-2 text-sm text-brand-text/60">Loading...</div>
+                    )}
+                  </div>,
+                  document.body
                 )}
               </div>
               {/* Priority badge with hover slider */}

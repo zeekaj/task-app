@@ -140,32 +140,32 @@ export const ActivityHistory: React.FC<ActivityHistoryProps> = ({
     <div className={className}>
       {loading ? (
         <div className="flex items-center justify-center py-8">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-600"></div>
-          <span className="ml-2 text-sm text-gray-600">Loading activity history...</span>
+          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-brand-cyan"></div>
+          <span className="ml-2 text-sm text-brand-text">Loading activity history...</span>
         </div>
       ) : activities.length === 0 ? (
-        <div className="text-center py-8 text-gray-500">
-          <svg className="w-8 h-8 mx-auto mb-2 text-gray-400" fill="currentColor" viewBox="0 0 20 20">
+        <div className="text-center py-8 text-brand-text/60">
+          <svg className="w-8 h-8 mx-auto mb-2 text-brand-text/40" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z"/>
           </svg>
           <p className="text-sm">No activity history available</p>
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-gray-200 max-h-64 overflow-y-auto">
+        <div className="bg-gray-800/40 rounded-lg border border-white/10 max-h-64 overflow-y-auto">
           <div className="space-y-0">
             {activities.map((activity, index) => (
               <div
                 key={activity.id || index}
-                className="flex items-start gap-3 p-3 border-b border-gray-100 last:border-b-0 hover:bg-gray-50"
+                className="flex items-start gap-3 p-3 border-b border-white/10 last:border-b-0 hover:bg-gray-800/60"
               >
                 <div className="flex-shrink-0 mt-0.5">
                   {getActionIcon(activity.action)}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-900">
+                  <p className="text-sm text-brand-text">
                     {generateActivityDescription(activity, entityId)}
                   </p>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-400 mt-1">
                     {formatDate(activity.createdAt)}
                   </p>
                 </div>

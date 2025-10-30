@@ -1,7 +1,8 @@
 // Top Navigation Component
 import { useState } from 'react';
 import { TopNavTabs } from '../ui/PillTabs';
-import logo from '../../assets/logo.svg';
+import { Badge } from '../ui/Badge';
+import logo from '../../assets/Logo Only-cropped.png';
 
 interface TopNavProps {
   activeTab: string;
@@ -77,13 +78,13 @@ export function TopNav({ activeTab, onTabChange, account, onSignOut }: TopNavPro
 
   return (
     <header className="sticky top-0 z-50 bg-black/80 backdrop-blur-md border-b border-white/10">
-      <div className="max-w-[1600px] mx-auto px-6 py-4">
-        <div className="flex items-center justify-between">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-3 sm:py-4">
+        <div className="flex items-center justify-between gap-4">
           {/* Logo */}
-        <div className="flex items-center gap-3">
-          <img src={logo} alt="Momentum" className="w-8 h-8" />
-          <span className="text-xl font-inter font-extrabold tracking-tight text-white">
-            MOMENTUM
+        <div className="flex items-center gap-0.5 group cursor-pointer transition-all duration-300 hover:opacity-80">
+          <img src={logo} alt="Momentum Logo" className="h-12 sm:h-14 transition-transform duration-300 group-hover:scale-105" />
+          <span className="text-xl sm:text-2xl font-inter font-bold tracking-tight text-gray-300 transition-colors duration-300 group-hover:text-gray-100">
+            Momentum
           </span>
         </div>          {/* Navigation Tabs */}
           <TopNavTabs 
@@ -122,7 +123,23 @@ export function TopNav({ activeTab, onTabChange, account, onSignOut }: TopNavPro
               </div>
               <div className="hidden md:flex flex-col items-start leading-tight">
                 <span className="text-sm text-white">{account?.name || account?.email || 'Unknown'}</span>
-                {account?.role && <span className="text-[10px] uppercase tracking-wide text-gray-400">{account.role}</span>}
+                {account?.role && (
+                  <div className="mt-0.5">
+                    {(() => {
+                      const r = (account.role || '').toLowerCase();
+                      const map: Record<string, { label: string; color: any }> = {
+                        owner: { label: 'Owner', color: 'purple' },
+                        admin: { label: 'Admin', color: 'red' },
+                        technician: { label: 'Technician', color: 'blue' },
+                        member: { label: 'Technician', color: 'blue' },
+                        freelance: { label: 'Freelance', color: 'cyan' },
+                        viewer: { label: 'Viewer', color: 'gray' },
+                      };
+                      const cfg = map[r] || { label: account.role, color: 'gray' };
+                      return <Badge size="sm" color={cfg.color as any}>{cfg.label}</Badge>;
+                    })()}
+                  </div>
+                )}
               </div>
               <svg className="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.207l3.71-3.976a.75.75 0 111.08 1.04l-4.24 4.54a.75.75 0 01-1.08 0l-4.24-4.54a.75.75 0 01.02-1.06z" clipRule="evenodd"/></svg>
             </button>

@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { signInWithEmail } from '../../services/auth';
 
 interface LoginViewProps {
-  onLoginSuccess: (uid: string) => void;
+  onLoginSuccess: () => void;
 }
 
 export function LoginView({ onLoginSuccess }: LoginViewProps) {
@@ -26,7 +26,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
         return;
       }
       
-      onLoginSuccess(result.user.uid);
+  onLoginSuccess();
     } catch (err: any) {
       console.error('Login error:', err);
       
@@ -135,7 +135,7 @@ export function LoginView({ onLoginSuccess }: LoginViewProps) {
         {/* Additional Info */}
         <div className="mt-6 text-center">
           <p className="text-gray-500 text-sm">
-            Don't have access?{' '}
+            Don&apos;t have access?{' '}
             <button
               type="button"
               className="text-cyan-400 hover:text-cyan-300 transition-colors"

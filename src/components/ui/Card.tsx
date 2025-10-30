@@ -59,22 +59,23 @@ interface KPITileProps {
   value: string | number;
   subtitle?: string;
   trend?: 'up' | 'down' | 'neutral';
-  color?: 'cyan' | 'purple' | 'blue' | 'green' | 'orange' | 'red';
+  color?: 'cyan' | 'purple' | 'blue' | 'green' | 'orange' | 'red' | 'violet';
 }
 
 export function KPITile({ icon, label, value, subtitle, trend, color = 'blue' }: KPITileProps) {
   const colorClasses = {
-    cyan: 'text-cyan-400',
+    cyan: 'text-brand-cyan',
+    violet: 'text-brand-violet',
     purple: 'text-purple-400',
     blue: 'text-blue-400',
-    green: 'text-green-400',
-    orange: 'text-orange-400',
+    green: 'text-brand-success',
+    orange: 'text-brand-warning',
     red: 'text-red-400'
   };
 
   const trendIcons = {
     up: (
-      <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <svg className="w-4 h-4 text-brand-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
       </svg>
     ),

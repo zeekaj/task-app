@@ -26,14 +26,14 @@ export function Dropdown({ label, children }: DropdownProps) {
     >
       <button
         type="button"
-        className="bg-gray-100 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-full px-4 py-1 text-sm font-medium flex items-center gap-2 shadow hover:bg-gray-200 dark:hover:bg-gray-700"
+        className="bg-glass/70 border border-brand-cyan/40 rounded-xl px-4 py-1 text-sm font-medium flex items-center gap-2 shadow-lg hover:bg-brand-cyan/10 focus:outline-none focus:ring-2 focus:ring-brand-cyan/60 transition-colors duration-150"
         onClick={() => setOpen((o) => !o)}
       >
         {label}
-        <span className="ml-1">▾</span>
+        <span className="ml-1 text-brand-cyan">▾</span>
       </button>
       {open && (
-        <div className="fixed z-[9999] mt-2 min-w-[160px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg py-2">
+        <div className="fixed z-[9999] mt-2 min-w-[180px] bg-gray-800/40 border border-brand-cyan/50 rounded-2xl shadow-xl py-2 backdrop-blur-5xl">
           {children}
         </div>
       )}

@@ -40,6 +40,7 @@ export async function createTask(
   await logActivity(uid, "task", ref.id, title, "created", {
     description: `Created task: ${title}`,
   });
+  console.log('Activity log for created task submitted:', { taskId: ref.id, title });
   return ref.id;
 }
 
@@ -72,6 +73,9 @@ export async function updateTask(
   const taskSnap = await _getDoc(taskRef);
   const currentTask = taskSnap.exists() ? (taskSnap.data() as Task) : null;
 
+  console.log('Updating task:', taskId, 'with data:', data);
+  console.log('Current task:', currentTask);
+
   await _updateDoc(taskRef, payload);
 
   // Build changes object for activity logging
@@ -94,7 +98,19 @@ export async function updateTask(
     console.log('Change recorded as:', changes.description);
   }
   if (typeof data.status !== "undefined" && currentTask?.status !== data.status) {
+    console.log('Status change detected:', {
+      currentStatus: currentTask?.status,
+      newStatus: data.status,
+      areEqual: currentTask?.status === data.status,
+      currentType: typeof currentTask?.status,
+      newType: typeof data.status
+    });
     changes.status = { from: currentTask?.status || null, to: data.status };
+  } else if (typeof data.status !== "undefined") {
+    console.log('Status NOT changed (values are equal):', {
+      currentStatus: currentTask?.status,
+      newStatus: data.status
+    });
   }
   if (typeof data.priority !== "undefined" && currentTask?.priority !== data.priority) {
     changes.priority = { from: currentTask?.priority || null, to: data.priority };
@@ -123,10 +139,14 @@ export async function updateTask(
     const action = changes.status ? "status_changed" : "updated";
     const taskTitle = data.title || currentTask?.title || "Unknown Task";
 
+    console.log('About to log activity. Changes:', changes);
     await logActivity(uid, "task", taskId, taskTitle, action, {
       changes,
       description: `Updated task: ${Object.keys(changes).join(", ")}`,
     });
+    console.log('Activity logged successfully');
+  } else {
+    console.log('No changes detected, skipping activity log');
   }
 
   try {
@@ -167,6 +187,7 @@ export async function removeTask(uid: string, taskId: string) {
   await logActivity(uid, "task", taskId, taskTitle, "deleted", {
     description: `Deleted task: ${taskTitle}`,
   });
+  console.log('Activity log for deleted task submitted:', { taskId, taskTitle });
 
   try {
     if (parentProjectId) await reevaluateProjectBlockedState(uid, parentProjectId);
@@ -263,8 +284,38 @@ export async function removeDependency(uid: string, taskId: string, dependencyTa
 }
 
 /** Archive / Unarchive */
-export const archiveTask = (uid: string, taskId: string) =>
-  updateTask(uid, taskId, { status: "archived" as TaskStatus });
+export const archiveTask = async (uid: string, taskId: string) => {
+  await updateTask(uid, taskId, { status: "archived" as TaskStatus });
+  // Fetch task title for activity log
+  const fb = await getFirebase();
+  const { doc: _doc, getDoc: _getDoc } = await import('firebase/firestore');
+  let taskTitle = "Unknown Task";
+  try {
+    const tSnap = await _getDoc(_doc(fb.db, `users/${uid}/tasks/${taskId}`));
+    if (tSnap.exists()) {
+      const taskData = tSnap.data();
+      taskTitle = taskData.title || "Unknown Task";
+    }
+  } catch (e) { /* noop */ }
+  await logActivity(uid, "task", taskId, taskTitle, "archived", {
+    description: `Archived task: ${taskTitle}`,
+  });
+};
 
-export const unarchiveTask = (uid: string, taskId: string) =>
-  updateTask(uid, taskId, { status: "in_progress" as TaskStatus });
+export const unarchiveTask = async (uid: string, taskId: string) => {
+  await updateTask(uid, taskId, { status: "in_progress" as TaskStatus });
+  // Fetch task title for activity log
+  const fb = await getFirebase();
+  const { doc: _doc, getDoc: _getDoc } = await import('firebase/firestore');
+  let taskTitle = "Unknown Task";
+  try {
+    const tSnap = await _getDoc(_doc(fb.db, `users/${uid}/tasks/${taskId}`));
+    if (tSnap.exists()) {
+      const taskData = tSnap.data();
+      taskTitle = taskData.title || "Unknown Task";
+    }
+  } catch (e) { /* noop */ }
+  await logActivity(uid, "task", taskId, taskTitle, "status_changed", {
+    description: `Unarchived task: ${taskTitle}`,
+  });
+};

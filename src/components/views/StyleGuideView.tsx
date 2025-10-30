@@ -4,7 +4,9 @@ interface StyleGuideViewProps {
   uid: string;
 }
 
-export function StyleGuideView({ uid: _uid }: StyleGuideViewProps) {
+export function StyleGuideView(_props: StyleGuideViewProps) {
+  // reference props to satisfy lint when unused in this showcase view
+  void _props;
   return (
     <div className="space-y-12">
       {/* Hero Section */}
@@ -246,7 +248,7 @@ export function StyleGuideView({ uid: _uid }: StyleGuideViewProps) {
               Use for: UI labels, metrics, captions, navigation, tooltips.
             </p>
             <p className="type-body-sm font-manrope text-gray-400">
-              Rounded geometry complements your logo's curves. Futuristic but readable at small sizes.
+              Rounded geometry complements your logo&apos;s curves. Futuristic but readable at small sizes.
             </p>
           </div>
           
@@ -256,7 +258,7 @@ export function StyleGuideView({ uid: _uid }: StyleGuideViewProps) {
               Use for: Marketing headers, splash screens, loading animations.
             </p>
             <p className="type-body-sm font-outfit text-gray-400">
-              Strong vertical motion and futuristic curves — matches the Momentum "energy arc" feel.
+              Strong vertical motion and futuristic curves — matches the Momentum &ldquo;energy arc&rdquo; feel.
             </p>
           </div>
         </div>
@@ -304,7 +306,7 @@ export function StyleGuideView({ uid: _uid }: StyleGuideViewProps) {
 
           {/* Task List Example */}
           <div className="bg-gradient-to-br from-white/5 to-white/10 border border-white/10 rounded-2xl p-6 backdrop-blur-sm">
-            <h3 className="type-h3 mb-4">Today's Tasks</h3>
+            <h3 className="type-h3 mb-4">Today&apos;s Tasks</h3>
             <div className="space-y-3">
               {[
                 { title: 'Review design mockups', status: 'In Progress', priority: 'High', color: 'cyan' },

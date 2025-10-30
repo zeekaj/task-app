@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import type { WithId, Project } from "../types";
 import { createTask } from "../services/tasks";
 import { logError } from "../utils/logger";
@@ -16,12 +16,17 @@ export const TaskCreateForm: React.FC<Props> = ({
   allProjects = [],
   onCreated,
 }) => {
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<number>(50); // Default to medium (50)
   const [dueDate, setDueDate] = useState<string>("");
   const [proj, setProj] = useState<string | "">(projectId ?? "");
   const [assignee, setAssignee] = useState<string>(""); // New assignee state
+
+  useEffect(() => {
+    titleInputRef.current?.focus();
+  }, []);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +89,7 @@ export const TaskCreateForm: React.FC<Props> = ({
     <form onSubmit={handleSubmit} className="border rounded-xl p-4 bg-white shadow-sm space-y-3">
       <div className="flex items-center gap-2">
         <input
+          ref={titleInputRef}
           className="flex-1 border rounded-md px-3 py-2"
           value={title}
           onChange={(e) => setTitle(e.target.value)}

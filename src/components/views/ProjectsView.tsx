@@ -1,10 +1,11 @@
 // src/components/views/ProjectsView.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card } from '../ui/Card';
 import { StatusBadge } from '../ui/Badge';
 import { PillTabs } from '../ui/PillTabs';
 import { useProjects } from '../../hooks/useProjects';
-import { computeProjectStatus, canManuallyChangeStatus, getAllowedStatusTransitions } from '../../utils/projectStatus';
+import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { computeProjectStatus } from '../../utils/projectStatus';
 import { Modal } from '../shared/Modal';
 import { createProject, updateProject, archiveProject, deleteProject } from '../../services/projects';
 import type { ProjectStatus, WithId, Project } from '../../types';
@@ -20,6 +21,7 @@ type ProjectWithStatus = WithId<Project> & { effectiveStatus: ProjectStatus };
 
 export function ProjectsView({ uid }: ProjectsViewProps) {
   const projects = useProjects(uid);
+  const members = useTeamMembers(uid);
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   // Load view mode from localStorage, default to 'cards'
@@ -34,6 +36,8 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
   const [prepDate, setPrepDate] = useState(''); // YYYY-MM-DD
   const [returnDate, setReturnDate] = useState('');
   const [projectManager, setProjectManager] = useState('');
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<{ id: string; title: string } | null>(null);
 
   // Save view mode to localStorage whenever it changes
   useEffect(() => {
@@ -45,6 +49,24 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
       setLoading(false);
     }
   }, [projects]);
+
+  // Delete handlers for child components
+  const handleDeleteRequest = (projectId: string, title: string) => {
+    setProjectToDelete({ id: projectId, title });
+    setDeleteConfirmOpen(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!projectToDelete) return;
+    try {
+      await deleteProject(uid, projectToDelete.id);
+      toast.success(`Deleted ${projectToDelete.title}`);
+      setDeleteConfirmOpen(false);
+      setProjectToDelete(null);
+    } catch (err) {
+      toast.error('Failed to delete project');
+    }
+  };
 
   // Compute effective status for each project
   const projectsWithStatus: ProjectWithStatus[] = projects?.map((p: WithId<Project>) => ({
@@ -116,6 +138,7 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
           onReturnDateChange={setReturnDate}
           projectManagerValue={projectManager}
           onProjectManagerChange={setProjectManager}
+          teamMembers={members ? members.filter(m => m.active) : []}
         />
       </div>
     );
@@ -187,8 +210,8 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
       />
 
       {/* Content based on view mode */}
-      {viewMode === 'cards' && <CardsView uid={uid} projects={filteredProjects} onProjectClick={setSelectedProject} />}
-      {viewMode === 'list' && <ListView uid={uid} projects={filteredProjects} onProjectClick={setSelectedProject} />}
+      {viewMode === 'cards' && <CardsView uid={uid} projects={filteredProjects} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} />}
+      {viewMode === 'list' && <ListView uid={uid} projects={filteredProjects} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} />}
       {viewMode === 'kanban' && <KanbanView projects={projectsWithStatus} onProjectClick={setSelectedProject} />}
 
       <CreateProjectModal
@@ -223,6 +246,7 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
         onReturnDateChange={setReturnDate}
         projectManagerValue={projectManager}
         onProjectManagerChange={setProjectManager}
+        teamMembers={members ? members.filter(m => m.active) : []}
       />
 
       {/* Project Detail Modal */}
@@ -234,39 +258,67 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
           onDeleted={() => setSelectedProject(null)}
         />
       )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmOpen && projectToDelete && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50"
+          onClick={() => setDeleteConfirmOpen(false)}
+        >
+          <div
+            className="bg-gray-800 rounded-lg border border-gray-700 shadow-2xl max-w-md w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6">
+              <h2 className="text-xl font-semibold text-white mb-4">Delete Project?</h2>
+              <p className="text-gray-300 mb-6">
+                Are you sure you want to delete <span className="font-semibold text-white">{projectToDelete.title}</span>? This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setDeleteConfirmOpen(false)}
+                  className="flex-1 px-6 py-3 bg-gray-600 hover:bg-gray-500 rounded-lg font-medium text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  className="flex-1 px-6 py-3 bg-red-600 hover:bg-red-700 rounded-lg font-medium text-white transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // Cards View
-function CardsView({ uid, projects, onProjectClick }: { uid: string; projects: any[]; onProjectClick: (project: any) => void }) {
+function CardsView({ uid, projects, onProjectClick, onDelete }: { 
+  uid: string; 
+  projects: any[]; 
+  onProjectClick: (project: any) => void;
+  onDelete: (projectId: string, title: string) => void;
+}) {
   const toast = useToast();
-  const [savedMode, setSavedMode] = useState<Record<string, boolean>>({});
-  const [savedStatus, setSavedStatus] = useState<Record<string, boolean>>({});
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [statusMenuOpen, setStatusMenuOpen] = useState<string | null>(null);
 
-  const markModeSaved = (id: string) => {
-    setSavedMode((p) => ({ ...p, [id]: true }));
-    setTimeout(() => setSavedMode((p) => ({ ...p, [id]: false })), 1200);
-  };
-
-  const markStatusSaved = (id: string) => {
-    setSavedStatus((p) => ({ ...p, [id]: true }));
-    setTimeout(() => setSavedStatus((p) => ({ ...p, [id]: false })), 1200);
-  };
-
-  const statusLabel = (s: ProjectStatus) => {
-    switch (s) {
-      case 'not_started': return 'Not Started';
-      case 'planning': return 'Planning';
-      case 'executing': return 'Executing';
-      case 'post_event': return 'Post-Event';
-      case 'completed': return 'Completed';
-      case 'blocked': return 'Blocked';
-      case 'archived': return 'Archived';
-      default: return s;
-    }
-  };
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.status-dropdown-container') && !target.closest('.menu-dropdown-container')) {
+        setStatusMenuOpen(null);
+        setMenuOpen(null);
+      }
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const handleArchive = async (projectId: string, title: string) => {
     try {
@@ -279,14 +331,7 @@ function CardsView({ uid, projects, onProjectClick }: { uid: string; projects: a
   };
 
   const handleDelete = async (projectId: string, title: string) => {
-    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
-    try {
-      await deleteProject(uid, projectId);
-      toast.success(`Deleted ${title}`);
-      setMenuOpen(null);
-    } catch (err) {
-      toast.error('Failed to delete project');
-    }
+    onDelete(projectId, title);
   };
 
   return (
@@ -308,8 +353,56 @@ function CardsView({ uid, projects, onProjectClick }: { uid: string; projects: a
                 {project.title}
               </h3>
               <div className="flex items-center gap-2">
-                <StatusBadge status={project.effectiveStatus} size="sm" />
-                <div className="relative">
+                <div className="relative status-dropdown-container">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setStatusMenuOpen(statusMenuOpen === project.id ? null : project.id);
+                    }}
+                    className="hover:opacity-80 transition-opacity"
+                  >
+                    <StatusBadge status={project.effectiveStatus} size="sm" />
+                  </button>
+                  {statusMenuOpen === project.id && (
+                    <div className="absolute left-0 mt-1 w-auto bg-[rgba(20,20,30,0.95)] backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-20">
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            await updateProject(uid, project.id, { status: 'not_started' });
+                            toast.success('Status updated to Not Started');
+                            setStatusMenuOpen(null);
+                          } catch (err) {
+                            toast.error('Failed to update status');
+                          }
+                        }}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-t-lg whitespace-nowrap ${
+                          project.effectiveStatus === 'not_started' ? 'bg-white/5' : ''
+                        }`}
+                      >
+                        <StatusBadge status="not_started" size="sm" />
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            await updateProject(uid, project.id, { status: 'planning' });
+                            toast.success('Status updated to Planning');
+                            setStatusMenuOpen(null);
+                          } catch (err) {
+                            toast.error('Failed to update status');
+                          }
+                        }}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-b-lg whitespace-nowrap ${
+                          project.effectiveStatus === 'planning' ? 'bg-white/5' : ''
+                        }`}
+                      >
+                        <StatusBadge status="planning" size="sm" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="relative menu-dropdown-container">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -346,33 +439,6 @@ function CardsView({ uid, projects, onProjectClick }: { uid: string; projects: a
                 </div>
               </div>
             </div>
-
-            {/* Manual status selector (if in manual mode) */}
-            {project.statusMode === 'manual' && (
-              <div className="flex items-center gap-2">
-                <select
-                  defaultValue={project.status}
-                  onClick={(e)=>e.stopPropagation()}
-                  onChange={async (e) => {
-                    const newStatus = e.target.value as ProjectStatus;
-                    try { 
-                      await updateProject(uid, project.id, { status: newStatus }); 
-                      markStatusSaved(project.id);
-                    } catch (err) { 
-                      toast.error('Failed to update status'); 
-                    }
-                  }}
-                  className="flex-1 text-sm bg-transparent border border-white/10 rounded px-2 py-1 text-gray-300 hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
-                >
-                  {getAllowedStatusTransitions(project).map((s) => (
-                    <option key={s} value={s} className="bg-black">{statusLabel(s)}</option>
-                  ))}
-                </select>
-                {savedStatus[project.id] && (
-                  <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                )}
-              </div>
-            )}
 
             {/* R2 Number */}
             {project.r2Number && (
@@ -414,38 +480,35 @@ function CardsView({ uid, projects, onProjectClick }: { uid: string; projects: a
 
             {/* Controls */}
             <div className="flex items-center justify-between pt-2 border-t border-white/5">
-              {/* Project Manager */}
-            {project.projectManager && (
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <span className="text-cyan-400">PM: {project.projectManager}</span>
-              </div>
-            )}
-              {/* Mode toggle */}
-              <div className="ml-auto flex items-center gap-2">
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    const toManual = project.statusMode !== 'manual';
-                    try {
-                      if (toManual) {
-                        await updateProject(uid, project.id, { statusMode: 'manual', status: project.effectiveStatus });
-                      } else {
-                        await updateProject(uid, project.id, { statusMode: 'auto' });
-                      }
-                      markModeSaved(project.id);
-                    } catch (err) {
-                      toast.error('Failed to update mode');
-                    }
-                  }}
-                  className={`text-xs px-2 py-1 rounded border ${project.statusMode === 'manual' ? 'bg-purple-500/20 border-purple-500/30 text-purple-300' : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'}`}
-                >
-                  {project.statusMode === 'manual' ? 'Manual' : 'Auto'}
-                </button>
-                {savedMode[project.id] && (
-                  <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+              {/* Team Members */}
+              <div className="flex items-center gap-2">
+                {project.projectManager && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-400">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <span className="text-cyan-400">{project.projectManager}</span>
+                  </div>
+                )}
+                {project.assignees && project.assignees.length > 0 && (
+                  <div className="flex items-center gap-1">
+                    <div className="flex -space-x-2">
+                      {project.assignees.slice(0, 3).map((memberName: string, idx: number) => (
+                        <div
+                          key={idx}
+                          className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium"
+                          title={memberName}
+                        >
+                          {memberName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                        </div>
+                      ))}
+                      {project.assignees.length > 3 && (
+                        <div className="w-6 h-6 rounded-full bg-gray-700 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium">
+                          +{project.assignees.length - 3}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 )}
               </div>
             </div>
@@ -457,7 +520,13 @@ function CardsView({ uid, projects, onProjectClick }: { uid: string; projects: a
 }
 
 // List View
-function ListView({ uid, projects, onProjectClick }: { uid: string; projects: any[]; onProjectClick: (project: any) => void }) {
+// List View
+function ListView({ uid, projects, onProjectClick, onDelete }: { 
+  uid: string; 
+  projects: any[]; 
+  onProjectClick: (project: any) => void;
+  onDelete: (projectId: string, title: string) => void;
+}) {
   const toast = useToast();
   const [savedHints, setSavedHints] = useState<Record<string, { prep?: boolean; return?: boolean; pm?: boolean; status?: boolean; mode?: boolean; r2?: boolean; install?: boolean }>>({});
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
@@ -467,19 +536,6 @@ function ListView({ uid, projects, onProjectClick }: { uid: string; projects: an
     setTimeout(() => {
       setSavedHints((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), [key]: false } }));
     }, 1200);
-  };
-
-  const statusLabel = (s: ProjectStatus) => {
-    switch (s) {
-      case 'not_started': return 'Not Started';
-      case 'planning': return 'Planning';
-      case 'executing': return 'Executing';
-      case 'post_event': return 'Post-Event';
-      case 'completed': return 'Completed';
-      case 'blocked': return 'Blocked';
-      case 'archived': return 'Archived';
-      default: return s;
-    }
   };
 
   const handleArchive = async (projectId: string, title: string) => {
@@ -493,14 +549,7 @@ function ListView({ uid, projects, onProjectClick }: { uid: string; projects: an
   };
 
   const handleDelete = async (projectId: string, title: string) => {
-    if (!confirm(`Delete "${title}"? This cannot be undone.`)) return;
-    try {
-      await deleteProject(uid, projectId);
-      toast.success(`Deleted ${title}`);
-      setMenuOpen(null);
-    } catch (err) {
-      toast.error('Failed to delete project');
-    }
+    onDelete(projectId, title);
   };
 
   return (
@@ -510,12 +559,12 @@ function ListView({ uid, projects, onProjectClick }: { uid: string; projects: an
           <tr className="border-b border-white/5">
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Project</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Status</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Mode</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">R2#</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Prep Date</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Return Date</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Install Date</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">PM</th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Team</th>
             <th className="w-12"></th>
           </tr>
         </thead>
@@ -532,60 +581,7 @@ function ListView({ uid, projects, onProjectClick }: { uid: string; projects: an
               <td className="py-3 px-4">
                 <div className="flex items-center gap-3">
                   <StatusBadge status={project.effectiveStatus} size="sm" />
-                  {project.statusMode === 'manual' && (
-                    <select
-                      defaultValue={project.status}
-                      onClick={(e)=>e.stopPropagation()}
-                      onChange={async (e) => {
-                        const newStatus = e.target.value as ProjectStatus;
-                        try { await updateProject(uid, project.id, { status: newStatus }); markSaved(project.id, 'status'); } catch (err) { toast.error('Failed to update status'); }
-                      }}
-                      className="bg-transparent border border-white/10 rounded px-2 py-1 text-gray-300 hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
-                    >
-                      {getAllowedStatusTransitions(project).map((s) => (
-                        <option key={s} value={s} className="bg-black">{statusLabel(s)}</option>
-                      ))}
-                    </select>
-                  )}
-                  {canManuallyChangeStatus(project) && project.statusMode !== 'manual' && (
-                    <button
-                      title="Toggle Not Started/Planning"
-                      onClick={async (e) => {
-                        e.stopPropagation();
-                        const next = project.status === 'planning' ? 'not_started' : 'planning';
-                        try { await updateProject(uid, project.id, { status: next }); markSaved(project.id, 'status'); } catch (err) { toast.error('Failed to update status'); }
-                      }}
-                      className="text-xs px-2 py-1 rounded bg-white/5 border border-white/10 text-gray-300 hover:bg-white/10"
-                    >
-                      Toggle
-                    </button>
-                  )}
-                  {savedHints[project.id]?.status && (
-                    <svg className="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                  )}
                 </div>
-              </td>
-              <td className="py-3 px-4">
-                <button
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    const toManual = project.statusMode !== 'manual';
-                    try {
-                      if (toManual) {
-                        await updateProject(uid, project.id, { statusMode: 'manual', status: project.effectiveStatus });
-                      } else {
-                        await updateProject(uid, project.id, { statusMode: 'auto' });
-                      }
-                      markSaved(project.id, 'mode');
-                    } catch (err) { toast.error('Failed to update mode'); }
-                  }}
-                  className={`text-xs px-2 py-1 rounded border ${project.statusMode === 'manual' ? 'bg-purple-500/20 border-purple-500/30 text-purple-300' : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10'}`}
-                >
-                  {project.statusMode === 'manual' ? 'Manual' : 'Auto'}
-                </button>
-                {savedHints[project.id]?.mode && (
-                  <svg className="inline ml-2 w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                )}
               </td>
               <td className="py-3 px-4 text-sm text-gray-400">
                 <input
@@ -669,6 +665,28 @@ function ListView({ uid, projects, onProjectClick }: { uid: string; projects: an
                 />
                 {savedHints[project.id]?.pm && (
                   <svg className="inline ml-2 w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
+                )}
+              </td>
+              <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
+                {project.assignees && project.assignees.length > 0 ? (
+                  <div className="flex -space-x-2">
+                    {project.assignees.slice(0, 4).map((memberName: string, idx: number) => (
+                      <div
+                        key={idx}
+                        className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium"
+                        title={memberName}
+                      >
+                        {memberName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                      </div>
+                    ))}
+                    {project.assignees.length > 4 && (
+                      <div className="w-7 h-7 rounded-full bg-gray-700 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium">
+                        +{project.assignees.length - 4}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-xs text-gray-500">—</span>
                 )}
               </td>
               <td className="py-3 px-4">
@@ -765,6 +783,26 @@ function KanbanView({ projects, onProjectClick }: { projects: any[]; onProjectCl
                       PM: {project.projectManager}
                     </div>
                   )}
+                  {project.assignees && project.assignees.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <div className="flex -space-x-2">
+                        {project.assignees.slice(0, 3).map((memberName: string, idx: number) => (
+                          <div
+                            key={idx}
+                            className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium"
+                            title={memberName}
+                          >
+                            {memberName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                          </div>
+                        ))}
+                        {project.assignees.length > 3 && (
+                          <div className="w-6 h-6 rounded-full bg-gray-700 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium">
+                            +{project.assignees.length - 3}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </Card>
               ))}
             </div>
@@ -838,6 +876,7 @@ function CreateProjectModal({
   onReturnDateChange,
   projectManagerValue,
   onProjectManagerChange,
+  teamMembers,
 }: {
   open: boolean;
   onClose: () => void;
@@ -850,10 +889,18 @@ function CreateProjectModal({
   onReturnDateChange: (v: string) => void;
   projectManagerValue: string;
   onProjectManagerChange: (v: string) => void;
+  teamMembers: WithId<import('../../types').TeamMember>[];
 }) {
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const titleEmpty = !titleValue.trim();
   const invalidOrder = !!(prepDateValue && returnDateValue && new Date(prepDateValue) > new Date(returnDateValue));
   const disabled = titleEmpty || invalidOrder;
+
+  useEffect(() => {
+    if (open) {
+      titleInputRef.current?.focus();
+    }
+  }, [open]);
 
   return (
     <Modal open={open} onClose={onClose} title="Create Project" widthClass="max-w-xl"
@@ -866,8 +913,12 @@ function CreateProjectModal({
       <div className="space-y-4">
         <div>
           <label className="block text-sm text-gray-400 mb-1">Title</label>
-          <input value={titleValue} onChange={(e) => onTitleChange(e.target.value)} placeholder="Project title"
-                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50" />
+          <input 
+            ref={titleInputRef}
+            value={titleValue} 
+            onChange={(e) => onTitleChange(e.target.value)} 
+            placeholder="Project title"
+            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50" />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
      <div>
@@ -886,8 +937,18 @@ function CreateProjectModal({
         )}
         <div>
           <label className="block text-sm text-gray-400 mb-1">Project Manager</label>
-          <input value={projectManagerValue} onChange={(e) => onProjectManagerChange(e.target.value)} placeholder="User ID or name"
-                 className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50" />
+          <select 
+            value={projectManagerValue} 
+            onChange={(e) => onProjectManagerChange(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+          >
+            <option value="">Select a team member</option>
+            {teamMembers.filter(m => m.active).map(member => (
+              <option key={member.id} value={member.name} className="bg-gray-800">
+                {member.name}
+              </option>
+            ))}
+          </select>
         </div>
         <p className="text-xs text-gray-500">Status will be auto-managed between Prep and Return dates (Executing), and after Return (Post-Event). Before Prep you can toggle Not Started/Planning.</p>
       </div>

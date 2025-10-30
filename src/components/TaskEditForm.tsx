@@ -4,11 +4,13 @@ import { createBlocker, resolveBlocker } from "../services/blockers";
 import { BlockerManagerModal } from "./BlockerManagerModal";
 import { ActivityHistory } from "./ActivityHistory";
 import React, { useState, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useKeydown } from "../hooks/useKeydown";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { Timestamp } from "firebase/firestore";
 
 import { useTasks } from "../hooks/useTasks";
+import { useTeamMembers } from "../hooks/useTeamMembers";
 import { ConfirmModal } from "./shared/ConfirmModal";
 import { logError } from "../utils/logger";
 import type { WithId, Task, Project, Subtask, RecurrencePattern, TaskAttachment } from "../types";
@@ -47,6 +49,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   const [dependencies, setDependencies] = useState<string[]>(task.dependencies || []);
   const [recurrence, setRecurrence] = useState<RecurrencePattern>(task.recurrence || { type: "none" });
   const allTasks = useTasks(uid);
+  const teamMembers = useTeamMembers(uid);
   const [showBlockerManager, setShowBlockerManager] = useState(false);
   const [confirmAttachmentOpen, setConfirmAttachmentOpen] = useState(false);
   const [confirmAttachmentMessage, setConfirmAttachmentMessage] = useState<string>("");
@@ -491,11 +494,11 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   // Get status color for header
   const getStatusColor = (status: Task["status"]) => {
     const colors = {
-      not_started: "from-gray-100 to-gray-200 border-gray-300",
-      in_progress: "from-blue-100 to-blue-200 border-blue-300", 
-      done: "from-green-100 to-green-200 border-green-300",
-      blocked: "from-red-100 to-red-200 border-red-300",
-      archived: "from-gray-200 to-gray-300 border-gray-400 opacity-60"
+      not_started: "from-gray-800 to-gray-900 border-white/10",
+      in_progress: "from-blue-900/50 to-blue-950/50 border-blue-500/30", 
+      done: "from-green-900/50 to-green-950/50 border-green-500/30",
+      blocked: "from-red-900/50 to-red-950/50 border-red-500/30",
+      archived: "from-gray-900/50 to-gray-950/50 border-gray-500/30 opacity-60"
     };
     return colors[status] || colors.not_started;
   };
@@ -520,7 +523,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   });
 
   return (
-    <div className="max-w-4xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden relative" data-edit-modal-root={task.id}>
+    <div className="max-w-4xl mx-auto bg-[rgba(20,20,30,0.95)] backdrop-blur-sm rounded-xl shadow-lg overflow-hidden relative border border-white/10" data-edit-modal-root={task.id}>
       {/* Enhanced Header with Status Indicator */}
       <div className={`bg-gradient-to-r ${getStatusColor(task.status)} border-b-2 px-4 py-3 relative`}>
         <div className="flex items-center justify-between mb-1">
@@ -543,7 +546,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
               >
                 {task.status === 'not_started' && (
                   <span className="inline-flex items-center justify-center rounded-full bg-gray-200 w-6 h-6">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" className="w-5 h-5 text-gray-700">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" className="w-5 h-5 text-brand-text">
                       <path d="M376 88C376 57.1 350.9 32 320 32C289.1 32 264 57.1 264 88C264 118.9 289.1 144 320 144C350.9 144 376 118.9 376 88zM400 300.7L446.3 363.1C456.8 377.3 476.9 380.3 491.1 369.7C505.3 359.1 508.3 339.1 497.7 324.9L427.2 229.9C402 196 362.3 176 320 176C277.7 176 238 196 212.8 229.9L142.3 324.9C131.8 339.1 134.7 359.1 148.9 369.7C163.1 380.3 183.1 377.3 193.7 363.1L240 300.7L240 576C240 593.7 254.3 608 272 608C289.7 608 304 593.7 304 576L304 416C304 407.2 311.2 400 320 400C328.8 400 336 407.2 336 416L336 576C336 593.7 350.3 608 368 608C385.7 608 400 593.7 400 576L400 300.7z"/>
                     </svg>
                   </span>
@@ -571,7 +574,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                 )}
                 {task.status === 'archived' && (
                   <span className="inline-flex items-center justify-center rounded-full bg-gray-400 w-6 h-6">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" className="w-4 h-4 text-gray-700" fill="currentColor">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" className="w-4 h-4 text-brand-text" fill="currentColor">
                       <path d="M4 3a2 2 0 100 4h12a2 2 0 100-4H4z" />
                       <path fillRule="evenodd" d="M3 8h14v7a2 2 0 01-2 2H5a2 2 0 01-2-2V8zm5 3a1 1 0 011-1h2a1 1 0 110 2H9a1 1 0 01-1-1z" clipRule="evenodd" />
                     </svg>
@@ -580,10 +583,10 @@ export const TaskEditForm: React.FC<Props> = (props) => {
               </button>
 
               {/* Status Dropdown */}
-              {showStatusDropdown && (
+              {showStatusDropdown && createPortal(
                 <div
                   ref={statusDropdownRef}
-                  className="fixed bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-300 dark:border-gray-600 py-1 z-[9999] min-w-[140px]"
+                  className="fixed bg-gray-800/40 border border-brand-cyan/50 rounded-2xl shadow-xl py-1 z-[9999] min-w-[140px] backdrop-blur-xl"
                   style={{
                     top: statusDropdownPos ? `${statusDropdownPos.top}px` : '80px',
                     left: statusDropdownPos ? `${statusDropdownPos.left}px` : '32px'
@@ -593,7 +596,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                   {task.status !== 'not_started' && (
                     <button
                       type="button"
-                      className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-sm"
+                      className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center gap-2 text-sm text-brand-text"
                       onClick={() => {
                         handleStatusChange('not_started');
                         setShowStatusDropdown(false);
@@ -601,7 +604,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                       }}
                     >
                       <span className="inline-flex items-center justify-center rounded-full bg-gray-200 w-5 h-5">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" className="w-4 h-4 text-gray-700">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 640" className="w-4 h-4 text-brand-text">
                           <path d="M376 88C376 57.1 350.9 32 320 32C289.1 32 264 57.1 264 88C264 118.9 289.1 144 320 144C350.9 144 376 118.9 376 88zM400 300.7L446.3 363.1C456.8 377.3 476.9 380.3 491.1 369.7C505.3 359.1 508.3 339.1 497.7 324.9L427.2 229.9C402 196 362.3 176 320 176C277.7 176 238 196 212.8 229.9L142.3 324.9C131.8 339.1 134.7 359.1 148.9 369.7C163.1 380.3 183.1 377.3 193.7 363.1L240 300.7L240 576C240 593.7 254.3 608 272 608C289.7 608 304 593.7 304 576L304 416C304 407.2 311.2 400 320 400C328.8 400 336 407.2 336 416L336 576C336 593.7 350.3 608 368 608C385.7 608 400 593.7 400 576L400 300.7z"/>
                         </svg>
                       </span>
@@ -611,7 +614,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                   {task.status !== 'in_progress' && (
                     <button
                       type="button"
-                      className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-sm"
+                      className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center gap-2 text-sm text-brand-text"
                       onClick={() => {
                         handleStatusChange('in_progress');
                         setShowStatusDropdown(false);
@@ -629,7 +632,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                   {task.status !== 'done' && (
                     <button
                       type="button"
-                      className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-sm"
+                      className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center gap-2 text-sm text-brand-text"
                       onClick={() => {
                         handleStatusChange('done');
                         setShowStatusDropdown(false);
@@ -647,7 +650,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                   {task.status !== 'blocked' && (
                     <button
                       type="button"
-                      className="w-full px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 text-sm"
+                      className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center gap-2 text-sm text-brand-text"
                       onClick={() => {
                         handleStatusChange('blocked');
                         setShowStatusDropdown(false);
@@ -662,21 +665,22 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                       Blocked
                     </button>
                   )}
-                </div>
+                </div>,
+                document.body
               )}
 
-              <span className="text-sm font-medium text-gray-600 capitalize">
+              <span className="text-sm font-medium text-gray-400 capitalize">
                 {task.status.replace('_', ' ')}
               </span>
             </div>
             <span className="text-gray-400">•</span>
-            <span className="text-sm text-gray-600">
+            <span className="text-sm text-gray-400">
               {task.id ? `Task #${task.id.slice(0, 8)}` : 'New Task'}
             </span>
           </div>
           
           {/* Task Indicators from Task Line */}
-          <div className="flex items-center gap-x-2 text-xs text-gray-700 relative">
+          <div className="flex items-center gap-x-2 text-xs text-brand-text relative">
             {/* Created Date */}
             <span className="flex items-center justify-center w-[75px]" title="Created date">
               <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20">
@@ -701,12 +705,12 @@ export const TaskEditForm: React.FC<Props> = (props) => {
             <span className="text-gray-300">|</span>
             
             {/* Assigned */}
-            <span className="flex items-center justify-center w-[75px]" title="Assigned to">
-              <svg className="w-3 h-3 mr-1 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20">
+            <span className="flex items-center justify-center w-[110px] truncate" title="Assigned to">
+              <svg className="w-3 h-3 mr-1 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20">
                 <circle cx="10" cy="7" r="4" stroke="currentColor" strokeWidth="2" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 17v-1a4 4 0 014-4h4a4 4 0 014 4v1" />
               </svg>
-              {assignee || '--'}
+              <span className="truncate">{assignee || '--'}</span>
             </span>
             
             {/* Priority Badge */}
@@ -717,7 +721,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
             
             {/* Autosave Indicator - appears after priority badge */}
             {isAutosaving && (
-              <svg className="w-4 h-4 ml-1 animate-spin text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 ml-1 animate-spin text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             )}
@@ -727,14 +731,14 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         <div className="flex items-center gap-2">
           <input
             id="task-title-input"
-            className="flex-1 bg-transparent border-none text-xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 rounded-md px-1 placeholder-gray-500"
+            className="flex-1 bg-transparent border-none text-xl font-bold text-brand-text focus:outline-none focus:ring-2 focus:ring-brand-cyan rounded-md px-1 placeholder-gray-500"
             value={title}
             onChange={e => setTitle(e.target.value)}
             onBlur={triggerAutosave}
             placeholder="Enter task title..."
             autoFocus
           />
-          <div className="flex items-center gap-2 text-xs text-gray-700">
+          <div className="flex items-center gap-2 text-xs text-brand-text">
             {/* Description indicator */}
             {description && (
               <span
@@ -752,7 +756,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
             )}
             {/* Subtask progress icon */}
             {Array.isArray(subtasks) && subtasks.length > 0 && (
-              <span className="inline-flex items-center gap-1 text-xs text-gray-500 ml-1" title="Subtasks">
+              <span className="inline-flex items-center gap-1 text-xs text-gray-400 ml-1" title="Subtasks">
                 <svg width="16" height="16" fill="none" viewBox="0 0 20 20"><rect x="2" y="5" width="16" height="10" rx="2" fill="#e5e7eb"/><rect x="4" y="7" width="12" height="6" rx="1" fill="#fff"/><path d="M7 10.5l2 2 4-4" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
                 {subtasks.filter(s => s.done).length}/{subtasks.length}
               </span>
@@ -781,12 +785,12 @@ export const TaskEditForm: React.FC<Props> = (props) => {
 
       <form ref={formRef} onSubmit={handleSave} className="flex flex-col">
         {/* 📝 Basic Information Section */}
-        <div className="bg-gray-50 border-b border-gray-200 p-4">
+        <div className="bg-[rgba(15,15,25,0.6)] border-b border-white/10 p-4">
           {/* Description */}
           <div className="mb-3">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+            <label className="block text-sm font-medium text-brand-text mb-1">Description</label>
             <textarea
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+              className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded-lg px-3 py-2 focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan text-sm placeholder-gray-500"
               rows={2}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -794,7 +798,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
               placeholder="Describe what needs to be done..."
             />
             {searchQuery && description && (
-              <div className="mt-1 text-xs text-gray-600 bg-gray-50 p-2 rounded border border-gray-200">
+              <div className="mt-1 text-xs text-gray-400 bg-[rgba(15,15,25,0.6)] p-2 rounded border border-white/10">
                 <span className="font-medium">Preview: </span>
                 <span>{highlightText(description)}</span>
               </div>
@@ -804,7 +808,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
           {/* Key Fields Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <div className="lg:col-span-2">
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label className="block text-xs font-medium text-brand-text mb-1">
                 Priority: {getPriorityLabel(priority)} ({priority})
               </label>
               <div className="flex items-center gap-2">
@@ -837,10 +841,10 @@ export const TaskEditForm: React.FC<Props> = (props) => {
             </div>
 
             <div className="lg:col-span-1">
-              <label className="block text-xs font-medium text-gray-700 mb-1">Due Date</label>
+              <label className="block text-xs font-medium text-brand-text mb-1">Due Date</label>
               <input
                 type="date"
-                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan"
                 value={dueDate ? dueDate.substring(0, 10) : ""}
                 onChange={(e) => setDueDate(e.target.value)}
                 onBlur={triggerAutosave}
@@ -848,20 +852,26 @@ export const TaskEditForm: React.FC<Props> = (props) => {
             </div>
 
             <div className="lg:col-span-1">
-              <label className="block text-xs font-medium text-gray-700 mb-1">Assignee</label>
-              <input
-                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              <label className="block text-xs font-medium text-brand-text mb-1">Assignee</label>
+              <select
+                className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan [&>option]:bg-gray-800 [&>option]:text-brand-text"
                 value={assignee}
                 onChange={e => setAssignee(e.target.value)}
                 onBlur={triggerAutosave}
-                placeholder="Assign to..."
-              />
+              >
+                <option value="" className="bg-gray-800 text-brand-text">— Unassigned —</option>
+                {teamMembers?.filter(m => m.active).map((member) => (
+                  <option key={member.id} value={member.name} className="bg-gray-800 text-brand-text">
+                    {member.name} {member.title ? `(${member.title})` : ''}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="lg:col-span-1">
-              <label className="block text-xs font-medium text-gray-700 mb-1">Project</label>
+              <label className="block text-xs font-medium text-brand-text mb-1">Project</label>
               <select
-                className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan"
                 value={projectId}
                 onChange={(e) => setProjectId(e.target.value || "")}
                 onBlur={triggerAutosave}
@@ -876,15 +886,15 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         </div>
 
         {/* 🔄 Tabbed Sections - Advanced Features, Attachments & Notes, Activity History */}
-        <div className="border-t border-gray-200">
+        <div className="border-t border-white/10">
           {/* Tab Navigation */}
-          <div className="flex border-b border-gray-200 bg-gray-50">
+          <div className="flex border-b border-white/10 bg-[rgba(15,15,25,0.6)]">
             <button
               type="button"
               className={`flex-1 px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center justify-center gap-2 ${
                 activeTab === 'advanced'
-                  ? 'text-purple-600 border-purple-600 bg-white'
-                  : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-100'
+                  ? 'text-brand-cyan border-brand-cyan bg-gray-800/40'
+                  : 'text-brand-text border-transparent hover:text-brand-cyan hover:bg-gray-800/20'
               }`}
               onClick={() => setActiveTab(activeTab === 'advanced' ? null : 'advanced')}
             >
@@ -898,8 +908,8 @@ export const TaskEditForm: React.FC<Props> = (props) => {
               type="button"
               className={`flex-1 px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center justify-center gap-2 ${
                 activeTab === 'attachments'
-                  ? 'text-amber-600 border-amber-600 bg-white'
-                  : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-100'
+                  ? 'text-brand-cyan border-brand-cyan bg-gray-800/40'
+                  : 'text-brand-text border-transparent hover:text-brand-cyan hover:bg-gray-800/20'
               }`}
               onClick={() => setActiveTab(activeTab === 'attachments' ? null : 'attachments')}
             >
@@ -913,8 +923,8 @@ export const TaskEditForm: React.FC<Props> = (props) => {
               type="button"
               className={`flex-1 px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center justify-center gap-2 ${
                 activeTab === 'activity'
-                  ? 'text-gray-600 border-gray-600 bg-white'
-                  : 'text-gray-500 border-transparent hover:text-gray-700 hover:bg-gray-100'
+                  ? 'text-brand-cyan border-brand-cyan bg-gray-800/40'
+                  : 'text-brand-text border-transparent hover:text-brand-cyan hover:bg-gray-800/20'
               }`}
               onClick={() => setActiveTab(activeTab === 'activity' ? null : 'activity')}
             >
@@ -926,23 +936,23 @@ export const TaskEditForm: React.FC<Props> = (props) => {
           {/* Tab Content */}
           
           {activeTab === 'advanced' && (
-            <div className="px-4 pb-4 bg-purple-50 space-y-4">
+            <div className="px-4 pb-4 bg-[rgba(15,15,25,0.4)] space-y-4">
               {/* Organization & Planning */}
-              <div className="bg-white rounded-lg p-3 border border-purple-200">
+              <div className="bg-[rgba(20,20,30,0.8)] rounded-lg p-3 border border-brand-cyan/30">
                 <div className="flex items-center gap-2 mb-3">
-                  <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="w-4 h-4 text-brand-cyan" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z"/>
                   </svg>
-                  <h4 className="text-sm font-medium text-gray-900">Organization & Planning</h4>
+                  <h4 className="text-sm font-medium text-brand-text">Organization & Planning</h4>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {/* Subtasks */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-2">Subtasks</label>
+                    <label className="block text-xs font-medium text-brand-text mb-2">Subtasks</label>
                     <div className="space-y-1">
                       {subtasks.map((sub, i) => (
-                        <div key={sub.id} className="flex items-center gap-2 p-1.5 bg-gray-50 rounded">
+                        <div key={sub.id} className="flex items-center gap-2 p-1.5 bg-[rgba(15,15,25,0.6)] rounded">
                           <input
                             type="checkbox"
                             checked={sub.done}
@@ -955,7 +965,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                           />
                           <div className="flex-1">
                             <input
-                              className="w-full border border-gray-300 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                              className="w-full bg-gray-800/60 text-brand-text border border-white/10 rounded px-2 py-1 text-xs focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan placeholder-gray-500"
                               value={sub.title}
                               onChange={e => {
                                 const updated = subtasks.map((s, idx) => idx === i ? { ...s, title: e.target.value } : s);
@@ -987,7 +997,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                       ))}
                       <button
                         type="button"
-                        className="w-full py-1.5 px-2 text-xs text-gray-600 border border-gray-300 border-dashed rounded hover:bg-gray-50 focus:ring-2 focus:ring-blue-500"
+                        className="w-full py-1.5 px-2 text-xs text-brand-text border border-white/10 border-dashed rounded hover:bg-[rgba(15,15,25,0.6)] hover:border-brand-cyan/50 focus:ring-2 focus:ring-brand-cyan transition-colors"
                         onClick={() => {
                           setSubtasks([...subtasks, { id: Math.random().toString(36).slice(2), title: "", done: false }]);
                           triggerAutosave();
@@ -1000,16 +1010,16 @@ export const TaskEditForm: React.FC<Props> = (props) => {
 
                   {/* Dependencies */}
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-2">Dependencies</label>
+                    <label className="block text-xs font-medium text-brand-text mb-2">Dependencies</label>
                     <div className="space-y-1">
                       {dependencies.map((depId) => {
                         const depTask = allTasks.find((t) => t.id === depId);
                         return (
-                          <div key={depId} className="flex items-center gap-2 p-1.5 bg-blue-50 rounded">
-                            <svg className="w-3 h-3 text-blue-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                          <div key={depId} className="flex items-center gap-2 p-1.5 bg-[rgba(15,15,25,0.6)] rounded border border-brand-cyan/30">
+                            <svg className="w-3 h-3 text-brand-cyan flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                               <path fillRule="evenodd" d="M12.293 5.293a1 1 0 011.414 0l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-2.293-2.293a1 1 0 010-1.414z"/>
                             </svg>
-                            <span className="flex-1 text-xs text-gray-700 truncate">
+                            <span className="flex-1 text-xs text-brand-text truncate">
                               {depTask ? depTask.title : depId}
                             </span>
                             <button
@@ -1029,7 +1039,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                         );
                       })}
                       <select
-                        className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan"
                         value=""
                         onChange={e => {
                           const newDep = e.target.value;
@@ -1052,16 +1062,16 @@ export const TaskEditForm: React.FC<Props> = (props) => {
               </div>
 
               {/* Recurrence Patterns */}
-              <div className="bg-white rounded-lg p-3 border border-purple-200">
+              <div className="bg-[rgba(20,20,30,0.8)] rounded-lg p-3 border border-brand-cyan/30">
                 <div className="flex items-center gap-2 mb-3">
-                  <svg className="w-4 h-4 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="w-4 h-4 text-brand-cyan" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"/>
                   </svg>
-                  <h4 className="text-sm font-medium text-gray-900">Recurrence Patterns</h4>
+                  <h4 className="text-sm font-medium text-brand-text">Recurrence Patterns</h4>
                 </div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Recurrence Pattern</label>
+                <label className="block text-xs font-medium text-brand-text mb-1">Recurrence Pattern</label>
                 <select
-                  className="w-full border border-gray-300 rounded px-2 py-1.5 mb-2 text-xs focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                  className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 mb-2 text-xs focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan"
                   value={recurrence.type}
                   onChange={e => {
                     const type = e.target.value as RecurrencePattern["type"];
@@ -1082,12 +1092,12 @@ export const TaskEditForm: React.FC<Props> = (props) => {
 
                 {/* Recurrence Details */}
                 {recurrence.type === "daily" && (
-                  <div className="flex items-center gap-2 text-xs">
+                  <div className="flex items-center gap-2 text-xs text-brand-text">
                     <span>Repeat every</span>
                     <input
                       type="number"
                       min={1}
-                      className="w-14 border border-gray-300 rounded px-1.5 py-1 text-xs focus:ring-2 focus:ring-purple-500"
+                      className="w-14 bg-gray-800/40 text-brand-text border border-white/10 rounded px-1.5 py-1 text-xs focus:ring-2 focus:ring-brand-cyan"
                       value={recurrence.interval}
                       onChange={e => setRecurrence({ type: "daily", interval: Math.max(1, Number(e.target.value)) })}
                     />
@@ -1102,7 +1112,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                       <input
                         type="number"
                         min={1}
-                        className="w-14 border border-gray-300 rounded px-1.5 py-1 text-xs focus:ring-2 focus:ring-purple-500"
+                        className="w-14 border border-white/10 rounded px-1.5 py-1 text-xs focus:ring-2 focus:ring-purple-500"
                         value={recurrence.interval}
                         onChange={e => setRecurrence({ ...recurrence, interval: Math.max(1, Number(e.target.value)) })}
                       />
@@ -1134,7 +1144,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                     <input
                       type="number"
                       min={1}
-                      className="w-14 border border-gray-300 rounded px-1.5 py-1 text-xs focus:ring-2 focus:ring-purple-500"
+                      className="w-14 border border-white/10 rounded px-1.5 py-1 text-xs focus:ring-2 focus:ring-purple-500"
                       value={recurrence.interval}
                       onChange={e => setRecurrence({ ...recurrence, interval: Math.max(1, Number(e.target.value)) })}
                     />
@@ -1143,7 +1153,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                       type="number"
                       min={1}
                       max={31}
-                      className="w-14 border border-gray-300 rounded px-1.5 py-1 text-xs focus:ring-2 focus:ring-purple-500"
+                      className="w-14 border border-white/10 rounded px-1.5 py-1 text-xs focus:ring-2 focus:ring-purple-500"
                       value={recurrence.dayOfMonth}
                       onChange={e => setRecurrence({ ...recurrence, dayOfMonth: Math.max(1, Math.min(31, Number(e.target.value))) })}
                     />
@@ -1153,7 +1163,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                 {recurrence.type === "custom" && (
                   <div className="space-y-2">
                     <select
-                      className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-purple-500"
+                      className="w-full border border-white/10 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-purple-500"
                       value=""
                       onChange={e => {
                         const val = e.target.value;
@@ -1167,7 +1177,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                       <option value="FREQ=YEARLY;BYMONTH=12;BYMONTHDAY=25">Every Dec 25 (Yearly)</option>
                     </select>
                     <input
-                      className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-purple-500"
+                      className="w-full border border-white/10 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-purple-500"
                       value={recurrence.rule}
                       onChange={e => setRecurrence({ ...recurrence, rule: e.target.value })}
                       placeholder="Custom RRULE (e.g., FREQ=DAILY;INTERVAL=2)"
@@ -1183,13 +1193,13 @@ export const TaskEditForm: React.FC<Props> = (props) => {
 
           {/* Attachments & Notes Content */}
           {activeTab === 'attachments' && (
-            <div className="px-4 py-4 bg-amber-50">
+            <div className="px-4 py-4 bg-[rgba(15,15,25,0.4)]">
               <div className="space-y-3">
                 {/* Comments/Notes */}
-                <div className="bg-white rounded-lg p-3 border border-amber-200">
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Comments / Notes</label>
+                <div className="bg-[rgba(20,20,30,0.8)] rounded-lg p-3 border border-brand-cyan/30">
+                  <label className="block text-xs font-medium text-brand-text mb-1">Comments / Notes</label>
                   <textarea
-                    className="w-full border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan placeholder-gray-500"
                     rows={3}
                     value={comments}
                     onChange={e => setComments(e.target.value)}
@@ -1197,7 +1207,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                     placeholder="Add discussion notes, updates, or additional context..."
                   />
                   {searchQuery && comments && (
-                    <div className="mt-2 text-xs text-gray-600 bg-gray-50 p-2 rounded border border-gray-200">
+                    <div className="mt-2 text-xs text-gray-400 bg-[rgba(15,15,25,0.6)] p-2 rounded border border-white/10">
                       <span className="font-medium">Preview: </span>
                       <span>{highlightText(comments)}</span>
                     </div>
@@ -1205,14 +1215,14 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                 </div>
 
                 {/* Attachments */}
-                <div className="bg-white rounded-lg p-3 border border-amber-200">
-                  <label className="block text-xs font-medium text-gray-700 mb-2">Files & Links</label>
+                <div className="bg-[rgba(20,20,30,0.8)] rounded-lg p-3 border border-brand-cyan/30">
+                  <label className="block text-xs font-medium text-brand-text mb-2">Files & Links</label>
                   
                   {/* Existing Attachments */}
                   {attachments.length > 0 && (
                     <div className="space-y-1 mb-3">
                       {attachments.map(att => (
-                        <div key={att.id} className="flex items-center gap-2 p-1.5 bg-gray-50 rounded">
+                        <div key={att.id} className="flex items-center gap-2 p-1.5 bg-[rgba(15,15,25,0.6)] rounded">
                           {att.type === 'file' ? (
                             <svg className="w-3 h-3 text-blue-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
                               <path fillRule="evenodd" d="M8 4a3 3 0 00-3 3v4a5 5 0 0010 0V7a1 1 0 112 0v4a7 7 0 11-14 0V7a5 5 0 0110 0v4a3 3 0 11-6 0V7a1 1 0 012 0v4a1 1 0 102 0V7a3 3 0 00-3-3z"/>
@@ -1226,7 +1236,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                             href={att.url} 
                             target="_blank" 
                             rel="noopener noreferrer" 
-                            className="flex-1 text-xs text-blue-600 hover:text-blue-800 underline truncate"
+                            className="flex-1 text-xs text-brand-cyan hover:text-brand-cyan-light underline truncate"
                           >
                             {att.name}
                           </a>
@@ -1252,30 +1262,30 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                         type="file" 
                         onChange={handleFileUpload} 
                         disabled={uploading} 
-                        className="text-xs text-gray-500 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-xs file:font-medium file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100"
+                        className="text-xs text-brand-text file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border file:border-brand-cyan/30 file:text-xs file:font-medium file:bg-gray-800/40 file:text-brand-cyan hover:file:bg-gray-800/60 file:cursor-pointer"
                       />
-                      {uploading && <span className="text-xs text-amber-600">Uploading...</span>}
+                      {uploading && <span className="text-xs text-brand-cyan">Uploading...</span>}
                     </div>
 
                     {/* Add Link */}
                     <div className="flex gap-2">
                       <input 
                         type="text" 
-                        className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-amber-500" 
+                        className="flex-1 bg-gray-800/40 text-brand-text border border-white/10 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-brand-cyan placeholder-gray-500" 
                         placeholder="Link URL" 
                         value={newLink} 
                         onChange={e => setNewLink(e.target.value)} 
                       />
                       <input 
                         type="text" 
-                        className="flex-1 border border-gray-300 rounded px-2 py-1.5 text-xs focus:ring-2 focus:ring-amber-500" 
+                        className="flex-1 bg-gray-800/40 text-brand-text border border-white/10 rounded-lg px-2 py-1.5 text-xs focus:ring-2 focus:ring-brand-cyan placeholder-gray-500" 
                         placeholder="Link name" 
                         value={newLinkName} 
                         onChange={e => setNewLinkName(e.target.value)} 
                       />
                       <button 
                         type="button" 
-                        className="px-3 py-1.5 bg-amber-600 text-white text-xs rounded hover:bg-amber-700 focus:ring-2 focus:ring-amber-500" 
+                        className="px-3 py-1.5 bg-brand-cyan text-black text-xs rounded-lg hover:bg-brand-cyan-light focus:ring-2 focus:ring-brand-cyan transition-colors disabled:opacity-50 disabled:cursor-not-allowed" 
                         onClick={handleAddLink}
                         disabled={!newLink.trim() || !newLinkName.trim()}
                       >
@@ -1290,7 +1300,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
 
           {/* Activity History Content */}
           {activeTab === 'activity' && (
-            <div className="px-4 py-4 bg-gray-50 space-y-3">
+            <div className="px-4 py-4 bg-[rgba(15,15,25,0.6)] space-y-3">
               <ActivityHistory 
                 uid={uid}
                 entityId={task.id}
@@ -1301,19 +1311,19 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         </div>
 
         {/* 🎯 Actions Section */}
-        <div className="bg-gray-50 p-4">
+        <div className="bg-[rgba(15,15,25,0.6)] p-4 border-t border-white/10">
           <div className="flex flex-wrap gap-2 justify-between">
             <div className="flex flex-wrap gap-2">
               <button
                 type="submit"
-                className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 font-medium"
+                className="px-3 py-1.5 bg-brand-cyan text-black text-sm rounded-lg hover:bg-brand-cyan-light focus:ring-2 focus:ring-brand-cyan font-medium transition-all"
               >
                 Save Changes
               </button>
               <button
                 type="button"
                 onClick={handleCancel}
-                className="px-3 py-1.5 bg-gray-200 text-gray-800 text-sm rounded hover:bg-gray-300 focus:ring-2 focus:ring-gray-500"
+                className="px-3 py-1.5 bg-gray-800/40 text-brand-text text-sm rounded-lg hover:bg-gray-800/60 focus:ring-2 focus:ring-gray-500 border border-white/10 transition-all"
               >
                 Cancel
               </button>
@@ -1323,7 +1333,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
               <button
                 type="button"
                 onClick={() => setShowBlockerManager(true)}
-                className="px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 text-xs rounded hover:bg-red-100 focus:ring-2 focus:ring-red-500"
+                className="px-2 py-1.5 bg-red-500/10 text-red-400 border border-red-500/30 text-xs rounded-lg hover:bg-red-500/20 focus:ring-2 focus:ring-red-500 transition-all"
                 title="View and manage blockers for this task"
               >
                 View Blockers
@@ -1333,7 +1343,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                 <button
                   type="button"
                   onClick={onArchive}
-                  className="px-2 py-1.5 bg-gray-50 text-gray-700 border border-gray-300 text-xs rounded hover:bg-gray-100 focus:ring-2 focus:ring-gray-500"
+                  className="px-2 py-1.5 bg-gray-800/40 text-brand-text border border-white/10 text-xs rounded-lg hover:bg-gray-800/60 focus:ring-2 focus:ring-gray-500 transition-all"
                 >
                   Archive
                 </button>
@@ -1343,7 +1353,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                 <button
                   type="button"
                   onClick={onUnarchive}
-                  className="px-2 py-1.5 bg-green-50 text-green-700 border border-green-200 text-xs rounded hover:bg-green-100 focus:ring-2 focus:ring-green-500"
+                  className="px-2 py-1.5 bg-green-500/10 text-green-400 border border-green-500/30 text-xs rounded-lg hover:bg-green-500/20 focus:ring-2 focus:ring-green-500 transition-all"
                 >
                   Unarchive
                 </button>
@@ -1352,7 +1362,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
               <button
                 type="button"
                 onClick={onDelete}
-                className="px-2 py-1.5 bg-red-50 text-red-700 border border-red-200 text-xs rounded hover:bg-red-100 focus:ring-2 focus:ring-red-500"
+                className="px-2 py-1.5 bg-red-500/10 text-red-400 border border-red-500/30 text-xs rounded-lg hover:bg-red-500/20 focus:ring-2 focus:ring-red-500 transition-all"
               >
                 Delete
               </button>
@@ -1363,11 +1373,11 @@ export const TaskEditForm: React.FC<Props> = (props) => {
 
       {/* Modals */}
       {showBlockModal && (
-        <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-20">
-          <form className="bg-white rounded-lg shadow-lg p-6 text-center" onSubmit={handleBlockSubmit}>
-            <div className="mb-4 text-lg">Reason for blocking this task?</div>
+        <div className="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-20">
+          <form className="bg-[rgba(20,20,30,0.95)] border border-red-500/30 rounded-xl shadow-2xl p-6 text-center max-w-md w-full mx-4" onSubmit={handleBlockSubmit}>
+            <div className="mb-4 text-lg text-brand-text font-medium">Reason for blocking this task?</div>
             <textarea
-              className="w-full border rounded-md px-3 py-2 mb-4"
+              className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded-lg px-3 py-2 mb-4 focus:ring-2 focus:ring-red-500 focus:border-red-500 placeholder-gray-500"
               rows={3}
               value={blockReason}
               onChange={e => setBlockReason(e.target.value)}
@@ -1377,11 +1387,11 @@ export const TaskEditForm: React.FC<Props> = (props) => {
             <div className="flex gap-4 justify-center">
               <button
                 type="submit"
-                className="px-4 py-2 rounded bg-red-600 text-white"
+                className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
               >Block</button>
               <button
                 type="button"
-                className="px-4 py-2 rounded bg-gray-200"
+                className="px-4 py-2 rounded-lg bg-gray-800/40 text-brand-text border border-white/10 hover:bg-gray-800/60 transition-colors"
                 onClick={() => { setShowBlockModal(false); setPendingStatus(null); }}
               >Cancel</button>
             </div>
@@ -1389,11 +1399,11 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         </div>
       )}
       {showResolveModal && (
-        <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-20">
-          <form className="bg-white rounded-lg shadow-lg p-6 text-center" onSubmit={handleResolveSubmit}>
-            <div className="mb-4 text-lg">Reason for clearing block?</div>
+        <div className="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-20">
+          <form className="bg-[rgba(20,20,30,0.95)] border border-green-500/30 rounded-xl shadow-2xl p-6 text-center max-w-md w-full mx-4" onSubmit={handleResolveSubmit}>
+            <div className="mb-4 text-lg text-brand-text font-medium">Reason for clearing block?</div>
             <textarea
-              className="w-full border rounded-md px-3 py-2 mb-4"
+              className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded-lg px-3 py-2 mb-4 focus:ring-2 focus:ring-green-500 focus:border-green-500 placeholder-gray-500"
               rows={3}
               value={resolveReason}
               onChange={e => setResolveReason(e.target.value)}
@@ -1403,11 +1413,11 @@ export const TaskEditForm: React.FC<Props> = (props) => {
             <div className="flex gap-4 justify-center">
               <button
                 type="submit"
-                className="px-4 py-2 rounded bg-green-600 text-white"
+                className="px-4 py-2 rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors"
               >Submit</button>
               <button
                 type="button"
-                className="px-4 py-2 rounded bg-gray-200"
+                className="px-4 py-2 rounded-lg bg-gray-800/40 text-brand-text border border-white/10 hover:bg-gray-800/60 transition-colors"
                 onClick={() => { setShowResolveModal(false); setPendingStatus(null); }}
               >Cancel</button>
             </div>
@@ -1415,16 +1425,16 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         </div>
       )}
       {showDiscardConfirm && (
-        <div className="absolute inset-0 bg-black bg-opacity-30 flex items-center justify-center z-10">
-          <div className="bg-white rounded-lg shadow-lg p-6 text-center">
-            <div className="mb-4 text-lg">Discard changes?</div>
+        <div className="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-10">
+          <div className="bg-[rgba(20,20,30,0.95)] border border-white/10 rounded-xl shadow-2xl p-6 text-center max-w-md w-full mx-4">
+            <div className="mb-4 text-lg text-brand-text font-medium">Discard changes?</div>
             <div className="flex gap-4 justify-center">
               <button
-                className="px-4 py-2 rounded bg-red-600 text-white"
+                className="px-4 py-2 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors"
                 onClick={() => { setShowDiscardConfirm(false); onCancel(); }}
               >Discard</button>
               <button
-                className="px-4 py-2 rounded bg-gray-200"
+                className="px-4 py-2 rounded-lg bg-gray-800/40 text-brand-text border border-white/10 hover:bg-gray-800/60 transition-colors"
                 onClick={() => setShowDiscardConfirm(false)}
               >Continue Editing</button>
             </div>

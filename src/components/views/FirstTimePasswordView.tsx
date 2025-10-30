@@ -4,7 +4,7 @@ import { createPasswordForUser } from '../../services/auth';
 
 interface FirstTimePasswordViewProps {
   email: string;
-  onPasswordCreated: (uid: string) => void;
+  onPasswordCreated: () => void;
   onBackToLogin: () => void;
 }
 
@@ -58,7 +58,7 @@ export function FirstTimePasswordView({ email, onPasswordCreated, onBackToLogin 
         return;
       }
       
-      onPasswordCreated(result.user.uid);
+  onPasswordCreated();
     } catch (err: any) {
       console.error('Password creation error:', err);
       

@@ -1,3 +1,19 @@
-/* Momentum brand fonts: Manrope (primary), Inter (secondary), Outfit (accent) */
-/* Loaded from Google Fonts. You can self-host later if preferred. */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Outfit:wght@800&display=swap');
+/* Momentum brand fonts: Inter (primary), Manrope (secondary), Outfit (accent) */
+/* Self-hosted via @fontsource packages for better performance and privacy */
+
+/* Inter - Primary font */
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/inter/800.css';
+
+/* Manrope - Secondary font */
+@import '@fontsource/manrope/400.css';
+@import '@fontsource/manrope/500.css';
+@import '@fontsource/manrope/600.css';
+@import '@fontsource/manrope/700.css';
+@import '@fontsource/manrope/800.css';
+
+/* Outfit - Accent font */
+@import '@fontsource/outfit/800.css';

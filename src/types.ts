@@ -129,7 +129,7 @@ export interface TaskFilters {
 }
 
 /** Team Members */
-export type TeamMemberRole = "owner" | "admin" | "member" | "viewer";
+export type TeamMemberRole = "owner" | "admin" | "technician" | "freelance" | "viewer";
 
 export interface SkillAssessment {
   audio?: number; // 0-10

@@ -392,21 +392,25 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
   const handleQuickAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!quickAdd.trim()) return;
-    await createTask(uid, quickAdd.trim(), null);
-    setQuickAdd("");
-    // Do not manually set dragList here; let Firestore update allTasks and drive dragList
+    try {
+      await createTask(uid, quickAdd.trim(), null);
+      setQuickAdd("");
+    } catch (error) {
+      console.error("Error creating task:", error);
+      logError("Failed to create task", error);
+    }
   };
 
   // ...existing code...
   return (
-  <div className="rounded-xl p-6 shadow-lg transition-colors duration-200 overflow-visible">
+  <div className="space-y-6">
       <div className="flex items-end justify-between">
-  <h1 className="text-2xl font-bold dark:text-accent text-gray-900">Tasks</h1>
+  <h1 className="text-3xl font-bold text-brand-text">Tasks</h1>
       </div>
 
       <form onSubmit={handleQuickAdd} className="mt-3">
         <input
-          className="w-full border dark:border-gray-700 border-gray-300 rounded-lg px-3 py-2 text-base !bg-white dark:bg-surface dark:text-gray-100"
+          className="w-full bg-[rgba(20,20,30,0.6)] backdrop-blur-sm border border-white/10 rounded-lg px-4 py-3 text-base text-brand-text placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan/50 transition-all"
           placeholder="✨ Add a new task..."
           value={quickAdd}
           onChange={(e) => setQuickAdd(e.target.value)}
@@ -416,7 +420,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
       {/* Filters Bar (match Project View) */}
       <div className="mt-4">
         <div ref={controlsWrapperRef} className="flex flex-col">
-          <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-surface rounded-xl shadow-lg px-4 py-3 border border-gray-200 dark:border-gray-700 w-full">
+          <div className="flex flex-wrap items-center gap-3 bg-[rgba(20,20,30,0.6)] backdrop-blur-sm rounded-xl px-4 py-3 border border-white/10 w-full z-[9999] overflow-visible">
             {/* Search first */}
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -427,7 +431,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search tasks..."
-                className="pl-10 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-56 dark:bg-gray-800 dark:text-gray-100"
+                className="pl-10 pr-3 py-2 text-sm bg-[rgba(15,15,25,0.8)] border border-white/10 rounded-lg focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan/50 w-56 text-brand-text placeholder:text-gray-500 transition-all"
               />
             </div>
 
@@ -448,7 +452,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                 ref={hiddenBadgeRef}
                 onMouseEnter={() => setShowHiddenTooltip(true)}
                 onMouseLeave={() => setShowHiddenTooltip(false)}
-                className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1 cursor-default"
+                className="flex items-center gap-2 text-sm text-brand-warning bg-brand-warning/10 border border-brand-warning/30 rounded-lg px-3 py-1 cursor-default"
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd"/>
@@ -459,7 +463,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
             )}
 
             {/* Separator */}
-            <div className="h-8 w-px bg-gray-300 dark:bg-gray-700 mx-2" />
+            <div className="h-8 w-px bg-white/10 mx-2" />
 
             {/* Group by and Arrange by controls */}
             <div className="flex items-center gap-2">
@@ -491,7 +495,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
               </Dropdown>
               <button
                 type="button"
-                className={`ml-2 px-2 py-1 rounded border text-xs dark:bg-surface ${reverseOrder ? "bg-gray-200" : "bg-white"}`}
+                className={`ml-2 px-2 py-1 rounded border border-white/10 text-xs bg-white/5 hover:bg-white/10 transition-colors ${reverseOrder ? "text-brand-cyan" : "text-gray-400"}`}
                 title={reverseOrder ? "Descending" : "Ascending"}
                 onClick={() => setReverseOrder((v) => !v)}
               >
@@ -519,7 +523,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
 
 
       {/* Tasks grouped list */}
-      <div className="bg-surface rounded-lg p-4 mt-2" style={{ minHeight: 200 }}>
+      <div className="bg-[rgba(20,20,30,0.6)] backdrop-blur-sm border border-white/10 rounded-lg p-4 mt-2" style={{ minHeight: 200 }}>
         {(() => {
           const grouped = groupedTasks;
           const groupKeys = Object.keys(grouped);
@@ -528,9 +532,9 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
             // If there are no tasks at all in this view, show a neutral message. Otherwise
             // indicate that no tasks match the current filters.
             if (totalUnfiltered === 0) {
-              return <div className="text-sm dark:text-gray-500 text-gray-500 py-6 text-center">No tasks yet.</div>;
+              return <div className="text-sm text-gray-400 py-6 text-center">No tasks yet.</div>;
             }
-            return <div className="text-sm dark:text-gray-500 text-gray-500 py-6 text-center">No tasks match your filters.</div>;
+            return <div className="text-sm text-gray-400 py-6 text-center">No tasks match your filters.</div>;
           }
           return groupKeys.map((group) => (
             <div key={group} className="mb-6">
@@ -676,7 +680,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
           }}
         >
           <span 
-            className="inline-block text-center font-semibold bg-blue-600 text-white text-xs px-1.5 py-0.5 rounded-full leading-none min-w-[20px] shadow-lg border-2 border-white"
+            className="inline-block text-center font-semibold bg-brand-cyan text-black text-xs px-1.5 py-0.5 rounded-full leading-none min-w-[20px] shadow-lg border-2 border-white"
           >
             {activeFilterCount}
           </span>
@@ -694,7 +698,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
             zIndex: 99999,
             pointerEvents: 'none'
           }}
-          className="w-64 max-h-48 overflow-y-auto bg-gray-900/60 backdrop-blur-sm text-white text-xs rounded-lg px-3 py-2 border border-gray-700/30 animate-tooltip"
+          className="w-64 max-h-48 overflow-y-auto bg-black/80 backdrop-blur-sm text-white text-xs rounded-lg px-3 py-2 border border-white/20 animate-tooltip"
         >
           <div className="font-semibold mb-1">Hidden tasks:</div>
           <ul className="space-y-1">
