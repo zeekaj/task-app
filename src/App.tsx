@@ -2,15 +2,16 @@
 import { useState, useEffect } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
+import { useOrganizationId } from "./hooks/useOrganization";
 import { getTeamMemberByUserId, signOutUser } from "./services/auth";
 import { AppLayout } from "./components/layout/AppLayout";
 import { DashboardView } from "./components/views/DashboardView";
 import { TeamView } from "./components/views/TeamView";
 import { TasksView } from "./components/views/TasksView";
 import { ProjectsView } from "./components/views/ProjectsView";
-import { AIAllocationView } from "./components/views/AIAllocationView";
 import { SettingsView } from "./components/views/SettingsView";
 import { StyleGuideView } from "./components/views/StyleGuideView";
+import { ScheduleView } from "./components/views/ScheduleView";
 import { LoginView } from "./components/views/LoginView";
 import { FirstTimePasswordView } from "./components/views/FirstTimePasswordView";
 import { ToastProvider } from "./components/shared/Toast";
@@ -18,7 +19,7 @@ import type { TeamMember } from "./types";
 import { upsertOrgMembership } from "./services/organizations";
 import { updateTeamMember, findTeamMemberByOrgAndEmail } from "./services/teamMembers";
 
-type TabView = 'dashboard' | 'team' | 'tasks' | 'projects' | 'ai-allocation' | 'settings' | 'style-guide';
+type TabView = 'dashboard' | 'team' | 'tasks' | 'projects' | 'schedule' | 'settings' | 'style-guide';
 type AuthView = 'login' | 'first-time-password';
 
 const App = () => {
@@ -33,11 +34,12 @@ const App = () => {
 
 function MainApp() {
   const user = useAuth();
+  const { orgId } = useOrganizationId();
   const [teamMember, setTeamMember] = useState<(TeamMember & { id: string }) | null | undefined>(undefined);
   const [authView, setAuthView] = useState<AuthView>('login');
   // Reserved hook for future first-time setup flow was removed to satisfy lint (no-unused-vars)
   
-  console.log('MainApp render, user:', user?.uid, 'activeTab:', localStorage.getItem('activeTab'));
+  console.log('MainApp render, user:', user?.uid, 'orgId:', orgId, 'activeTab:', localStorage.getItem('activeTab'));
   
   // Load active tab from localStorage, default to 'dashboard'
   const [activeTab, setActiveTab] = useState<TabView>(() => {
@@ -213,28 +215,28 @@ function MainApp() {
   let viewContent;
   switch (activeTab) {
     case 'dashboard':
-      viewContent = <DashboardView uid={user.uid} />;
+      viewContent = <DashboardView uid={orgId || user.uid} />;
       break;
     case 'team':
-      viewContent = <TeamView uid={user.uid} />;
+      viewContent = <TeamView uid={orgId || user.uid} />;
       break;
     case 'tasks':
-      viewContent = <TasksView uid={user.uid} />;
+      viewContent = <TasksView uid={orgId || user.uid} />;
       break;
     case 'projects':
-      viewContent = <ProjectsView uid={user.uid} />;
+      viewContent = <ProjectsView uid={orgId || user.uid} />;
       break;
-    case 'ai-allocation':
-      viewContent = <AIAllocationView uid={user.uid} />;
+    case 'schedule':
+      viewContent = <ScheduleView uid={orgId || user.uid} />;
       break;
     case 'settings':
-      viewContent = <SettingsView uid={user.uid} />;
+      viewContent = <SettingsView uid={orgId || user.uid} />;
       break;
     case 'style-guide':
-      viewContent = <StyleGuideView uid={user.uid} />;
+      viewContent = <StyleGuideView uid={orgId || user.uid} />;
       break;
     default:
-      viewContent = <DashboardView uid={user.uid} />;
+      viewContent = <DashboardView uid={orgId || user.uid} />;
   }
 
   return (

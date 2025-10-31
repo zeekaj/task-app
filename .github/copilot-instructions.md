@@ -2,8 +2,8 @@
 
 ## Project Overview
 - **Stack:** React + TypeScript + Vite, Tailwind CSS, Firebase (Firestore, Auth)
-- **Purpose:** Single-user task and project management for production/event management with blocker tracking and activity logging
-- **User Model:** Single primary user with team member records for assignment/coordination tracking (not multi-user collaboration)
+- **Purpose:** Multi-user task and project management for production/event management with team collaboration, blocker tracking, and activity logging
+- **User Model:** Organization-based multi-user collaboration with team members including full-time staff, contractors, and freelancers
 - **UI Design:** Dark glass-morphism design system with neon cyan/blue accents
 - **Key Directories:**
   - `src/components/` — UI components (views, modals, layout, shared, ui primitives)
@@ -20,9 +20,9 @@
 - **Authentication:** Email/password authentication via Firebase Auth; team member records link users to organizations
 - **Team Structure:** 
   - Global `teamMembers` collection with `organizationId` field
-  - Team members represent contractors/freelancers you coordinate with (not real-time collaborators)
-  - Role-based access: owner, admin, technician, freelance (read-only), viewer
-  - Team members linked to Firebase Auth via `userId` field (for future expansion)
+  - Team members include full-time staff, contractors, and freelancers with real-time collaboration capabilities
+  - Role-based access: owner, admin, technician, freelance, viewer
+  - Team members linked to Firebase Auth via `userId` field for multi-user access
 - **Blockers:**
   - Blockers can be attached to tasks or projects
   - Creating a blocker sets the entity's status to `blocked` and stores the previous status
@@ -46,13 +46,13 @@
 - **Component Structure:**
   - Views in `src/components/views/` (e.g., `ProjectsView`, `TasksView`, `TeamView`, `DashboardView`)
   - Layout components in `src/components/layout/` (`AppLayout`, `TopNav`)
-  - Shared UI in `src/components/shared/` (`Modal`, `Toast`, `ConfirmModal`, `Dropdown`)
+  - Shared UI in `src/components/shared/` (`Modal`, `Toast`, `ConfirmModal`, `Dropdown`, `FloatingDropdown`)
   - UI primitives in `src/components/ui/` (`Card`, `Badge`, `PillTabs`)
-  - Modals for blockers, promotions, project completion
+  - Modals for blockers, promotions, project completion, shift creation/editing
 - **Service Layer:**
   - All Firestore access is abstracted in `src/services/`
   - Use `logActivity` for all user-facing changes
-  - Services: `tasks.ts`, `projects.ts`, `blockers.ts`, `activityHistory.ts`, `teamMembers.ts`, `auth.ts`, `organizations.ts`
+  - Services: `tasks.ts`, `projects.ts`, `blockers.ts`, `activityHistory.ts`, `teamMembers.ts`, `auth.ts`, `organizations.ts`, `shifts.ts`
 - **Blocker Logic:**
   - When blocking/unblocking, always update both the entity and related project/task status
   - Use `reevaluateProjectBlockedState` after changes to blockers or tasks
@@ -78,6 +78,8 @@
 - To update project status: use `updateProject(uid, projectId, { status })` in `src/services/projects.ts`
 - To create a team member: use `createTeamMember(organizationId, memberData)` in `src/services/teamMembers.ts`
 - To log an activity: use `logActivity(uid, activityData)` in `src/services/activityHistory.ts`
+- To create a shift: use `createShift(orgId, createdBy, shiftData)` in `src/services/shifts.ts`
+- To use floating dropdown: import `FloatingDropdown` from `src/components/shared/FloatingDropdown.tsx`
 
 ## Important Views & Features
 
@@ -119,18 +121,63 @@
 - Recent activity feed
 - Key metrics and summaries
 
+### Schedule View (`ScheduleView.tsx`)
+- Comprehensive shift scheduling for production/event management
+- Two shift types: Generic (standalone) and Project (event-related)
+- Weekly calendar grid with Monday-Sunday weeks
+- Team members as rows, dates as columns
+- Stacked shift cards with AM/PM time display
+- Hover-to-add shift functionality
+- Freelancer management with temporary row system
+- "New Shift" dropdown to create generic or project shifts
+- Automatic modal type detection on edit (based on projectId)
+
+### Shift Modals
+- **GenericShiftModal**: Standalone shifts (crew calls, general availability)
+  - Date, start/end times, break minutes, location, position
+  - Employee selection via checkboxes
+  - Notes field, publish toggle (draft vs offered status)
+  - Emerald gradient banner when published
+- **ProjectShiftModal**: Event/project-related shifts
+  - All GenericShiftModal fields plus:
+  - Project selection (required)
+  - Call time (optional earlier arrival time)
+  - Team instructions textarea
+  - Auto-generates title: "{Project} - {Position}"
+
 ### Authentication Flow
 - Login via email/password (`LoginView.tsx`)
 - First-time password setup (`FirstTimePasswordView.tsx`)
 - Admin setup flow (`AdminSetup.tsx`)
 - Role-based access control (owner, admin, technician, freelance, viewer)
 
+## Reusable Components
+
+### FloatingDropdown (`src/components/shared/FloatingDropdown.tsx`)
+- Fixed-position dropdown to escape overflow clipping
+- Automatic position calculation based on trigger element
+- Outside-click detection with dual-ref pattern
+- Position recomputation on resize/scroll
+- Controlled or uncontrolled mode
+- Customizable trigger, menu styles, width calculation, offset
+- **Usage Example:**
+  ```tsx
+  <FloatingDropdown
+    open={isOpen}
+    onOpenChange={setIsOpen}
+    trigger={<button>Click Me</button>}
+  >
+    <div>Menu content</div>
+  </FloatingDropdown>
+  ```
+
 ## Special Notes
-- **Single-user application** — designed for one user managing their own projects and team coordination
+- **Multi-user application** — designed for teams collaborating on projects and coordinating production workflows
 - **No server-side code** — all logic is client-side and in Firestore
 - **No test suite** — do not expect or require tests unless added
 - **Always update activity log** for user-facing changes
-- **Team members are for tracking only** — not for real-time collaboration or multi-user features
+- **Team members are active collaborators** — supports real-time collaboration and multi-user features
+- **Shift pay fields removed** — pay rates now stored in team member profiles, not individual shifts
 
 ## Documentation
 - **[README.md](../README.md)** — Current project overview and developer guide

@@ -1,24 +1,63 @@
 // Settings View - App customization (Roles, Skills, Priorities, Statuses)
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { listJobTitles, createJobTitle, updateJobTitle, deleteJobTitle } from '../../services/jobTitles';
 import { PillTabs } from '../ui/PillTabs';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
+import { ClientsView } from './ClientsView';
+import { VenuesView } from './VenuesView';
 
 interface SettingsViewProps {
   uid: string;
 }
 
 export function SettingsView({ uid }: SettingsViewProps) {
-  void uid;
-  const [activeTab, setActiveTab] = useState('roles');
+  const [activeTab, setActiveTab] = useState('clients');
+  const [jobTitles, setJobTitles] = useState<{ id: string; name: string; active: boolean }[]>([]);
+  const [newJobTitle, setNewJobTitle] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  useEffect(() => {
+    if (activeTab === 'jobTitles') {
+      listJobTitles(uid).then((titles) => setJobTitles(titles.map(jt => ({ id: jt.id || '', name: jt.name, active: jt.active }))));
+    }
+  }, [activeTab, uid]);
 
   const tabs = [
+    {
+      id: 'clients',
+      label: 'Clients',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+        </svg>
+      )
+    },
+    {
+      id: 'venues',
+      label: 'Venues',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      )
+    },
     {
       id: 'roles',
       label: 'Team Roles',
       icon: (
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+        </svg>
+      )
+    },
+    {
+      id: 'jobTitles',
+      label: 'Job Titles',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 01-8 0M12 3v4m0 0a4 4 0 014 4v4a4 4 0 01-8 0V7a4 4 0 014-4z" />
         </svg>
       )
     },
@@ -86,6 +125,80 @@ export function SettingsView({ uid }: SettingsViewProps) {
   ];
 
   const renderContent = () => {
+    if (activeTab === 'clients') {
+      return <ClientsView uid={uid} />;
+    }
+    if (activeTab === 'venues') {
+      return <VenuesView uid={uid} />;
+    }
+    if (activeTab === 'jobTitles') {
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-semibold text-white">Job Titles</h2>
+              <p className="text-sm text-gray-400 mt-1">Manage the job titles available for assignment and scheduling.</p>
+            </div>
+            <div className="flex gap-2">
+              <input
+                value={newJobTitle}
+                onChange={e => setNewJobTitle(e.target.value)}
+                placeholder="Add new job title"
+                className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+              />
+              <button
+                className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200 text-sm"
+                disabled={!newJobTitle.trim()}
+                onClick={async () => {
+                  if (!newJobTitle.trim()) return;
+                  await createJobTitle(uid, newJobTitle.trim());
+                  setNewJobTitle('');
+                  const titles = await listJobTitles(uid);
+                  setJobTitles(titles.map(jt => ({ id: jt.id || '', name: jt.name, active: jt.active })));
+                }}
+              >+ Add</button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {jobTitles.map((jt) => (
+              <Card key={jt.id} padding="md" hover className="flex items-center justify-between">
+                {editingId === jt.id ? (
+                  <div className="flex items-center gap-2 w-full">
+                    <input
+                      value={editingName}
+                      onChange={e => setEditingName(e.target.value)}
+                      className="px-2 py-1 rounded bg-white/10 text-white w-full"
+                    />
+                    <button className="text-green-400 px-2" onClick={async () => {
+                      await updateJobTitle(uid, jt.id, { name: editingName });
+                      setEditingId(null);
+                      setEditingName('');
+                      const titles = await listJobTitles(uid);
+                      setJobTitles(titles.map(jt => ({ id: jt.id || '', name: jt.name, active: jt.active })));
+                    }}>Save</button>
+                    <button className="text-gray-400 px-2" onClick={() => { setEditingId(null); setEditingName(''); }}>Cancel</button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <Badge color="cyan" size="md">{jt.name}</Badge>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  {editingId !== jt.id && (
+                    <button className="text-blue-400 px-2" onClick={() => { setEditingId(jt.id); setEditingName(jt.name); }}>Edit</button>
+                  )}
+                  <button className="text-red-400 px-2" onClick={async () => {
+                    await deleteJobTitle(uid, jt.id);
+                    const titles = await listJobTitles(uid);
+                    setJobTitles(titles.map(jt => ({ id: jt.id || '', name: jt.name, active: jt.active })));
+                  }}>Delete</button>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      );
+    }
     switch (activeTab) {
       case 'roles':
         return (

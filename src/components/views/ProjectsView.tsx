@@ -1,16 +1,22 @@
 // src/components/views/ProjectsView.tsx
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Card } from '../ui/Card';
-import { StatusBadge } from '../ui/Badge';
+import { StatusBadge, Badge } from '../ui/Badge';
 import { PillTabs } from '../ui/PillTabs';
 import { useProjects } from '../../hooks/useProjects';
+import { useAllBlockers } from '../../hooks/useBlockers';
+import { useClients } from '../../hooks/useClients';
+import { useVenues } from '../../hooks/useVenues';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
-import { computeProjectStatus } from '../../utils/projectStatus';
+import { computeProjectStatus, canManuallyChangeStatus } from '../../utils/projectStatus';
 import { Modal } from '../shared/Modal';
 import { createProject, updateProject, archiveProject, deleteProject } from '../../services/projects';
-import type { ProjectStatus, WithId, Project } from '../../types';
+import type { ProjectStatus, WithId, Project, Blocker } from '../../types';
 import { useToast } from '../shared/Toast';
 import { ProjectDetailView } from './ProjectDetailView';
+import { BlockerModal } from '../BlockerModal';
+import { BlockerManagerModal } from '../BlockerManagerModal';
 
 interface ProjectsViewProps {
   uid: string;
@@ -21,7 +27,10 @@ type ProjectWithStatus = WithId<Project> & { effectiveStatus: ProjectStatus };
 
 export function ProjectsView({ uid }: ProjectsViewProps) {
   const projects = useProjects(uid);
+  const allBlockers = useAllBlockers(uid);
   const members = useTeamMembers(uid);
+  const [clients] = useClients(uid);
+  const [venues] = useVenues(uid);
   const toast = useToast();
   const [loading, setLoading] = useState(true);
   // Load view mode from localStorage, default to 'cards'
@@ -36,8 +45,13 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
   const [prepDate, setPrepDate] = useState(''); // YYYY-MM-DD
   const [returnDate, setReturnDate] = useState('');
   const [projectManager, setProjectManager] = useState('');
+  const [r2Number, setR2Number] = useState('');
+  const [clientId, setClientId] = useState('');
+  const [venueId, setVenueId] = useState('');
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<{ id: string; title: string } | null>(null);
+  const [blockerModalProject, setBlockerModalProject] = useState<{ id: string; title: string } | null>(null);
+  const [blockerManagerProject, setBlockerManagerProject] = useState<{ id: string; title: string } | null>(null);
 
   // Save view mode to localStorage whenever it changes
   useEffect(() => {
@@ -79,6 +93,9 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
     ? projectsWithStatus 
     : projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === filterStatus);
 
+  const clientNameById: Record<string, string> = Object.fromEntries((clients || []).map((c: any) => [c.id, c.name]));
+  const venueNameById: Record<string, string> = Object.fromEntries((venues || []).map((v: any) => [v.id, v.name]));
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -92,7 +109,7 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold text-white">Projects</h2>
-          <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200">
+          <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200" title="Create new project">
             + New Project
           </button>
         </div>
@@ -112,6 +129,7 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
         </Card>
 
         <CreateProjectModal
+          uid={uid}
           open={createOpen}
           onClose={() => setCreateOpen(false)}
           onCreate={async () => {
@@ -121,6 +139,12 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
             if (prepDate) payload.prepDate = prepDate;
             if (returnDate) payload.returnDate = returnDate;
             if (projectManager) payload.projectManager = projectManager;
+            if (r2Number) {
+              payload.r2Number = r2Number;
+              payload.orderId = r2Number;
+            }
+            if (clientId) payload.clientId = clientId;
+            if (venueId) payload.venueId = venueId;
             if (Object.keys(payload).length) {
               await updateProject(uid, id, payload);
             }
@@ -128,6 +152,9 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
             setPrepDate('');
             setReturnDate('');
             setProjectManager('');
+            setR2Number('');
+            setClientId('');
+            setVenueId('');
             setCreateOpen(false);
           }}
           titleValue={title}
@@ -138,6 +165,12 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
           onReturnDateChange={setReturnDate}
           projectManagerValue={projectManager}
           onProjectManagerChange={setProjectManager}
+          r2NumberValue={r2Number}
+          onR2NumberChange={setR2Number}
+          clientIdValue={clientId}
+          onClientIdChange={setClientId}
+          venueIdValue={venueId}
+          onVenueIdChange={setVenueId}
           teamMembers={members ? members.filter(m => m.active) : []}
         />
       </div>
@@ -159,6 +192,7 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
                   ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400'
                   : 'text-gray-400 hover:text-white'
               }`}
+              title="Cards View"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -171,6 +205,7 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
                   ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400'
                   : 'text-gray-400 hover:text-white'
               }`}
+              title="List View"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -183,13 +218,14 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
                   ? 'bg-gradient-to-r from-cyan-500/20 to-blue-500/20 text-cyan-400'
                   : 'text-gray-400 hover:text-white'
               }`}
+              title="Kanban View"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
               </svg>
             </button>
           </div>
-          <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200">
+          <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200" title="Create new project">
             + New Project
           </button>
         </div>
@@ -202,6 +238,7 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
           { id: 'not_started', label: 'Not Started', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'not_started').length },
           { id: 'planning', label: 'Planning', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'planning').length },
           { id: 'executing', label: 'Executing', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'executing').length },
+          { id: 'blocked', label: 'Blocked', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'blocked').length },
           { id: 'post_event', label: 'Post-Event', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'post_event').length },
           { id: 'completed', label: 'Completed', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'completed').length },
         ]}
@@ -210,11 +247,12 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
       />
 
       {/* Content based on view mode */}
-      {viewMode === 'cards' && <CardsView uid={uid} projects={filteredProjects} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} />}
-      {viewMode === 'list' && <ListView uid={uid} projects={filteredProjects} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} />}
-      {viewMode === 'kanban' && <KanbanView projects={projectsWithStatus} onProjectClick={setSelectedProject} />}
+  {viewMode === 'cards' && <CardsView uid={uid} projects={filteredProjects} blockers={allBlockers as any[]} clientNameById={clientNameById} venueNameById={venueNameById} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} onBlock={(id: string, title: string) => setBlockerModalProject({ id, title })} onManageBlockers={(id: string, title: string) => setBlockerManagerProject({ id, title })} />}
+  {viewMode === 'list' && <ListView uid={uid} projects={filteredProjects} blockers={allBlockers as any[]} clientNameById={clientNameById} venueNameById={venueNameById} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} onBlock={(id: string, title: string) => setBlockerModalProject({ id, title })} onManageBlockers={(id: string, title: string) => setBlockerManagerProject({ id, title })} />}
+  {viewMode === 'kanban' && <KanbanView projects={projectsWithStatus} clientNameById={clientNameById} venueNameById={venueNameById} onProjectClick={setSelectedProject} />}
 
       <CreateProjectModal
+        uid={uid}
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreate={async () => {
@@ -225,6 +263,12 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
             if (prepDate) payload.prepDate = prepDate;
             if (returnDate) payload.returnDate = returnDate;
             if (projectManager) payload.projectManager = projectManager;
+            if (r2Number) {
+              payload.r2Number = r2Number;
+              payload.orderId = r2Number;
+            }
+            if (clientId) payload.clientId = clientId;
+            if (venueId) payload.venueId = venueId;
             if (Object.keys(payload).length) {
               await updateProject(uid, id, payload);
             }
@@ -233,6 +277,9 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
             setPrepDate('');
             setReturnDate('');
             setProjectManager('');
+            setR2Number('');
+            setClientId('');
+            setVenueId('');
             setCreateOpen(false);
           } catch (err) {
             toast.error('Failed to create project');
@@ -246,6 +293,12 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
         onReturnDateChange={setReturnDate}
         projectManagerValue={projectManager}
         onProjectManagerChange={setProjectManager}
+        r2NumberValue={r2Number}
+        onR2NumberChange={setR2Number}
+        clientIdValue={clientId}
+        onClientIdChange={setClientId}
+        venueIdValue={venueId}
+        onVenueIdChange={setVenueId}
         teamMembers={members ? members.filter(m => m.active) : []}
       />
 
@@ -256,6 +309,24 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
           project={selectedProject}
           onClose={() => setSelectedProject(null)}
           onDeleted={() => setSelectedProject(null)}
+        />
+      )}
+
+      {/* Blocker Modal for projects when setting status to Blocked */}
+      {blockerModalProject && (
+        <BlockerModal
+          uid={uid}
+          entity={{ id: blockerModalProject.id, title: blockerModalProject.title, type: 'project' }}
+          onClose={() => setBlockerModalProject(null)}
+        />
+      )}
+
+      {/* Blocker Manager for reviewing/clearing blockers */}
+      {blockerManagerProject && (
+        <BlockerManagerModal
+          uid={uid}
+          entity={{ id: blockerManagerProject.id, title: blockerManagerProject.title, type: 'project' }}
+          onClose={() => setBlockerManagerProject(null)}
         />
       )}
 
@@ -297,15 +368,27 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
 }
 
 // Cards View
-function CardsView({ uid, projects, onProjectClick, onDelete }: { 
-  uid: string; 
-  projects: any[]; 
+function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onProjectClick, onDelete, onBlock, onManageBlockers }: { 
+  uid: string;
+  projects: any[];
+  blockers: WithId<Blocker>[];
+  clientNameById: Record<string, string>;
+  venueNameById: Record<string, string>;
   onProjectClick: (project: any) => void;
   onDelete: (projectId: string, title: string) => void;
+  onBlock: (projectId: string, projectTitle: string) => void;
+  onManageBlockers: (projectId: string, projectTitle: string) => void;
 }) {
   const toast = useToast();
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [statusMenuOpen, setStatusMenuOpen] = useState<string | null>(null);
+  const [tooltipState, setTooltipState] = useState<{ visible: boolean; projectId: string | null; x: number; y: number; blockerInfo: any }>({ 
+    visible: false, 
+    projectId: null, 
+    x: 0, 
+    y: 0, 
+    blockerInfo: null 
+  });
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -357,13 +440,48 @@ function CardsView({ uid, projects, onProjectClick, onDelete }: {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (project.effectiveStatus === 'blocked') {
+                        onManageBlockers(project.id, project.title);
+                        return;
+                      }
+                      if (!canManuallyChangeStatus(project)) {
+                        return;
+                      }
                       setStatusMenuOpen(statusMenuOpen === project.id ? null : project.id);
                     }}
-                    className="hover:opacity-80 transition-opacity"
+                    className={`transition-opacity ${canManuallyChangeStatus(project) && project.effectiveStatus !== 'blocked' ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
                   >
-                    <StatusBadge status={project.effectiveStatus} size="sm" />
+                    {project.effectiveStatus === 'blocked' ? (
+                      (() => {
+                        const active = (blockers || []).filter(b => b.entityType === 'project' && b.entityId === project.id && b.status === 'active');
+                        const firstReason = active.length ? (typeof active[0].reason === 'object' ? JSON.stringify(active[0].reason) : (active[0].reason || 'Blocked')) : 'Blocked';
+                        const extraCount = active.length > 1 ? active.length - 1 : 0;
+                        const firstBlocker = active[0];
+                        return (
+                          <div
+                            onMouseEnter={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setTooltipState({
+                                visible: true,
+                                projectId: project.id,
+                                x: rect.left + rect.width / 2,
+                                y: rect.top,
+                                blockerInfo: { firstReason, firstBlocker, extraCount }
+                              });
+                            }}
+                            onMouseLeave={() => setTooltipState({ visible: false, projectId: null, x: 0, y: 0, blockerInfo: null })}
+                          >
+                            <Badge color="red" size="sm" variant="solid" className="max-w-[240px] truncate">
+                              <span className="font-semibold">BLOCKED</span>
+                            </Badge>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <StatusBadge status={project.effectiveStatus} size="sm" />
+                    )}
                   </button>
-                  {statusMenuOpen === project.id && (
+                  {statusMenuOpen === project.id && project.effectiveStatus !== 'blocked' && canManuallyChangeStatus(project) && (
                     <div className="absolute left-0 mt-1 w-auto bg-[rgba(20,20,30,0.95)] backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-20">
                       <button
                         onClick={async (e) => {
@@ -393,15 +511,28 @@ function CardsView({ uid, projects, onProjectClick, onDelete }: {
                             toast.error('Failed to update status');
                           }
                         }}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-b-lg whitespace-nowrap ${
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 whitespace-nowrap ${
                           project.effectiveStatus === 'planning' ? 'bg-white/5' : ''
                         }`}
                       >
                         <StatusBadge status="planning" size="sm" />
                       </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onBlock(project.id, project.title);
+                          setStatusMenuOpen(null);
+                        }}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-b-lg whitespace-nowrap ${
+                          project.effectiveStatus === 'blocked' ? 'bg-white/5' : ''
+                        }`}
+                      >
+                        <StatusBadge status="blocked" size="sm" />
+                      </button>
                     </div>
                   )}
                 </div>
+                
                 <div className="relative menu-dropdown-container">
                   <button
                     onClick={(e) => {
@@ -409,6 +540,7 @@ function CardsView({ uid, projects, onProjectClick, onDelete }: {
                       setMenuOpen(menuOpen === project.id ? null : project.id);
                     }}
                     className="p-1 hover:bg-white/10 rounded transition-colors"
+                    title="Project actions"
                   >
                     <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
@@ -419,6 +551,7 @@ function CardsView({ uid, projects, onProjectClick, onDelete }: {
                       <button
                         onClick={(e) => { e.stopPropagation(); handleArchive(project.id, project.title); }}
                         className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-white/10 rounded-t-lg flex items-center gap-2"
+                        title="Archive this project"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
@@ -428,6 +561,7 @@ function CardsView({ uid, projects, onProjectClick, onDelete }: {
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(project.id, project.title); }}
                         className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-white/10 rounded-b-lg flex items-center gap-2"
+                        title="Delete this project permanently"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -478,6 +612,28 @@ function CardsView({ uid, projects, onProjectClick, onDelete }: {
               )}
             </div>
 
+            {/* Client/Venue */}
+            {(project.clientId || project.venueId) && (
+              <div className="space-y-1.5 text-sm">
+                {project.clientId && (
+                  <div className="flex items-center gap-2 text-gray-400">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <span>Client: {clientNameById[project.clientId] || '—'}</span>
+                  </div>
+                )}
+                {project.venueId && (
+                  <div className="flex items-center gap-2 text-gray-400">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c1.657 0 3-1.567 3-3.5S13.657 4 12 4 9 5.567 9 7.5 10.343 11 12 11zm0 0c-4 0-7 2-7 4.5V19h14v-3.5c0-2.5-3-4.5-7-4.5z" />
+                    </svg>
+                    <span>Venue: {venueNameById[project.venueId] || '—'}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Controls */}
             <div className="flex items-center justify-between pt-2 border-t border-white/5">
               {/* Team Members */}
@@ -515,21 +671,72 @@ function CardsView({ uid, projects, onProjectClick, onDelete }: {
           </div>
         </Card>
       ))}
+      
+      {/* Portal tooltip for blocked status */}
+      {tooltipState.visible && tooltipState.blockerInfo && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            left: `${tooltipState.x}px`,
+            top: `${tooltipState.y - 10}px`,
+            transform: 'translate(-50%, -100%)',
+            zIndex: 99999,
+            pointerEvents: 'none'
+          }}
+          className="px-3 py-2 bg-gray-900/95 border border-red-500/30 rounded-lg shadow-xl w-64"
+        >
+          <div className="text-xs text-red-400 font-semibold mb-1">
+            Blocked: {tooltipState.blockerInfo.firstReason}
+          </div>
+          {tooltipState.blockerInfo.firstBlocker?.waitingOn && (
+            <div className="text-xs text-gray-300 mb-1">
+              <span className="text-gray-400">Waiting on:</span> {tooltipState.blockerInfo.firstBlocker.waitingOn}
+            </div>
+          )}
+          {tooltipState.blockerInfo.firstBlocker?.expectedDate && (
+            <div className="text-xs text-gray-300 mb-1">
+              <span className="text-gray-400">Expected:</span>{' '}
+              {typeof tooltipState.blockerInfo.firstBlocker.expectedDate === 'object' && 'toDate' in tooltipState.blockerInfo.firstBlocker.expectedDate
+                ? tooltipState.blockerInfo.firstBlocker.expectedDate.toDate().toLocaleDateString()
+                : new Date(tooltipState.blockerInfo.firstBlocker.expectedDate).toLocaleDateString()}
+            </div>
+          )}
+          {tooltipState.blockerInfo.extraCount > 0 && (
+            <div className="text-xs text-gray-400 mt-1">
+              +{tooltipState.blockerInfo.extraCount} more blocker{tooltipState.blockerInfo.extraCount > 1 ? 's' : ''}
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
 
 // List View
 // List View
-function ListView({ uid, projects, onProjectClick, onDelete }: { 
-  uid: string; 
-  projects: any[]; 
+function ListView({ uid, projects, blockers, clientNameById, venueNameById, onProjectClick, onDelete, onBlock, onManageBlockers }: {
+  uid: string;
+  projects: any[];
+  blockers: WithId<Blocker>[];
+  clientNameById: Record<string, string>;
+  venueNameById: Record<string, string>;
   onProjectClick: (project: any) => void;
   onDelete: (projectId: string, title: string) => void;
+  onBlock: (projectId: string, projectTitle: string) => void;
+  onManageBlockers: (projectId: string, projectTitle: string) => void;
 }) {
   const toast = useToast();
   const [savedHints, setSavedHints] = useState<Record<string, { prep?: boolean; return?: boolean; pm?: boolean; status?: boolean; mode?: boolean; r2?: boolean; install?: boolean }>>({});
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
+  const [statusMenuOpen, setStatusMenuOpen] = useState<string | null>(null);
+  const [tooltipState, setTooltipState] = useState<{ visible: boolean; projectId: string | null; x: number; y: number; blockerInfo: any }>({ 
+    visible: false, 
+    projectId: null, 
+    x: 0, 
+    y: 0, 
+    blockerInfo: null 
+  });
 
   const markSaved = (id: string, key: keyof NonNullable<typeof savedHints[string]>) => {
     setSavedHints((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), [key]: true } }));
@@ -563,6 +770,8 @@ function ListView({ uid, projects, onProjectClick, onDelete }: {
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Prep Date</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Return Date</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Install Date</th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Client</th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Venue</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">PM</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Team</th>
             <th className="w-12"></th>
@@ -579,8 +788,102 @@ function ListView({ uid, projects, onProjectClick, onDelete }: {
                 <div className="font-medium text-white">{project.title}</div>
               </td>
               <td className="py-3 px-4">
-                <div className="flex items-center gap-3">
-                  <StatusBadge status={project.effectiveStatus} size="sm" />
+                <div className="relative status-dropdown-container flex items-center gap-2">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (project.effectiveStatus === 'blocked') {
+                        onManageBlockers(project.id, project.title);
+                        return;
+                      }
+                      if (!canManuallyChangeStatus(project)) {
+                        return;
+                      }
+                      setStatusMenuOpen(statusMenuOpen === project.id ? null : project.id);
+                    }}
+                    className={`transition-opacity ${canManuallyChangeStatus(project) && project.effectiveStatus !== 'blocked' ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
+                  >
+                    {project.effectiveStatus === 'blocked' ? (
+                      (() => {
+                        const active = (blockers || []).filter(b => b.entityType === 'project' && b.entityId === project.id && b.status === 'active');
+                        const firstReason = active.length ? (typeof active[0].reason === 'object' ? JSON.stringify(active[0].reason) : (active[0].reason || 'Blocked')) : 'Blocked';
+                        const extraCount = active.length > 1 ? active.length - 1 : 0;
+                        const firstBlocker = active[0];
+                        return (
+                          <div
+                            onMouseEnter={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setTooltipState({
+                                visible: true,
+                                projectId: project.id,
+                                x: rect.left + rect.width / 2,
+                                y: rect.top,
+                                blockerInfo: { firstReason, firstBlocker, extraCount }
+                              });
+                            }}
+                            onMouseLeave={() => setTooltipState({ visible: false, projectId: null, x: 0, y: 0, blockerInfo: null })}
+                          >
+                            <Badge color="red" size="sm" variant="solid" className="max-w-[260px] truncate">
+                              <span className="font-semibold">BLOCKED</span>
+                            </Badge>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <StatusBadge status={project.effectiveStatus} size="sm" />
+                    )}
+                  </button>
+                  {statusMenuOpen === project.id && project.effectiveStatus !== 'blocked' && canManuallyChangeStatus(project) && (
+                    <div className="absolute left-0 mt-1 w-auto bg-[rgba(20,20,30,0.95)] backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-20">
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            await updateProject(uid, project.id, { status: 'not_started' });
+                            toast.success('Status updated to Not Started');
+                            setStatusMenuOpen(null);
+                          } catch (err) {
+                            toast.error('Failed to update status');
+                          }
+                        }}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-t-lg whitespace-nowrap ${
+                          project.effectiveStatus === 'not_started' ? 'bg-white/5' : ''
+                        }`}
+                      >
+                        <StatusBadge status="not_started" size="sm" />
+                      </button>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            await updateProject(uid, project.id, { status: 'planning' });
+                            toast.success('Status updated to Planning');
+                            setStatusMenuOpen(null);
+                          } catch (err) {
+                            toast.error('Failed to update status');
+                          }
+                        }}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 whitespace-nowrap ${
+                          project.effectiveStatus === 'planning' ? 'bg-white/5' : ''
+                        }`}
+                      >
+                        <StatusBadge status="planning" size="sm" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onBlock(project.id, project.title);
+                          setStatusMenuOpen(null);
+                        }}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-b-lg whitespace-nowrap ${
+                          project.effectiveStatus === 'blocked' ? 'bg-white/5' : ''
+                        }`}
+                      >
+                        <StatusBadge status="blocked" size="sm" />
+                      </button>
+                    </div>
+                  )}
+                  
                 </div>
               </td>
               <td className="py-3 px-4 text-sm text-gray-400">
@@ -651,6 +954,12 @@ function ListView({ uid, projects, onProjectClick, onDelete }: {
                   <svg className="inline ml-2 w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
                 )}
               </td>
+              <td className="py-3 px-4 text-sm text-gray-400">
+                {project.clientId ? (clientNameById[project.clientId] || '—') : '—'}
+              </td>
+              <td className="py-3 px-4 text-sm text-gray-400">
+                {project.venueId ? (venueNameById[project.venueId] || '—') : '—'}
+              </td>
               <td className="py-3 px-4 text-sm text-cyan-400">
                 <input
                   type="text"
@@ -697,6 +1006,7 @@ function ListView({ uid, projects, onProjectClick, onDelete }: {
                       setMenuOpen(menuOpen === project.id ? null : project.id);
                     }}
                     className="p-1 hover:bg-white/10 rounded transition-colors"
+                    title="Project actions"
                   >
                     <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2zm0 7a1 1 0 110-2 1 1 0 010 2z" />
@@ -707,6 +1017,7 @@ function ListView({ uid, projects, onProjectClick, onDelete }: {
                       <button
                         onClick={(e) => { e.stopPropagation(); handleArchive(project.id, project.title); }}
                         className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-white/10 rounded-t-lg flex items-center gap-2"
+                        title="Archive this project"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
@@ -716,6 +1027,7 @@ function ListView({ uid, projects, onProjectClick, onDelete }: {
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(project.id, project.title); }}
                         className="w-full text-left px-3 py-2 text-sm text-red-400 hover:bg-white/10 rounded-b-lg flex items-center gap-2"
+                        title="Delete this project permanently"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -730,73 +1042,122 @@ function ListView({ uid, projects, onProjectClick, onDelete }: {
           ))}
         </tbody>
       </table>
+      
+      {/* Portal tooltip for blocked status */}
+      {tooltipState.visible && tooltipState.blockerInfo && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            left: `${tooltipState.x}px`,
+            top: `${tooltipState.y - 10}px`,
+            transform: 'translate(-50%, -100%)',
+            zIndex: 99999,
+            pointerEvents: 'none'
+          }}
+          className="px-3 py-2 bg-gray-900/95 border border-red-500/30 rounded-lg shadow-xl w-64"
+        >
+          <div className="text-xs text-red-400 font-semibold mb-1">
+            Blocked: {tooltipState.blockerInfo.firstReason}
+          </div>
+          {tooltipState.blockerInfo.firstBlocker?.waitingOn && (
+            <div className="text-xs text-gray-300 mb-1">
+              <span className="text-gray-400">Waiting on:</span> {tooltipState.blockerInfo.firstBlocker.waitingOn}
+            </div>
+          )}
+          {tooltipState.blockerInfo.firstBlocker?.expectedDate && (
+            <div className="text-xs text-gray-300 mb-1">
+              <span className="text-gray-400">Expected:</span>{' '}
+              {typeof tooltipState.blockerInfo.firstBlocker.expectedDate === 'object' && 'toDate' in tooltipState.blockerInfo.firstBlocker.expectedDate
+                ? tooltipState.blockerInfo.firstBlocker.expectedDate.toDate().toLocaleDateString()
+                : new Date(tooltipState.blockerInfo.firstBlocker.expectedDate).toLocaleDateString()}
+            </div>
+          )}
+          {tooltipState.blockerInfo.extraCount > 0 && (
+            <div className="text-xs text-gray-400 mt-1">
+              +{tooltipState.blockerInfo.extraCount} more blocker{tooltipState.blockerInfo.extraCount > 1 ? 's' : ''}
+            </div>
+          )}
+        </div>,
+        document.body
+      )}
     </Card>
   );
 }
 
 // Kanban View
-function KanbanView({ projects, onProjectClick }: { projects: any[]; onProjectClick: (project: any) => void }) {
+function KanbanView({ projects, clientNameById, venueNameById, onProjectClick }: { projects: any[]; clientNameById: Record<string, string>; venueNameById: Record<string, string>; onProjectClick: (project: any) => void }) {
   const columns: { id: ProjectStatus; label: string; color: string }[] = [
     { id: 'not_started', label: 'Not Started', color: 'from-gray-500/20 to-gray-600/20' },
     { id: 'planning', label: 'Planning', color: 'from-blue-500/20 to-blue-600/20' },
     { id: 'executing', label: 'Executing', color: 'from-purple-500/20 to-purple-600/20' },
+    { id: 'blocked', label: 'Blocked', color: 'from-red-500/20 to-red-600/20' },
     { id: 'post_event', label: 'Post-Event', color: 'from-orange-500/20 to-orange-600/20' },
     { id: 'completed', label: 'Completed', color: 'from-green-500/20 to-green-600/20' },
   ];
 
   return (
-    <div className="grid grid-cols-5 gap-4 overflow-x-auto pb-4">
+    <div className="flex gap-3 overflow-x-auto pb-4 min-h-[calc(100vh-300px)]">
       {columns.map(column => {
         const columnProjects = projects.filter(p => p.effectiveStatus === column.id);
         
         return (
-          <div key={column.id} className="min-w-[280px]">
-            <div className={`bg-gradient-to-r ${column.color} backdrop-blur-sm border border-white/10 rounded-lg p-3 mb-3`}>
-              <h3 className="font-semibold text-white flex items-center justify-between">
+          <div key={column.id} className="flex-shrink-0 w-[220px]">
+            <div className={`bg-gradient-to-r ${column.color} backdrop-blur-sm border border-white/10 rounded-lg p-2 mb-2`}>
+              <h3 className="font-semibold text-white text-sm flex items-center justify-between">
                 <span>{column.label}</span>
-                <span className="text-sm bg-white/10 px-2 py-0.5 rounded">{columnProjects.length}</span>
+                <span className="text-xs bg-white/10 px-1.5 py-0.5 rounded">{columnProjects.length}</span>
               </h3>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {columnProjects.map(project => (
                 <Card 
                   key={project.id} 
                   hover 
-                  className="p-3 space-y-2 cursor-pointer"
+                  className="p-2 space-y-1.5 cursor-pointer"
                   onClick={() => onProjectClick(project)}
                 >
-                  <h4 className="font-medium text-white text-sm line-clamp-2">
+                  <h4 className="font-medium text-white text-xs line-clamp-2">
                     {project.title}
                   </h4>
                   {project.r2Number && (
-                    <div className="text-xs text-gray-400">
+                    <div className="text-[10px] text-gray-400">
                       {project.r2Number}
                     </div>
                   )}
                   {project.prepDate && (
-                    <div className="text-xs text-gray-400">
+                    <div className="text-[10px] text-gray-400">
                       Prep: {formatDate(project.prepDate)}
                     </div>
                   )}
+                  {(project.clientId || project.venueId) && (
+                    <div className="text-[10px] text-gray-400 space-y-0.5">
+                      {project.clientId && (
+                        <div className="truncate">Client: {clientNameById[project.clientId] || '—'}</div>
+                      )}
+                      {project.venueId && (
+                        <div className="truncate">Venue: {venueNameById[project.venueId] || '—'}</div>
+                      )}
+                    </div>
+                  )}
                   {project.projectManager && (
-                    <div className="text-xs text-cyan-400">
+                    <div className="text-[10px] text-cyan-400 truncate">
                       PM: {project.projectManager}
                     </div>
                   )}
                   {project.assignees && project.assignees.length > 0 && (
                     <div className="flex items-center gap-1">
-                      <div className="flex -space-x-2">
+                      <div className="flex -space-x-1.5">
                         {project.assignees.slice(0, 3).map((memberName: string, idx: number) => (
                           <div
                             key={idx}
-                            className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium"
+                            className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white text-[9px] font-medium"
                             title={memberName}
                           >
                             {memberName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
                           </div>
                         ))}
                         {project.assignees.length > 3 && (
-                          <div className="w-6 h-6 rounded-full bg-gray-700 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium">
+                          <div className="w-5 h-5 rounded-full bg-gray-700 border-2 border-gray-900 flex items-center justify-center text-white text-[9px] font-medium">
                             +{project.assignees.length - 3}
                           </div>
                         )}
@@ -865,6 +1226,7 @@ function toDateInput(date: any): string {
 
 // Create Project Modal Component (inline to keep file cohesive)
 function CreateProjectModal({
+  uid,
   open,
   onClose,
   onCreate,
@@ -876,8 +1238,15 @@ function CreateProjectModal({
   onReturnDateChange,
   projectManagerValue,
   onProjectManagerChange,
+  r2NumberValue,
+  onR2NumberChange,
+  clientIdValue,
+  onClientIdChange,
+  venueIdValue,
+  onVenueIdChange,
   teamMembers,
 }: {
+  uid: string;
   open: boolean;
   onClose: () => void;
   onCreate: () => Promise<void>;
@@ -889,8 +1258,16 @@ function CreateProjectModal({
   onReturnDateChange: (v: string) => void;
   projectManagerValue: string;
   onProjectManagerChange: (v: string) => void;
+  r2NumberValue: string;
+  onR2NumberChange: (v: string) => void;
+  clientIdValue: string;
+  onClientIdChange: (v: string) => void;
+  venueIdValue: string;
+  onVenueIdChange: (v: string) => void;
   teamMembers: WithId<import('../../types').TeamMember>[];
 }) {
+  const [clients] = useClients(uid);
+  const [venues] = useVenues(uid);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const titleEmpty = !titleValue.trim();
   const invalidOrder = !!(prepDateValue && returnDateValue && new Date(prepDateValue) > new Date(returnDateValue));
@@ -911,6 +1288,47 @@ function CreateProjectModal({
         </div>
       }>
       <div className="space-y-4">
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">R2# (Order ID)</label>
+          <input
+            value={r2NumberValue}
+            onChange={e => onR2NumberChange(e.target.value)}
+            placeholder="R2# / Order ID"
+            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+          />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Client</label>
+            <select
+              value={clientIdValue}
+              onChange={e => onClientIdChange(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 [&>option]:bg-gray-900"
+            >
+              <option value="">— No client —</option>
+              {(clients || []).map((c) => (
+                <option key={c.id} value={c.id as string}>
+                  {(c as any).name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Venue</label>
+            <select
+              value={venueIdValue}
+              onChange={e => onVenueIdChange(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 [&>option]:bg-gray-900"
+            >
+              <option value="">— No venue —</option>
+              {(venues || []).map((v) => (
+                <option key={v.id} value={v.id as string}>
+                  {(v as any).name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         <div>
           <label className="block text-sm text-gray-400 mb-1">Title</label>
           <input 

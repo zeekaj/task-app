@@ -32,11 +32,20 @@ function CardsView({ members, isAdmin, onEdit, onDelete, getRoleBadge, getTopSki
           </div>
 
           {member.email && (
-            <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
+            <div className="flex items-center gap-2 text-sm text-gray-400 mb-2">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
               <span className="truncate">{member.email}</span>
+            </div>
+          )}
+
+          {member.phone && (
+            <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              </svg>
+              <span className="truncate">{member.phone}</span>
             </div>
           )}
 
@@ -567,6 +576,14 @@ export function SkillsRadarView({ members }: SkillsRadarViewProps) {
               <span className="truncate">{member.email}</span>
             </div>
           )}
+          {member.phone && (
+            <div className="flex items-center gap-2 text-sm text-gray-300 mb-2">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              </svg>
+              <span className="truncate">{member.phone}</span>
+            </div>
+          )}
           <div className="flex gap-4 mb-4">
             <div className="flex-1 bg-gray-900 rounded-lg p-3 flex flex-col items-center border border-white/10">
               <span className="text-xs text-gray-400 mb-1 flex items-center gap-1">
@@ -901,6 +918,7 @@ export function TableView({ members, isAdmin, onEdit, onDelete, getRoleBadge }: 
               <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Member</th>
               <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Role</th>
               <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Email</th>
+              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Phone</th>
               <th className="px-6 py-4 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Availability</th>
               <th className="px-6 py-4 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Workload</th>
               <th className="px-6 py-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
@@ -925,6 +943,9 @@ export function TableView({ members, isAdmin, onEdit, onDelete, getRoleBadge }: 
                 </td>
                 <td className="px-6 py-4">
                   <span className="text-sm text-gray-300">{member.email || '—'}</span>
+                </td>
+                <td className="px-6 py-4">
+                  <span className="text-sm text-gray-300">{member.phone || '—'}</span>
                 </td>
                 <td className="px-6 py-4 text-center">
                   <span className="text-sm font-semibold text-brand-success">{member.availability || 100}%</span>
@@ -1086,6 +1107,7 @@ export function TeamMemberModal({ member, onClose, onSave, canAssignOwner = fals
   const [formData, setFormData] = useState<Partial<TeamMember>>({
     name: member?.name || '',
     email: member?.email || '',
+    phone: member?.phone || '',
   role: (((member as any)?.role === 'member') ? 'technician' : (member?.role || 'technician')) as TeamMemberRole,
     title: member?.title || '',
     skills: member?.skills || {
@@ -1107,8 +1129,49 @@ export function TeamMemberModal({ member, onClose, onSave, canAssignOwner = fals
     nameInputRef.current?.focus();
   }, []);
 
+  const formatPhoneNumber = (value: string): string => {
+    const digits = value.replace(/\D/g, '');
+    if (digits.length === 0) return '';
+    if (digits.length <= 3) return `(${digits}`;
+    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    if (digits.length <= 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
+  };
+
+  const validateEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
+
+  const validatePhone = (phone: string): boolean => {
+    if (!phone.trim()) return true;
+    const digitsOnly = phone.replace(/\D/g, '');
+    return digitsOnly.length === 10;
+  };
+
+  const handlePhoneChange = (value: string) => {
+    const formatted = formatPhoneNumber(value);
+    setFormData({ ...formData, phone: formatted });
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.name?.trim()) {
+      alert('Name is required');
+      return;
+    }
+    if (!formData.email?.trim()) {
+      alert('Email is required');
+      return;
+    }
+    if (!validateEmail(formData.email)) {
+      alert('Please enter a valid email address');
+      return;
+    }
+    if (formData.phone && !validatePhone(formData.phone)) {
+      alert('Please enter a valid 10-digit phone number');
+      return;
+    }
     onSave(formData);
   };
 
@@ -1150,6 +1213,18 @@ export function TeamMemberModal({ member, onClose, onSave, canAssignOwner = fals
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full px-4 py-3 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none text-white"
                   required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2 text-gray-300">Phone</label>
+                <input
+                  type="tel"
+                  value={formData.phone || ''}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  placeholder="(555) 123-4567"
+                  maxLength={14}
+                  className="w-full px-4 py-3 bg-gray-700 rounded-lg border border-gray-600 focus:border-blue-500 focus:outline-none text-white"
                 />
               </div>
             </div>

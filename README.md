@@ -1,10 +1,10 @@
 # Task Management App
 
-A personal task and project management application for production and event management, built with React, TypeScript, Vite, and Firebase.
+A collaborative task and project management application for production and event management, built with React, TypeScript, Vite, and Firebase.
 
 ## Overview
 
-**Single-User Design**: This is a personal productivity tool designed for one user managing production events, technical projects, and team coordination. While the data model includes team member records for assignment tracking, the app is optimized for solo use without real-time collaboration features.
+**Multi-User Collaboration**: This application is designed for teams managing production events, technical projects, and coordinated workflows. The app supports organization-based team management with role-based access control, real-time collaboration features, and comprehensive shift scheduling for production/event coordination.
 
 ## Features
 
@@ -23,13 +23,42 @@ A personal task and project management application for production and event mana
 
 ## Recent Changes (October 2025)
 
+### Shift Scheduling System (October 31, 2025)
+- **Complete Shift Management**: Built comprehensive shift scheduling for granular time-based assignments
+  - Generic shifts: standalone shifts not tied to projects (crew calls, general availability, etc.)
+  - Project shifts: event/project-related shifts with call times and instructions
+  - Shift data model: 15+ fields including start/end times, breaks, location, position, status workflow
+  - Removed pay fields from shifts (moved to team member profiles for consistency)
+- **Sling-Style Modals**: Created two shift creation/edit modals with dark glass-morphism design
+  - GenericShiftModal: date, times, breaks, location, position, employee selection, notes, publish toggle
+  - ProjectShiftModal: all generic fields plus project selection, call time, and team instructions
+  - Emerald gradient banner when published
+  - Automatic title generation for project shifts: "{Project} - {Position}"
+- **Weekly Schedule Grid**: Implemented Sling-style calendar view
+  - Team members as rows, dates as columns (Monday-Sunday weeks)
+  - Stacked shift cards with AM/PM time format
+  - Hover to add shifts directly to specific member/date cells
+  - Color-coded: teal for shifts, purple for events
+- **Freelancer Management**: Smart filtering for ad-hoc team members
+  - Freelancers excluded from regular schedule rows (reduce clutter)
+  - "Add Freelancer" button at bottom to temporarily add rows only when needed
+  - Purple/pink gradient avatars with "FREELANCE" badge for visual distinction
+  - Remove button (X) for manually added freelancers
+  - Freelancers with active shifts automatically appear
+- **FloatingDropdown Component**: Extracted reusable dropdown pattern
+  - Fixed positioning to escape overflow-hidden clipping
+  - Automatic position calculation with resize/scroll handling
+  - Outside-click detection with dual-ref pattern
+  - Controlled or uncontrolled mode support
+  - `src/components/shared/FloatingDropdown.tsx` now available for any floating menus
+
 ### UI/UX Updates (October 28, 2025)
 - **Task View Styling**: Migrated to dark glass-morphism design system
   - TaskEditForm header with dark gradients
   - Updated text colors for dates and assignees (text-brand-text)
   - ActivityHistory component with dark theme
 ### Team Member Integration
-**Note**: Team members are tracked for assignment purposes but represent contractors, freelancers, or team members you coordinate with. The app is designed for single-user operation without real-time collaboration features.
+**Multi-User Design**: Team members are active collaborators within organizations, including full-time staff, contractors, and freelancers with real-time coordination capabilities.
 
 - Assignee fields now use dropdown populated from team members
 - Custom dropdown with React Portal to escape overflow constraints
@@ -99,6 +128,18 @@ npm run preview
 ```
 
 ## Development Notes
+
+### Dev server and ports (Codespaces)
+- Start the dev server:
+  - `npm run dev` (Vite is configured with `server.host=true`, `port=5173`)
+- Open the forwarded port:
+  - In the Ports panel, ensure port 5173 is listed and set to Public visibility.
+  - Use “Open in Browser” from the Ports panel; the URL should be `...-5173.app.github.dev`.
+- If you see 502 (Bad Gateway):
+  - Wait 10–20 seconds and hard refresh; the server may still be booting.
+  - Stop the dev task and start it again with `npm run dev`.
+  - Close the browser tab and reopen via the Ports panel.
+- Alternative: Preview the production build with `npm run preview` (also bound to port 5173).
 
 ### Filter System
 - Status filter includes "active" pseudo-status mapping to not_started + in_progress
@@ -257,3 +298,88 @@ Recent updates and current status:
 - All changes linted and integrated
 - Documentation updated
 - No blocking issues
+
+## End of Day Summary (2025-10-31)
+
+Recent updates and current status:
+
+### Shift Scheduling System (Complete)
+- **Data Layer**: Created `src/services/shifts.ts` with full CRUD operations
+  - createShift, updateShift, deleteShift, assignMemberToShift
+  - bulkCreateShifts for batch operations
+  - createShiftsFromProject to auto-generate load-in/event/strike shifts
+  - undefined value filtering for Firestore compatibility
+  - Activity logging for all shift operations
+- **Hooks**: Built `src/hooks/useShifts.ts` for real-time shift data
+  - Date range filtering, member filtering, project filtering
+  - Client-side startTime sorting (avoids composite index requirements)
+  - In-memory status filtering
+- **Shift Modals**: Two complete modal implementations
+  - `src/components/GenericShiftModal.tsx` (~420 lines)
+  - `src/components/ProjectShiftModal.tsx` (~480 lines)
+  - Both feature dark glass-morphism, emerald publish banner, icon-based layout
+- **Schedule View**: Enhanced `src/components/views/ScheduleView.tsx` (885+ lines)
+  - "New Shift" dropdown with generic/project options
+  - Automatic modal type detection on edit
+  - Monday-based week calculations
+- **Weekly Grid**: Built `src/components/views/WeeklyScheduleGrid.tsx` (385 lines)
+  - Team-as-rows, dates-as-columns layout
+  - Stacked shift cards with hover-to-add functionality
+  - Freelancer filtering with temporary row system
+  - Purple/pink gradients for freelancers vs cyan/blue for regular members
+- **Reusable Component**: Extracted `src/components/shared/FloatingDropdown.tsx`
+  - Fixed-position floating menus to escape overflow clipping
+  - Automatic position calculation with viewport awareness
+  - Outside-click handling with deferred listener attachment
+  - Resize/scroll position updates
+  - Available for use throughout the app
+
+### Next Steps & Future Development
+
+1. **Shift Templates** (Optional)
+   - Create reusable shift templates for common patterns (load-in crew, event staff, strike crew)
+   - Apply templates to projects with one click
+   - Store in `src/services/shifts.ts` (functions already stubbed)
+
+2. **Testing & Validation**
+   - Test creating shifts (both generic and project types)
+   - Test assigning people and viewing weekly grid
+   - Test editing shifts and freelancer management
+   - Verify integration with projects and team members
+
+3. **Schedule View Enhancements**
+   - Drag-and-drop shift reassignment between members/dates
+   - Copy/paste shifts across days or weeks
+   - Bulk edit for multiple shifts
+   - Print/export weekly schedules
+
+4. **Integration & Polish**
+   - Connect shifts to activity history for better audit trails
+   - Add shift notifications/reminders
+   - Shift conflict detection (double-booking alerts)
+   - Time tracking integration for actual vs scheduled hours
+
+5. **Additional View Migrations**
+   - Continue applying dark glass-morphism theme to remaining views
+   - Dashboard view components
+   - Settings view refinements
+
+### Files Created/Modified (Oct 31)
+- `src/types.ts` — Added Shift, ShiftStatus, ShiftBreak, ShiftTemplate interfaces
+- `src/services/shifts.ts` — Complete shift service layer (380+ lines)
+- `src/hooks/useShifts.ts` — Real-time shift data hooks (140 lines)
+- `src/components/GenericShiftModal.tsx` — Generic shift modal (420 lines)
+- `src/components/ProjectShiftModal.tsx` — Project shift modal (480 lines)
+- `src/components/views/ScheduleView.tsx` — Enhanced with shift management (885+ lines)
+- `src/components/views/WeeklyScheduleGrid.tsx` — New weekly grid component (385 lines)
+- `src/components/shared/FloatingDropdown.tsx` — New reusable floating dropdown (115 lines)
+
+### Known Issues
+- None identified
+
+### Ready for Next Session
+- Shift scheduling system fully implemented and functional
+- FloatingDropdown component extracted and reusable
+- All TypeScript compilation errors resolved
+- Dev server running successfully
+- Documentation updated

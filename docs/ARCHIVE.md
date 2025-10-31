@@ -2,7 +2,7 @@
 
 This file contains documentation from earlier iterations of the app that is no longer relevant to current development but may be useful for historical reference.
 
-**Note:** This is a single-user productivity application. While the data model supports team member records for assignment tracking, it is not designed for multi-user collaboration or real-time team features.
+**Note:** This application has evolved from a single-user productivity tool to a multi-user collaborative platform. Early design decisions were made with single-user operation in mind, but the app now supports organization-based team collaboration with real-time features.
 
 ---
 
@@ -167,6 +167,7 @@ node scripts/migrate-team-members.mjs
 ---
 
 ## End of Archive
+
 ## October 30, 2025 — Project Detail Modal Parity
 
 The Project Detail Modal was brought to parity with the main Tasks view:
@@ -178,6 +179,44 @@ The Project Detail Modal was brought to parity with the main Tasks view:
 - Added Activity tab to show project-level history in place
 
 These changes ensure consistent task interactions across the app and improve visibility directly within project context.
+
+## October 31, 2025 — Shift Scheduling System Implementation
+
+Completed comprehensive shift scheduling system for granular time-based staff assignments:
+
+### Data Model & Services
+- Added Shift interface to `src/types.ts` with 15+ fields (date, times, breaks, location, position, status, etc.)
+- Removed pay fields from shifts (moved to team member profiles)
+- Built complete CRUD operations in `src/services/shifts.ts` (380+ lines)
+- Created `src/hooks/useShifts.ts` for real-time data with client-side sorting
+
+### UI Components
+- **GenericShiftModal** (~420 lines): Standalone shifts for crew calls, availability
+- **ProjectShiftModal** (~480 lines): Event-related shifts with project selection, call times, instructions
+- **WeeklyScheduleGrid** (385 lines): Sling-style calendar with team-as-rows, dates-as-columns
+- **ScheduleView** enhanced (885+ lines): Integrates both shift types with automatic modal detection
+
+### Freelancer Management
+- Smart filtering excludes freelancers from regular schedule rows
+- "Add Freelancer" button adds temporary rows only when needed
+- Purple/pink gradient avatars for visual distinction
+- Remove button for manually added freelancers
+- Freelancers with active shifts appear automatically
+
+### Reusable Pattern Extraction
+- Created `FloatingDropdown` component (115 lines) in `src/components/shared/`
+- Fixed positioning to escape overflow clipping
+- Automatic position calculation with resize/scroll handling
+- Outside-click detection with dual-ref pattern
+- Available for use throughout the app
+
+### Future Enhancements Identified
+- Shift templates for common patterns (load-in, event, strike crews)
+- Drag-and-drop shift reassignment
+- Bulk editing and copy/paste across days
+- Print/export weekly schedules
+- Shift conflict detection and notifications
+- Time tracking integration
 
 
 For current documentation, see:

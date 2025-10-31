@@ -195,6 +195,43 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
     // Upcoming deadlines (next 7 days)
     const now = new Date();
     const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    
+    // Task velocity metrics - calculate tasks completed in last 7 and 30 days
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const taskCompletionsLast7Days = recentActivity.filter(a => {
+      if (a.action !== 'updated' || a.entityType !== 'task') return false;
+      if (!a.changes?.status || a.changes.status.to !== 'done') return false;
+      
+      const activityDate = a.createdAt && typeof a.createdAt === 'object' && 'toDate' in a.createdAt 
+        ? a.createdAt.toDate() 
+        : (a.createdAt && typeof a.createdAt === 'object' && 'seconds' in a.createdAt 
+            ? new Date(a.createdAt.seconds * 1000) 
+            : new Date());
+      
+      return activityDate >= sevenDaysAgo;
+    }).length;
+
+    const taskCompletionsLast30Days = recentActivity.filter(a => {
+      if (a.action !== 'updated' || a.entityType !== 'task') return false;
+      if (!a.changes?.status || a.changes.status.to !== 'done') return false;
+      
+      const activityDate = a.createdAt && typeof a.createdAt === 'object' && 'toDate' in a.createdAt 
+        ? a.createdAt.toDate() 
+        : (a.createdAt && typeof a.createdAt === 'object' && 'seconds' in a.createdAt 
+            ? new Date(a.createdAt.seconds * 1000) 
+            : new Date());
+      
+      return activityDate >= thirtyDaysAgo;
+    }).length;
+
+    const velocityPerDay = taskCompletionsLast7Days / 7;
+    const velocityPerWeek = taskCompletionsLast7Days;
+    
+    // Estimate days to complete remaining tasks based on velocity
+    const daysToComplete = velocityPerDay > 0 ? Math.ceil(activeTasks / velocityPerDay) : null;
+    
     const upcomingTasks = tasks?.filter(task => {
       if (!task.dueDate || task.status === 'done' || task.status === 'archived') return false;
       const dueDate = new Date(task.dueDate);
@@ -228,7 +265,7 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
       return aDate.getTime() - bDate.getTime();
     }) || [];
 
-    // Project health (on track vs behind)
+    // Project health (on track vs behind) - enhanced algorithm
     const projectHealth = {
       onTrack: 0,
       atRisk: 0,
@@ -236,6 +273,7 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
     };
     projects?.forEach(project => {
       if (project.status === 'completed' || project.status === 'archived') return;
+      
       const effectiveStatus = computeProjectStatus(project);
       const installDate = project.installDate instanceof Date 
         ? project.installDate 
@@ -250,16 +288,147 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
 
       const daysUntilInstall = Math.floor((installDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       
+      // Get project tasks for health calculation
+      const projectTasks = tasks?.filter(t => t.projectId === project.id) || [];
+      const totalTasks = projectTasks.length;
+      const completedTasks = projectTasks.filter(t => t.status === 'done').length;
+      const blockedTasks = projectTasks.filter(t => t.status === 'blocked').length;
+      const overdueTasks = projectTasks.filter(t => {
+        if (!t.dueDate || t.status === 'done') return false;
+        const dueDate = new Date(t.dueDate);
+        return dueDate < now;
+      }).length;
+      
+      // Calculate health score (0-100, higher is better)
+      let healthScore = 100;
+      
+      // Factor 1: Blocked status (instant critical)
       if (effectiveStatus === 'blocked') {
-        projectHealth.behind++;
+        healthScore -= 50;
+      }
+      
+      // Factor 2: Days until install vs project status
+      if (daysUntilInstall < 0) {
+        // Project is overdue
+        healthScore -= 40;
       } else if (daysUntilInstall < 3 && effectiveStatus !== 'executing') {
-        projectHealth.behind++;
+        // Critical: install in <3 days but not executing
+        healthScore -= 35;
       } else if (daysUntilInstall < 7 && effectiveStatus === 'not_started') {
+        // Warning: install in <7 days but not started
+        healthScore -= 25;
+      }
+      
+      // Factor 3: Task completion percentage
+      if (totalTasks > 0) {
+        const completionPercentage = (completedTasks / totalTasks) * 100;
+        
+        // Calculate expected completion based on days until install
+        const totalDaysForProject = 30; // assume 30-day project cycle
+        const daysPassed = totalDaysForProject - daysUntilInstall;
+        const expectedCompletion = Math.max(0, Math.min(100, (daysPassed / totalDaysForProject) * 100));
+        
+        // Penalize if behind expected progress
+        const progressGap = expectedCompletion - completionPercentage;
+        if (progressGap > 20) {
+          healthScore -= 20; // Significantly behind
+        } else if (progressGap > 10) {
+          healthScore -= 10; // Moderately behind
+        }
+      }
+      
+      // Factor 4: Blocked tasks (proportional penalty)
+      if (totalTasks > 0 && blockedTasks > 0) {
+        const blockedPercentage = (blockedTasks / totalTasks) * 100;
+        if (blockedPercentage > 50) {
+          healthScore -= 25; // More than half blocked
+        } else if (blockedPercentage > 25) {
+          healthScore -= 15; // Quarter blocked
+        } else {
+          healthScore -= 10; // Some blocked
+        }
+      }
+      
+      // Factor 5: Overdue tasks
+      if (overdueTasks > 0) {
+        const overduePercentage = (overdueTasks / totalTasks) * 100;
+        if (overduePercentage > 30) {
+          healthScore -= 20; // Many overdue
+        } else if (overduePercentage > 10) {
+          healthScore -= 10; // Some overdue
+        } else {
+          healthScore -= 5; // Few overdue
+        }
+      }
+      
+      // Categorize based on final health score
+      if (healthScore >= 70) {
+        projectHealth.onTrack++;
+      } else if (healthScore >= 40) {
         projectHealth.atRisk++;
       } else {
-        projectHealth.onTrack++;
+        projectHealth.behind++;
       }
     });
+
+    // Burn-down data for active projects
+    const burnDownData = projects
+      ?.filter(p => p.status !== 'completed' && p.status !== 'archived')
+      .map(project => {
+        const projectTasks = tasks?.filter(t => t.projectId === project.id) || [];
+        const totalTasks = projectTasks.length;
+        const completedTasks = projectTasks.filter(t => t.status === 'done').length;
+        const completionPercentage = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+        
+        return {
+          id: project.id,
+          title: project.title,
+          totalTasks,
+          completedTasks,
+          remainingTasks: totalTasks - completedTasks,
+          completionPercentage,
+        };
+      })
+      .filter(p => p.totalTasks > 0) // Only show projects with tasks
+      .sort((a, b) => b.totalTasks - a.totalTasks) // Sort by most tasks first
+      .slice(0, 5) || []; // Show top 5 projects
+
+    // Team utilization data
+    const teamUtilization = teamMembers
+      ?.filter(m => m.active)
+      .map(member => {
+        const assignedTasks = tasks?.filter(t => 
+          t.assignee === member.id && 
+          t.status !== 'done' && 
+          t.status !== 'archived'
+        ) || [];
+        
+        const activeTasks = assignedTasks.length;
+        const highPriorityTasks = assignedTasks.filter(t => t.priority && t.priority >= 61).length;
+        const overdueTasks = assignedTasks.filter(t => {
+          if (!t.dueDate) return false;
+          const dueDate = new Date(t.dueDate);
+          return dueDate < now;
+        }).length;
+
+        // Calculate utilization score (0-100)
+        // 0-5 tasks = normal, 6-10 = high, 11+ = overloaded
+        const utilizationScore = Math.min(Math.round((activeTasks / 10) * 100), 100);
+        
+        return {
+          id: member.id,
+          name: member.name,
+          activeTasks,
+          highPriorityTasks,
+          overdueTasks,
+          utilizationScore,
+          status: utilizationScore < 30 ? 'underutilized' : 
+                  utilizationScore < 70 ? 'optimal' : 
+                  utilizationScore < 90 ? 'high' : 'overloaded',
+        };
+      })
+      .sort((a, b) => b.activeTasks - a.activeTasks) // Sort by most active tasks
+      .slice(0, 6) || []; // Show top 6 team members
 
     return {
       activeTeamMembers,
@@ -271,8 +440,17 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
       upcomingTasks,
       upcomingProjects,
       projectHealth,
+      burnDownData,
+      teamUtilization,
+      velocity: {
+        perDay: velocityPerDay,
+        perWeek: velocityPerWeek,
+        completionsLast7Days: taskCompletionsLast7Days,
+        completionsLast30Days: taskCompletionsLast30Days,
+        daysToComplete,
+      },
     };
-  }, [tasks, projects, teamMembers]);
+  }, [tasks, projects, teamMembers, recentActivity]);
 
   return (
     <div className="space-y-6">
@@ -581,17 +759,62 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
           {projects && projects.length > 0 ? (
             <div className="space-y-4">
               <div className="grid grid-cols-3 gap-3">
-                <div className="text-center p-3 rounded bg-green-500/10 border border-green-500/20">
+                {/* On Track */}
+                <div 
+                  className="text-center p-3 rounded bg-green-500/10 border border-green-500/20 cursor-help group relative"
+                  title="Health Score ≥70"
+                >
                   <div className="text-2xl font-bold text-green-400">{metrics.projectHealth.onTrack}</div>
                   <div className="text-xs text-gray-400 mt-1">On Track</div>
+                  {/* Tooltip */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900/95 border border-green-500/30 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 w-64 z-10">
+                    <div className="text-xs text-green-400 font-semibold mb-1">On Track (Health ≥70)</div>
+                    <div className="text-xs text-gray-300 space-y-1">
+                      <div>• Not blocked</div>
+                      <div>• Good progress vs timeline</div>
+                      <div>• Few/no overdue tasks</div>
+                      <div>• Minimal blockers</div>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-center p-3 rounded bg-yellow-500/10 border border-yellow-500/20">
+                
+                {/* At Risk */}
+                <div 
+                  className="text-center p-3 rounded bg-yellow-500/10 border border-yellow-500/20 cursor-help group relative"
+                  title="Health Score 40-69"
+                >
                   <div className="text-2xl font-bold text-yellow-400">{metrics.projectHealth.atRisk}</div>
                   <div className="text-xs text-gray-400 mt-1">At Risk</div>
+                  {/* Tooltip */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900/95 border border-yellow-500/30 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 w-64 z-10">
+                    <div className="text-xs text-yellow-400 font-semibold mb-1">At Risk (Health 40-69)</div>
+                    <div className="text-xs text-gray-300 space-y-1">
+                      <div>• Behind schedule</div>
+                      <div>• Some overdue tasks</div>
+                      <div>• Moderate blockers (10-50%)</div>
+                      <div>• Install date approaching</div>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-center p-3 rounded bg-red-500/10 border border-red-500/20">
+                
+                {/* Behind */}
+                <div 
+                  className="text-center p-3 rounded bg-red-500/10 border border-red-500/20 cursor-help group relative"
+                  title="Health Score <40"
+                >
                   <div className="text-2xl font-bold text-red-400">{metrics.projectHealth.behind}</div>
                   <div className="text-xs text-gray-400 mt-1">Behind</div>
+                  {/* Tooltip */}
+                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900/95 border border-red-500/30 rounded-lg shadow-xl opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 w-64 z-10">
+                    <div className="text-xs text-red-400 font-semibold mb-1">Behind (Health &lt;40)</div>
+                    <div className="text-xs text-gray-300 space-y-1">
+                      <div>• Project blocked</div>
+                      <div>• Install date overdue/critical</div>
+                      <div>• Many overdue tasks (&gt;30%)</div>
+                      <div>• Significant blockers (&gt;50%)</div>
+                      <div>• Well behind progress target</div>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="text-xs text-gray-500 text-center">
@@ -603,6 +826,193 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
               No active projects
             </div>
           )}
+        </ChartPanel>
+
+        {/* Burn-Down Chart */}
+        <ChartPanel
+          title="Project Progress"
+          icon={
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+          }
+        >
+          {metrics.burnDownData.length === 0 ? (
+            <div className="text-sm text-gray-500 text-center py-8">
+              No active projects with tasks
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {metrics.burnDownData.map((project) => {
+                const completedWidth = project.completionPercentage;
+                const remainingWidth = 100 - completedWidth;
+
+                return (
+                  <div key={project.id} className="space-y-2">
+                    <div className="flex justify-between items-baseline">
+                      <span className="text-sm font-medium text-gray-300 truncate flex-1 mr-2">{project.title}</span>
+                      <span className="text-xs text-gray-400 whitespace-nowrap">
+                        {project.completedTasks}/{project.totalTasks} ({project.completionPercentage}%)
+                      </span>
+                    </div>
+                    <div className="h-7 bg-gray-800/50 rounded-full overflow-hidden flex border border-gray-700/50">
+                      {completedWidth > 0 && (
+                        <div
+                          className="bg-gradient-to-r from-emerald-500 to-cyan-500 flex items-center justify-end pr-2 transition-all duration-500"
+                          style={{ width: `${completedWidth}%` }}
+                        >
+                          {completedWidth > 15 && (
+                            <span className="text-xs font-semibold text-white drop-shadow">
+                              {project.completedTasks}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {remainingWidth > 0 && (
+                        <div
+                          className="bg-gray-700/40 flex items-center justify-start pl-2"
+                          style={{ width: `${remainingWidth}%` }}
+                        >
+                          {remainingWidth > 15 && (
+                            <span className="text-xs font-medium text-gray-400">
+                              {project.remainingTasks}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </ChartPanel>
+
+        {/* Team Utilization */}
+        <ChartPanel
+          title="Team Utilization"
+          icon={
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          }
+        >
+          {metrics.teamUtilization.length === 0 ? (
+            <div className="text-sm text-gray-500 text-center py-8">
+              No team members with active tasks
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {metrics.teamUtilization.map((member) => {
+                const statusColor = 
+                  member.status === 'underutilized' ? 'bg-blue-500/20 border-blue-500/30 text-blue-400' :
+                  member.status === 'optimal' ? 'bg-green-500/20 border-green-500/30 text-green-400' :
+                  member.status === 'high' ? 'bg-yellow-500/20 border-yellow-500/30 text-yellow-400' :
+                  'bg-red-500/20 border-red-500/30 text-red-400';
+
+                return (
+                  <div key={member.id} className="space-y-1.5">
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm font-medium text-gray-300">{member.name}</span>
+                      <div className="flex items-center gap-2">
+                        {member.overdueTasks > 0 && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-red-500/20 text-red-400 border border-red-500/30">
+                            {member.overdueTasks} overdue
+                          </span>
+                        )}
+                        {member.highPriorityTasks > 0 && (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                            {member.highPriorityTasks} high priority
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-6 bg-gray-800/50 rounded-full overflow-hidden border border-gray-700/50">
+                        <div
+                          className={`h-full flex items-center justify-center text-xs font-semibold transition-all duration-500 ${statusColor}`}
+                          style={{ width: `${member.utilizationScore}%` }}
+                        >
+                          {member.utilizationScore > 15 && (
+                            <span>{member.activeTasks} tasks</span>
+                          )}
+                        </div>
+                      </div>
+                      {member.utilizationScore <= 15 && (
+                        <span className="text-xs text-gray-400 whitespace-nowrap">
+                          {member.activeTasks} tasks
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </ChartPanel>
+
+        {/* Task Velocity Metrics */}
+        <ChartPanel
+          title="Task Velocity"
+          icon={
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+            </svg>
+          }
+        >
+          <div className="space-y-4">
+            {/* Metrics Grid */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="text-center p-3 rounded bg-cyan-500/10 border border-cyan-500/20">
+                <div className="text-2xl font-bold text-cyan-400">
+                  {metrics.velocity.completionsLast7Days}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">Last 7 Days</div>
+              </div>
+              <div className="text-center p-3 rounded bg-blue-500/10 border border-blue-500/20">
+                <div className="text-2xl font-bold text-blue-400">
+                  {metrics.velocity.completionsLast30Days}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">Last 30 Days</div>
+              </div>
+            </div>
+
+            {/* Velocity Rates */}
+            <div className="space-y-2">
+              <div className="flex justify-between items-center p-2 rounded bg-gray-800/30">
+                <span className="text-sm text-gray-400">Per Day</span>
+                <span className="text-sm font-semibold text-gray-200">
+                  {metrics.velocity.perDay.toFixed(1)} tasks
+                </span>
+              </div>
+              <div className="flex justify-between items-center p-2 rounded bg-gray-800/30">
+                <span className="text-sm text-gray-400">Per Week</span>
+                <span className="text-sm font-semibold text-gray-200">
+                  {metrics.velocity.perWeek} tasks
+                </span>
+              </div>
+            </div>
+
+            {/* Forecast */}
+            {metrics.velocity.daysToComplete && (
+              <div className="mt-3 pt-3 border-t border-gray-700/50">
+                <div className="text-center">
+                  <div className="text-xs text-gray-400 mb-1">Est. completion of active tasks</div>
+                  <div className="text-lg font-bold text-emerald-400">
+                    {metrics.velocity.daysToComplete} days
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    at current velocity
+                  </div>
+                </div>
+              </div>
+            )}
+            {!metrics.velocity.daysToComplete && metrics.activeTasks > 0 && (
+              <div className="text-xs text-gray-500 text-center py-2">
+                No recent completions to forecast
+              </div>
+            )}
+          </div>
         </ChartPanel>
       </div>
     </div>

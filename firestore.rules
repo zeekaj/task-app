@@ -66,9 +66,10 @@ service cloud.firestore {
       allow delete: if isSignedIn() && request.auth.uid == orgId && uid != orgId;
     }
 
-    // User-specific collections (tasks, projects, blockers, activity)
+    // Organization-scoped data collections under users/{uid}/...
+    // uid is the organization owner UID. Allow owner and active org members.
     match /users/{uid}/{document=**} {
-      allow read, write: if isSignedIn() && request.auth.uid == uid;
+      allow read, write: if isSignedIn() && (request.auth.uid == uid || isOrgMember(uid));
     }
   }
 }

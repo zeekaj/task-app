@@ -20,6 +20,19 @@ export interface Project {
   owner?: string; // user ID of the project owner/lead
   projectManager?: string; // user ID of the project manager who can mark completed
   r2Number?: string; // R2# identifier
+  orderId?: string; // Same as R2#
+  clientId?: string;
+  venueId?: string;
+  laborBudget?: {
+    totalHours?: number;
+    totalAmount?: number;
+    byJobTitle?: Array<{
+      jobTitle: JobTitle;
+      budgetHours: number;
+      budgetRate: number;
+      budgetAmount: number;
+    }>;
+  };
   installDate?: Timestamp | Date | string; // Install Date (due date for the project)
   prepDate?: Timestamp | Date | string; // Prep Date - when project moves to 'executing'
   shipDate?: Timestamp | Date | string; // Ship Date - when equipment ships out
@@ -101,7 +114,7 @@ export type WithId<T> = T & { id: string };
 
 /** Activity/Audit Trail */
 export type ActivityType = "created" | "updated" | "status_changed" | "assigned" | "blocked" | "unblocked" | "archived" | "deleted";
-export type ActivityEntityType = "task" | "project" | "team";
+export type ActivityEntityType = "task" | "project" | "team" | "schedule";
 
 export interface Activity {
   id?: string;
@@ -146,7 +159,21 @@ export interface TeamMember {
   id?: string;
   name: string;
   email: string;
+  phone?: string; // Phone number in (123) 456-7890 format
   role: TeamMemberRole;
+  jobTitle?: JobTitle;
+  employmentType: "W2_Salaried" | "W2_Hourly" | "1099";
+  payProfile?: {
+    type: "hourly" | "day_rate" | "salaried";
+    baseRate?: number;
+    dayRates?: {
+      halfDay: { maxHours: number; rate: number };
+      fullDay: { maxHours: number; rate: number };
+      overtimeHourly?: number;
+      doubleTimeHourly?: number;
+    };
+    shortTurnEnabled?: boolean;
+  };
   organizationId: string; // The UID of the organization owner (admin who created this)
   title?: string; // Job title (e.g., "Audio Engineer", "Stage Manager")
   userId?: string; // Firebase Auth UID (set after first login)
@@ -158,6 +185,143 @@ export interface TeamMember {
   workload?: number; // 0-100%
   viewerPermissions?: string[]; // For viewer role - what they can view
   avatar?: string; // Avatar URL
+  active: boolean;
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
+}
+
+/** Scheduling */
+export type ScheduleEventType = "event" | "shift" | "task";
+
+export type ScheduleStatus = "tentative" | "hold" | "confirmed" | "published" | "canceled";
+
+export interface ScheduleEvent {
+  id?: string;
+  organizationId: string; // Organization owner UID
+  title: string;
+  type: ScheduleEventType;
+  start: Timestamp | FieldValue;
+  end: Timestamp | FieldValue;
+  status?: ScheduleStatus; // Tentative/hold/confirmed/published/canceled
+  source?: "auto" | "manual"; // Whether this was generated automatically or by user
+  location?: string;
+  projectId?: string | null;
+  taskId?: string | null;
+  assignedMemberIds: string[]; // Array of teamMember IDs
+  requiredSkills?: string[];
+  notes?: string;
+  createdBy: string; // User ID of creator
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
+}
+
+/** Granular Shift Scheduling */
+export type ShiftStatus = "draft" | "offered" | "confirmed" | "declined" | "completed" | "canceled";
+
+export interface ShiftBreak {
+  start: string; // HH:MM format
+  end: string; // HH:MM format
+  paid: boolean;
+}
+
+export interface Shift {
+  id?: string;
+  organizationId: string; // Organization owner UID
+  title: string;
+  projectId?: string | null; // Link to project if applicable
+  taskId?: string | null; // Link to specific task if applicable
+  
+  // Date and time
+  date: string; // YYYY-MM-DD
+  startTime: string; // HH:MM (24-hour format)
+  endTime: string; // HH:MM (24-hour format)
+  breaks?: ShiftBreak[]; // Break periods
+  
+  // Location
+  location?: string; // Venue/site name
+  venueId?: string; // Link to venue document
+  address?: string; // Full address if different from venue
+  
+  // Staffing
+  assignedMemberId?: string; // Single team member assigned
+  jobTitle?: JobTitle; // Required job title/role
+  requiredSkills?: string[]; // Required skills for this shift
+  
+  // Billing and hours tracking
+  estimatedHours?: number; // Expected duration
+  actualHours?: number; // Actual hours worked (for completed shifts)
+  billableToClient?: boolean; // Whether this is client-billable
+  
+  // Status and workflow
+  status: ShiftStatus;
+  confirmedAt?: Timestamp | FieldValue; // When member confirmed
+  completedAt?: Timestamp | FieldValue; // When marked complete
+  
+  // Additional info
+  notes?: string; // Internal notes
+  instructions?: string; // Instructions for assigned member
+  callTime?: string; // HH:MM - earlier call time if different from start
+  wrapTime?: string; // HH:MM - expected wrap time if different from end
+  
+  // Metadata
+  createdBy: string; // User ID of creator
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
+}
+
+/** Shift template for quick shift creation */
+export interface ShiftTemplate {
+  id?: string;
+  organizationId: string;
+  name: string; // e.g., "Load-in Crew", "Event Tech", "Strike Team"
+  description?: string;
+  defaultDuration: number; // Hours
+  defaultJobTitle?: JobTitle;
+  defaultPayType?: "hourly" | "day_rate" | "flat_rate";
+  defaultPayRate?: number;
+  requiredSkills?: string[];
+  defaultBreaks?: ShiftBreak[];
+  instructions?: string;
+  active: boolean;
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
+}
+
+export interface Client {
+  id?: string;
+  name: string;
+  contactName?: string;
+  contactEmail?: string;
+  contactPhone?: string;
+  billingNotes?: string;
+  active: boolean;
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
+}
+
+export interface Venue {
+  id?: string;
+  name: string;
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+  lat?: number;
+  lng?: number;
+  contactName?: string;
+  contactPhone?: string;
+  loadInNotes?: string;
+  active: boolean;
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
+}
+
+export type JobTitle = "A1" | "A2" | "V1" | "V2" | "LD" | "ME" | "TD" | "Stagehand" | "Show Producer" | "vMix Op";
+
+export interface JobTitleDoc {
+  id?: string;
+  name: string;
   active: boolean;
   createdAt?: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;

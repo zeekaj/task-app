@@ -27,6 +27,7 @@ export function useTeamMembers(organizationId: string): WithId<TeamMember>[] | n
         const q = query(
           membersRef,
           where('organizationId', '==', organizationId),
+          where('active', '==', true),
           orderBy('name', 'asc')
         );
 
@@ -40,6 +41,10 @@ export function useTeamMembers(organizationId: string): WithId<TeamMember>[] | n
                     id: doc.id,
                     ...doc.data(),
                   })) as WithId<TeamMember>[];
+                  
+                  // Filter out inactive members (extra safety in case query doesn't filter)
+                  data = data.filter(member => member.active !== false);
+                  
                   if (sortClientSide) {
                     data = data.sort((a, b) => (
                       (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
@@ -60,7 +65,8 @@ export function useTeamMembers(organizationId: string): WithId<TeamMember>[] | n
                   if (typeof unsubscribe === 'function') unsubscribe();
                   const fallbackQuery = query(
                     membersRef,
-                    where('organizationId', '==', organizationId)
+                    where('organizationId', '==', organizationId),
+                    where('active', '==', true)
                   );
                   unsubscribe = subscribe(fallbackQuery, true, false);
                   // Schedule a one-time retry with server-side ordering in case the index becomes available

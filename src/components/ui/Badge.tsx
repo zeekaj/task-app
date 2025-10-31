@@ -12,6 +12,7 @@ interface BadgeProps {
   variant?: 'solid' | 'outline' | 'subtle';
   className?: string;
   onClick?: () => void;
+  title?: string;
 }
 
 export function Badge({ 
@@ -20,7 +21,8 @@ export function Badge({
   size = 'md',
   variant = 'solid',
   className = '',
-  onClick 
+  onClick,
+  title
 }: BadgeProps) {
   const sizeClasses = {
     sm: 'px-2 py-0.5 text-xs',
@@ -78,6 +80,7 @@ export function Badge({
         ${className}
       `}
       onClick={onClick}
+      title={title}
     >
       {children}
     </span>

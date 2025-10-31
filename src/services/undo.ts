@@ -8,6 +8,7 @@ import {
 } from "firebase/firestore";
 import { getFirebase } from '../firebase';
 import type { Activity, Task, Project, WithId } from '../types';
+import { updateScheduleEvent } from './scheduling';
 import { updateTask } from './tasks';
 import { updateProject } from './projects';
 
@@ -16,7 +17,7 @@ import { updateProject } from './projects';
  */
 async function getLastActivity(
   uid: string,
-  entityType: "task" | "project",
+  entityType: "task" | "project" | "schedule",
   entityId: string
 ): Promise<Activity | null> {
   const fb = await getFirebase();
@@ -131,7 +132,7 @@ async function getLastActivity(
  */
 export async function undoLastChange(
   uid: string,
-  entityType: "task" | "project",
+  entityType: "task" | "project" | "schedule",
   entityId: string
 ): Promise<boolean> {
   try {
@@ -188,8 +189,11 @@ export async function undoLastChange(
         changes: undoChanges
       });
       await updateTask(uid, entityId, undoChanges as Partial<Task>);
-    } else {
+    } else if (entityType === "project") {
       await updateProject(uid, entityId, undoChanges as Partial<Project>);
+    } else {
+      // schedule event
+      await updateScheduleEvent(uid, entityId, undoChanges as any);
     }
 
     console.log('Undo operation completed successfully');

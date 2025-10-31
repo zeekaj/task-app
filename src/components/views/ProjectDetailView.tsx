@@ -1,14 +1,18 @@
 // src/components/views/ProjectDetailView.tsx
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { Card } from '../ui/Card';
-import { StatusBadge } from '../ui/Badge';
+import { StatusBadge, Badge } from '../ui/Badge';
 import { PillTabs } from '../ui/PillTabs';
 import { Modal } from '../shared/Modal';
 import { updateProject, deleteProject, archiveProject } from '../../services/projects';
 import { createTask } from '../../services/tasks';
 import { useTasks } from '../../hooks/useTasks';
+import { useAllBlockers } from '../../hooks/useBlockers';
 import { useProjects } from '../../hooks/useProjects';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useClients } from '../../hooks/useClients';
+import { useVenues } from '../../hooks/useVenues';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { computeProjectStatus } from '../../utils/projectStatus';
 import type { Project, ProjectStatus, WithId } from '../../types';
@@ -47,6 +51,15 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
   const [blockerManagerTask, setBlockerManagerTask] = useState<{ id: string; title: string; type: 'task' } | null>(null);
   const [arrangeBy, setArrangeBy] = useState('age');
   const [reverseOrder, setReverseOrder] = useState(false);
+  const [scheduleMenuOpen, setScheduleMenuOpen] = useState(false);
+  const [showProjectBlockerModal, setShowProjectBlockerModal] = useState(false);
+  const [showProjectBlockerManager, setShowProjectBlockerManager] = useState(false);
+  const [tooltipState, setTooltipState] = useState<{ visible: boolean; x: number; y: number; blockerInfo: any }>({ 
+    visible: false, 
+    x: 0, 
+    y: 0, 
+    blockerInfo: null 
+  });
   // For tab order: refs for each editable field
   const fieldOrder = [
     'r2Number',
@@ -63,8 +76,11 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
   const inputRefs = useRef<(HTMLInputElement | HTMLSelectElement | null)[]>([]);
   const [localToast, setLocalToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const tasks = useTasks(uid);
+  const allBlockers = useAllBlockers(uid);
   const allProjects = useProjects(uid);
   const teamMembers = useTeamMembers(uid);
+  const [clients] = useClients(uid);
+  const [venues] = useVenues(uid);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
 
   // Close status dropdown on click outside
@@ -79,6 +95,13 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     enabled: showTeamMemberDropdown,
     onClickOutside: () => setShowTeamMemberDropdown(false),
     selector: '.team-member-dropdown-container',
+  });
+
+  // Close schedule dropdown on click outside
+  useClickOutside({
+    enabled: scheduleMenuOpen,
+    onClickOutside: () => setScheduleMenuOpen(false),
+    selector: '.schedule-dropdown-container',
   });
 
   // Local toast system for this modal
@@ -106,6 +129,9 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
 
   // Compute effective status
   const effectiveStatus = computeProjectStatus(project);
+  const activeProjectBlockers = Array.isArray(allBlockers)
+    ? allBlockers.filter((b: any) => b?.entityType === 'project' && b?.entityId === project.id && b?.status === 'active')
+    : [];
 
   // Filter tasks for this project
   const projectTasks = tasks?.filter(t => t.projectId === project.id) || [];
@@ -158,6 +184,17 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     if (reverseOrder) list.reverse();
     return list;
   };
+
+  // Render project-level blocker modal when requested
+  const renderProjectBlockerModal = () => (
+    showProjectBlockerModal ? (
+      <BlockerModal
+        uid={uid}
+        entity={{ id: project.id, title: project.title, type: 'project' }}
+        onClose={() => setShowProjectBlockerModal(false)}
+      />
+    ) : null
+  );
 
   const activeTasks = sortTasks(projectTasks.filter(t => t.status !== 'done' && t.status !== 'archived'));
   const completedTasks = sortTasks(projectTasks.filter(t => t.status === 'done'));
@@ -220,8 +257,14 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
       }
     }
     // Update local state
-    setProject(prev => ({ ...prev, [field]: value }));
-    setPendingChanges(prev => ({ ...prev, [field]: value }));
+    if (field === 'r2Number') {
+      // Mirror orderId to match R2# on edits
+      setProject(prev => ({ ...prev, r2Number: value, orderId: value } as any));
+      setPendingChanges(prev => ({ ...prev, r2Number: value, orderId: value } as any));
+    } else {
+      setProject(prev => ({ ...prev, [field]: value }));
+      setPendingChanges(prev => ({ ...prev, [field]: value }));
+    }
     setHasUnsavedChanges(true);
     
     if (nextField) {
@@ -309,6 +352,65 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
      showToast('Failed to mark complete', 'error');
    }
   };
+
+  // Scheduling generation handlers
+  const handleCreateProjectHold = async () => {
+    try {
+      // Save pending changes first so dates are current
+      if (hasUnsavedChanges && Object.keys(pendingChanges).length > 0) {
+        await updateProject(uid, project.id, pendingChanges as any);
+        setPendingChanges({});
+        setHasUnsavedChanges(false);
+      }
+      const { createProjectHoldEvent } = await import('../../services/scheduling');
+      const id = await createProjectHoldEvent(uid, uid, {
+        id: project.id,
+        title: project.title,
+        prepDate: (project as any).prepDate,
+        installDate: (project as any).installDate,
+        eventBeginDate: (project as any).eventBeginDate,
+        eventEndDate: (project as any).eventEndDate,
+        strikeDate: (project as any).strikeDate,
+        returnDate: (project as any).returnDate,
+      });
+      if (id) {
+        showToast('Project hold created', 'success');
+      } else {
+        showToast('Not enough dates to create a hold. Set at least one milestone date.', 'info');
+      }
+      setScheduleMenuOpen(false);
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to create project hold', 'error');
+    }
+  };
+
+  const handleGenerateTentativeShifts = async () => {
+    try {
+      // Save pending changes first so dates are current
+      if (hasUnsavedChanges && Object.keys(pendingChanges).length > 0) {
+        await updateProject(uid, project.id, pendingChanges as any);
+        setPendingChanges({});
+        setHasUnsavedChanges(false);
+      }
+      const { generateTentativeShiftsForProject } = await import('../../services/scheduling');
+      const ids = await generateTentativeShiftsForProject(uid, uid, {
+        id: project.id,
+        title: project.title,
+        installDate: (project as any).installDate,
+        eventBeginDate: (project as any).eventBeginDate,
+        eventEndDate: (project as any).eventEndDate,
+        strikeDate: (project as any).strikeDate,
+      });
+      if (ids && ids.length > 0) {
+        showToast(`Created ${ids.length} tentative shift${ids.length > 1 ? 's' : ''}`, 'success');
+      } else {
+        showToast('No dates available for tentative shifts. Set install/event/strike dates.', 'info');
+      }
+      setScheduleMenuOpen(false);
+    } catch (err: any) {
+      showToast(err?.message || 'Failed to generate tentative shifts', 'error');
+    }
+  };
   
   const formatDate = (date: any): string => {
     if (!date) return '-';
@@ -338,6 +440,14 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
       widthClass="max-w-6xl"
       footer={null}
     >
+      {renderProjectBlockerModal()}
+      {showProjectBlockerManager && (
+        <BlockerManagerModal
+          uid={uid}
+          entity={{ id: project.id, title: project.title, type: 'project' }}
+          onClose={() => setShowProjectBlockerManager(false)}
+        />
+      )}
       <div className="space-y-6">
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
@@ -369,13 +479,43 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (effectiveStatus === 'blocked') {
+                        setShowProjectBlockerManager(true);
+                        return;
+                      }
                       setStatusMenuOpen(!statusMenuOpen);
                     }}
                     className="hover:opacity-80 transition-opacity"
                   >
-                    <StatusBadge status={effectiveStatus} size="md" />
+                    {effectiveStatus === 'blocked' ? (
+                      (() => {
+                        const firstReason = activeProjectBlockers.length ? (typeof activeProjectBlockers[0]?.reason === 'object' ? JSON.stringify(activeProjectBlockers[0]?.reason) : (activeProjectBlockers[0]?.reason || 'Blocked')) : 'Blocked';
+                        const extraCount = activeProjectBlockers.length > 1 ? activeProjectBlockers.length - 1 : 0;
+                        const firstBlocker = activeProjectBlockers[0];
+                        return (
+                          <div
+                            onMouseEnter={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setTooltipState({
+                                visible: true,
+                                x: rect.left + rect.width / 2,
+                                y: rect.top,
+                                blockerInfo: { firstReason, firstBlocker, extraCount }
+                              });
+                            }}
+                            onMouseLeave={() => setTooltipState({ visible: false, x: 0, y: 0, blockerInfo: null })}
+                          >
+                            <Badge color="red" size="md" variant="solid" className="max-w-[320px] truncate">
+                              <span className="font-semibold">BLOCKED</span>
+                            </Badge>
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      <StatusBadge status={effectiveStatus} size="md" />
+                    )}
                   </button>
-                  {statusMenuOpen && (
+                  {statusMenuOpen && effectiveStatus !== 'blocked' && (
                     <div className="absolute left-0 top-full mt-1 w-auto bg-[rgba(20,20,30,0.95)] backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-20">
                       <button
                         onClick={async (e) => {
@@ -395,14 +535,25 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                           await handleStatusChange('planning');
                           setStatusMenuOpen(false);
                         }}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-b-lg whitespace-nowrap ${
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 whitespace-nowrap ${
                           effectiveStatus === 'planning' ? 'bg-white/5' : ''
                         }`}
                       >
                         <StatusBadge status="planning" size="md" />
                       </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowProjectBlockerModal(true);
+                          setStatusMenuOpen(false);
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-b-lg whitespace-nowrap"
+                      >
+                        <StatusBadge status="blocked" size="md" />
+                      </button>
                     </div>
                   )}
+                  
                 </div>
               ) : (
                 <StatusBadge status={effectiveStatus} size="md" />
@@ -441,6 +592,44 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Schedule actions */}
+            <div className="relative schedule-dropdown-container">
+              <button
+                onClick={(e) => { e.stopPropagation(); setScheduleMenuOpen(!scheduleMenuOpen); }}
+                className="px-3 py-2 text-sm text-cyan-400 bg-white/5 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/10 flex items-center gap-2"
+                title="Generate schedule items"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M3 11h18M5 19h14a2 2 0 002-2v-6H3v6a2 2 0 002 2z" />
+                </svg>
+                Schedule
+                <svg className={`w-3 h-3 transition-transform ${scheduleMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {scheduleMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 min-w-[220px] bg-[rgba(20,20,30,0.95)] backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-30 overflow-hidden">
+                  <button
+                    onClick={handleCreateProjectHold}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-white/10 text-white flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M3 11h18M5 19h14a2 2 0 002-2v-6H3v6a2 2 0 002 2z" />
+                    </svg>
+                    Create Project Hold
+                  </button>
+                  <button
+                    onClick={handleGenerateTentativeShifts}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-white/10 text-white flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Create Soft Shifts
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               onClick={handleArchive}
               className="px-3 py-2 text-sm text-gray-300 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 flex items-center gap-2"
@@ -855,6 +1044,69 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                           className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
                         >
                           {formatDate(project.returnDate)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {/* Client / Venue */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Client</label>
+                      {editingField === 'clientId' ? (
+                        <select
+                          autoFocus
+                          value={project.clientId || ''}
+                          onChange={(e) => handleUpdate('clientId', e.target.value || null)}
+                          onBlur={(e) => handleUpdate('clientId', (e.target as HTMLSelectElement).value || null)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === 'Escape') setEditingField(null);
+                          }}
+                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none [&>option]:bg-gray-900"
+                        >
+                          <option value="">— Not set —</option>
+                          {(clients || []).map((c) => (
+                            <option key={c.id} value={c.id as string}>{(c as any).name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div
+                          onClick={() => setEditingField('clientId')}
+                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
+                        >
+                          {(() => {
+                            const name = (clients || []).find((c) => c.id === (project as any).clientId)?.name;
+                            return name || 'Not set';
+                          })()}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Venue</label>
+                      {editingField === 'venueId' ? (
+                        <select
+                          autoFocus
+                          value={project.venueId || ''}
+                          onChange={(e) => handleUpdate('venueId', e.target.value || null)}
+                          onBlur={(e) => handleUpdate('venueId', (e.target as HTMLSelectElement).value || null)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === 'Escape') setEditingField(null);
+                          }}
+                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none [&>option]:bg-gray-900"
+                        >
+                          <option value="">— Not set —</option>
+                          {(venues || []).map((v) => (
+                            <option key={v.id} value={v.id as string}>{(v as any).name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div
+                          onClick={() => setEditingField('venueId')}
+                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
+                        >
+                          {(() => {
+                            const name = (venues || []).find((v) => v.id === (project as any).venueId)?.name;
+                            return name || 'Not set';
+                          })()}
                         </div>
                       )}
                     </div>
@@ -1449,6 +1701,44 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
             </div>
           </div>
         </div>
+      )}
+      
+      {/* Portal tooltip for blocked status */}
+      {tooltipState.visible && tooltipState.blockerInfo && createPortal(
+        <div
+          style={{
+            position: 'fixed',
+            left: `${tooltipState.x}px`,
+            top: `${tooltipState.y - 10}px`,
+            transform: 'translate(-50%, -100%)',
+            zIndex: 99999,
+            pointerEvents: 'none'
+          }}
+          className="px-3 py-2 bg-gray-900/95 border border-red-500/30 rounded-lg shadow-xl w-64"
+        >
+          <div className="text-xs text-red-400 font-semibold mb-1">
+            Blocked: {tooltipState.blockerInfo.firstReason}
+          </div>
+          {tooltipState.blockerInfo.firstBlocker?.waitingOn && (
+            <div className="text-xs text-gray-300 mb-1">
+              <span className="text-gray-400">Waiting on:</span> {tooltipState.blockerInfo.firstBlocker.waitingOn}
+            </div>
+          )}
+          {tooltipState.blockerInfo.firstBlocker?.expectedDate && (
+            <div className="text-xs text-gray-300 mb-1">
+              <span className="text-gray-400">Expected:</span>{' '}
+              {typeof tooltipState.blockerInfo.firstBlocker.expectedDate === 'object' && 'toDate' in tooltipState.blockerInfo.firstBlocker.expectedDate
+                ? tooltipState.blockerInfo.firstBlocker.expectedDate.toDate().toLocaleDateString()
+                : new Date(tooltipState.blockerInfo.firstBlocker.expectedDate).toLocaleDateString()}
+            </div>
+          )}
+          {tooltipState.blockerInfo.extraCount > 0 && (
+            <div className="text-xs text-gray-400 mt-1">
+              +{tooltipState.blockerInfo.extraCount} more blocker{tooltipState.blockerInfo.extraCount > 1 ? 's' : ''}
+            </div>
+          )}
+        </div>,
+        document.body
       )}
     </Modal>
   );

@@ -16,6 +16,7 @@ import { logError } from "../utils/logger";
 import type { WithId, Task, Project, Subtask, RecurrencePattern, TaskAttachment } from "../types";
 import { updateTask } from "../services/tasks";
 import { logActivity } from "../services/activityHistory";
+import { generateAssigneeSuggestions, type AssigneeSuggestion } from "../utils/assigneeSuggestions";
 
 type Props = {
   uid: string;
@@ -77,6 +78,11 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [statusDropdownPos, setStatusDropdownPos] = useState<{ top: number; left: number } | null>(null);
   
+  // Assignee dropdown state
+  const [showAssigneeDropdown, setShowAssigneeDropdown] = useState(false);
+  const assigneeButtonRef = useRef<HTMLButtonElement>(null);
+  const [assigneeDropdownPos, setAssigneeDropdownPos] = useState<{ top: number; left: number } | null>(null);
+  
   // Track if any field has changed
   const hasUnsavedChanges = useCallback(() => {
     return (
@@ -99,6 +105,40 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     task.assignee, task.comments, task.subtasks, task.dependencies, task.recurrence,
     task.attachments
   ]);
+  
+  // Generate assignee suggestions
+  const suggestions: AssigneeSuggestion[] = React.useMemo(() => {
+    if (!allTasks || !teamMembers) return [];
+    
+    return generateAssigneeSuggestions({
+      taskTitle: title,
+      taskDescription: description,
+      projectId: projectId || null,
+      allTasks,
+      allTeamMembers: teamMembers,
+      allProjects,
+    });
+  }, [title, description, projectId, allTasks, teamMembers, allProjects]);
+  
+  // Position assignee dropdown when it opens
+  useEffect(() => {
+    if (showAssigneeDropdown && assigneeButtonRef.current) {
+      const rect = assigneeButtonRef.current.getBoundingClientRect();
+      setAssigneeDropdownPos({ top: rect.bottom + 4, left: rect.left });
+    } else {
+      setAssigneeDropdownPos(null);
+    }
+  }, [showAssigneeDropdown]);
+  
+  // Close assignee dropdown on click outside
+  useClickOutside({
+    enabled: showAssigneeDropdown,
+    selector: `[data-assignee-dropdown="${task.id}"]`,
+    onClickOutside: () => {
+      setShowAssigneeDropdown(false);
+    },
+  });
+  
   // Handle keyboard shortcuts
   useKeydown(
     {
@@ -853,19 +893,94 @@ export const TaskEditForm: React.FC<Props> = (props) => {
 
             <div className="lg:col-span-1">
               <label className="block text-xs font-medium text-brand-text mb-1">Assignee</label>
-              <select
-                className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan [&>option]:bg-gray-800 [&>option]:text-brand-text"
-                value={assignee}
-                onChange={e => setAssignee(e.target.value)}
-                onBlur={triggerAutosave}
+              <button
+                ref={assigneeButtonRef}
+                type="button"
+                className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan text-left flex items-center justify-between hover:bg-gray-800/60 transition-colors"
+                onClick={() => setShowAssigneeDropdown(!showAssigneeDropdown)}
               >
-                <option value="" className="bg-gray-800 text-brand-text">— Unassigned —</option>
-                {teamMembers?.filter(m => m.active).map((member) => (
-                  <option key={member.id} value={member.name} className="bg-gray-800 text-brand-text">
-                    {member.name} {member.title ? `(${member.title})` : ''}
-                  </option>
-                ))}
-              </select>
+                <span className="truncate">{assignee || '— Unassigned —'}</span>
+                <svg className="w-4 h-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              
+              {/* Assignee Dropdown with Suggestions - rendered via portal */}
+              {showAssigneeDropdown && createPortal(
+                <div
+                  data-assignee-dropdown={task.id}
+                  className="fixed bg-gray-800/95 border border-brand-cyan/50 rounded-lg shadow-xl py-1 z-[9999] min-w-[280px] max-h-[400px] overflow-y-auto backdrop-blur-xl"
+                  style={{ 
+                    top: assigneeDropdownPos ? `${assigneeDropdownPos.top}px` : '0px',
+                    left: assigneeDropdownPos ? `${assigneeDropdownPos.left}px` : '0px'
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Suggestions Section */}
+                  {suggestions.length > 0 && (
+                    <>
+                      <div className="px-3 py-1.5 text-xs font-semibold text-brand-cyan uppercase tracking-wide flex items-center gap-1.5">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                        </svg>
+                        Suggested
+                      </div>
+                      {suggestions.map((suggestion) => (
+                        <button
+                          key={suggestion.memberId}
+                          type="button"
+                          className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex flex-col gap-1 border-l-2 border-brand-cyan/50"
+                          onClick={() => {
+                            setAssignee(suggestion.memberName);
+                            setShowAssigneeDropdown(false);
+                            triggerAutosave();
+                          }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-brand-text">{suggestion.memberName}</span>
+                            <span className="text-xs px-1.5 py-0.5 rounded bg-brand-cyan/20 text-brand-cyan font-semibold">
+                              {suggestion.confidence}%
+                            </span>
+                          </div>
+                          <span className="text-xs text-brand-text/60">{suggestion.primaryReason}</span>
+                        </button>
+                      ))}
+                      <div className="border-t border-white/10 my-1"></div>
+                    </>
+                  )}
+                  
+                  {/* All Team Members */}
+                  <button
+                    type="button"
+                    className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 text-sm text-brand-text/60"
+                    onClick={() => {
+                      setAssignee("");
+                      setShowAssigneeDropdown(false);
+                      triggerAutosave();
+                    }}
+                  >
+                    — Unassigned —
+                  </button>
+                  {teamMembers?.filter(m => m.active).map((member) => (
+                    <button
+                      key={member.id}
+                      type="button"
+                      className={`w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center justify-between text-sm text-brand-text ${
+                        assignee === member.name ? 'bg-brand-cyan/20' : ''
+                      }`}
+                      onClick={() => {
+                        setAssignee(member.name);
+                        setShowAssigneeDropdown(false);
+                        triggerAutosave();
+                      }}
+                    >
+                      <span>{member.name}</span>
+                      {member.title && <span className="text-xs text-brand-text/60">({member.title})</span>}
+                    </button>
+                  ))}
+                </div>,
+                document.body
+              )}
             </div>
 
             <div className="lg:col-span-1">
