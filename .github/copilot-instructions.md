@@ -85,9 +85,19 @@
 
 ### Projects View (`ProjectsView.tsx`)
 - Three display modes: Cards, List, Kanban
-- **Cards View:** Grid with status stripes, clickable status badge to toggle Not Started/Planning, context menu (archive, delete)
-- **List View:** Table with inline editing (dates, PM, R2#), visual save feedback
-- **Kanban View:** 5 columns by effectiveStatus (not_started, planning, executing, post_event, completed)
+- **Cards View:** 
+  - Grid layout (1/2/3/4 columns responsive) with vertical status bar on left edge
+  - 5-line condensed layout: Title, Status + R2# + Menu, PM + Team, Dates, Client + Venue
+  - Clickable status badge to toggle Not Started/Planning (before prep date)
+  - Context menu (archive, delete)
+  - Sign-Off status shown as orange animated pill with checkmark icon
+- **List View:** 
+  - Table with inline editing (dates, PM, R2 number), visual save feedback
+  - Sign-Off status shown as orange animated pill
+- **Kanban View:** 
+  - 6 columns by effectiveStatus (not_started, planning, executing, blocked, post_event/Sign-Off, completed)
+  - Sign-Off column contains all post_event projects
+- **Real-Time Updates:** Clients and venues use Firestore listeners for automatic updates
 - Status is purely automatic based on dates (with manual toggle for Not Started/Planning before prep date)
 - Filter and search functionality
 
@@ -180,9 +190,9 @@
 - **Shift pay fields removed** — pay rates now stored in team member profiles, not individual shifts
 
 ## Documentation
-- **[README.md](../README.md)** — Current project overview and developer guide
-- **[docs/ARCHIVE.md](../docs/ARCHIVE.md)** — Historical documentation (auth restructure, migrations, UI evolution)
-- **[docs/SECURITY_RULES.md](../docs/SECURITY_RULES.md)** — Firestore security rules configuration
+- **README.md** — Current project overview and developer guide
+- **docs/ARCHIVE.md** — Historical documentation (auth restructure, migrations, UI evolution)
+- **docs/SECURITY_RULES.md** — Firestore security rules configuration
 
 ---
 For questions or unclear patterns, review `src/services/` and `src/components/views/` for canonical usage.

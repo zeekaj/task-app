@@ -12,7 +12,7 @@ interface ClientsViewProps {
 }
 
 export function ClientsView({ uid }: ClientsViewProps) {
-  const [clients, refetchClients] = useClients(uid);
+  const [clients] = useClients(uid);
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<WithId<Client> | null>(null);
@@ -99,7 +99,7 @@ export function ClientsView({ uid }: ClientsViewProps) {
       toast.success('Client created');
       resetForm();
       setCreateOpen(false);
-      refetchClients(); // Refresh the list
+  // Real-time listener will update the list automatically
     } catch (err) {
       console.error('Failed to create client:', err);
       toast.error('Failed to create client');
@@ -142,7 +142,7 @@ export function ClientsView({ uid }: ClientsViewProps) {
       toast.success('Client updated');
       resetForm();
       setEditingClient(null);
-      refetchClients(); // Refresh the list
+  // Real-time listener will update the list automatically
     } catch (err) {
       toast.error('Failed to update client');
     }
@@ -160,7 +160,7 @@ export function ClientsView({ uid }: ClientsViewProps) {
       toast.success(`Deleted ${clientToDelete.name}`);
       setDeleteConfirmOpen(false);
       setClientToDelete(null);
-      refetchClients(); // Refresh the list
+  // Real-time listener will update the list automatically
     } catch (err) {
       toast.error('Failed to delete client');
     }

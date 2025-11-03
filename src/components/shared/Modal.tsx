@@ -1,5 +1,6 @@
 // src/components/shared/Modal.tsx
 import type { ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useEffect } from 'react';
 import { useKeydown } from '../../hooks/useKeydown';
 
@@ -24,11 +25,12 @@ export function Modal({ open, title, onClose, children, footer, widthClass = 'ma
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
+  const modalContent = (
+    <div className="fixed inset-0 z-50 overflow-y-auto" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70" />
-      <div className={`relative w-full ${widthClass} bg-[rgba(20,20,30,0.95)] backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl shadow-black/50`}
-           onClick={(e) => e.stopPropagation()}>
+      <div className="flex min-h-full items-center justify-center p-4">
+        <div className={`relative w-full ${widthClass} max-h-[90vh] bg-[rgba(20,20,30,0.95)] backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl shadow-black/50 flex flex-col`}
+             onClick={(e) => e.stopPropagation()}>
         {title && (
           <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between">
             <h3 className="text-white text-lg font-semibold">{title}</h3>
@@ -39,7 +41,7 @@ export function Modal({ open, title, onClose, children, footer, widthClass = 'ma
             </button>
           </div>
         )}
-        <div className="px-6 py-5">
+        <div className="px-6 py-5 overflow-y-auto">
           {children}
         </div>
         {footer && (
@@ -47,7 +49,10 @@ export function Modal({ open, title, onClose, children, footer, widthClass = 'ma
             {footer}
           </div>
         )}
+        </div>
       </div>
     </div>
   );
+
+  return createPortal(modalContent, document.body);
 }

@@ -1,14 +1,15 @@
 # Development Roadmap - Task Management App
 
-**Last Updated:** October 30, 2025  
-**App Type:** Single-user productivity tool for production/event management
+Last Updated: November 3, 2025
+
+App Type: Multi-user, organization-based production/event management with role-based access and real-time collaboration
 
 ## Core Philosophy
-This is a personal productivity application designed for one user to manage production events, technical projects, and team coordination. All features should focus on individual efficiency, not collaboration.
+This is a multi-user application for organizations coordinating projects, tasks, shifts, and post-event processes. Optimize for team efficiency, operational clarity, and reliability. Preserve simplicity in the client (no server-side), leverage Firestore real-time updates, and keep role-based access tight via security rules.
 
 ---
 
-## ✅ Completed Features (October 2025)
+## ✅ Completed Features (Oct–Nov 2025)
 
 - ✅ Core task management (create, edit, archive, delete)
 - ✅ Project management with date-based status transitions
@@ -22,6 +23,25 @@ This is a personal productivity application designed for one user to manage prod
 - ✅ Undo functionality
 - ✅ Search within projects
 
+### Oct 30, 2025 — Project Detail Modal Parity
+- TaskItem/TaskEditForm used inside modal for full interaction parity
+- Arrange-by sorting controls with reverse toggle (no filters in modal)
+- Team member avatars displayed in modal header
+- Activity tab shows project-level history
+
+### Oct 31, 2025 — Shift Scheduling System
+- Data layer + hooks for real-time shifts
+- Two modals: GenericShiftModal and ProjectShiftModal
+- Weekly grid with team-as-rows, dates-as-columns
+- Freelancer management patterns
+- FloatingDropdown extracted as reusable component
+
+### Nov 3, 2025 — Projects View Enhancements
+- Real-time clients/venues via onSnapshot
+- Card layout rebuilt: 5-line design, vertical left status bar, icons
+- Create Project Modal parity with Autocomplete + inline entity creation
+- Sign-Off visualization for `post_event` across Cards, List, Kanban
+
 ### New on October 30, 2025
 - ✅ Project Detail Modal parity with Tasks view
   - TaskItem/TaskEditForm used inside modal for full interaction parity
@@ -31,9 +51,9 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-## 🎯 Priority 1: Foundation & Polish (Weeks 1-4)
+## 🎯 Near-Term Priorities
 
-### 1. Functional Dashboard (Week 1)
+### 1. Functional Dashboard
 **Goal:** Replace placeholder data with real metrics
 
 **Tasks:**
@@ -48,7 +68,7 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-### 2. AI Task Allocation Engine v1 (Weeks 2-3)
+### 2. AI Task Allocation Engine v1
 **Goal:** Smart task assignment based on skills and workload
 
 **Features:**
@@ -72,7 +92,7 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-### 3. Testing Infrastructure (Week 4)
+### 3. Testing Infrastructure
 **Goal:** Add test coverage for critical business logic
 
 **Setup:**
@@ -94,9 +114,22 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-## 🚀 Priority 2: Enhanced Productivity (Weeks 5-8)
+## 🚀 Scheduling & Projects Enhancements
 
-### 4. Advanced Filtering & Saved Views (Week 5)
+### 4. Shift Templates and Scheduling UX
+**Goal:** Faster creation and management of common shift patterns
+
+**Features:**
+- [ ] Shift templates for load-in/event/strike crews
+- [ ] Apply templates to a project/week with one click
+- [ ] Drag-and-drop reassignment across members/days
+- [ ] Copy/paste shifts and bulk edit
+- [ ] Conflict detection (double-booking alerts)
+- [ ] Optional notifications (in-app first)
+
+**Deliverable:** Reduce time to build weekly schedules; prevent conflicts
+
+### 5. Advanced Filtering & Saved Views
 **Goal:** Find information faster
 
 **Features:**
@@ -119,7 +152,7 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-### 5. Task Comments & Notes (Week 6)
+### 6. Task Comments & Notes
 **Goal:** Keep context with tasks (no collaboration features)
 
 **Features:**
@@ -131,13 +164,13 @@ This is a personal productivity application designed for one user to manage prod
 - [ ] Show comment count on task cards
 - [ ] Activity log integration
 
-**Note:** No @mentions, no notifications - just personal notes
+**Note:** Team-visible comments with role-appropriate read/write; no email notifications initially
 
 **Deliverable:** Tasks and projects contain all relevant context
 
 ---
 
-### 6. File Attachments (Week 7)
+### 7. File Attachments
 **Goal:** Link files to tasks and projects
 
 **Features:**
@@ -155,7 +188,7 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-### 7. Gantt Chart View (Week 8)
+### 8. Gantt Chart View
 **Goal:** Visual timeline for projects
 
 **Features:**
@@ -173,9 +206,9 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-## 📊 Priority 3: Insights & Optimization (Weeks 9-12)
+## 📊 Insights & Optimization
 
-### 8. Performance Optimization (Week 9)
+### 9. Performance Optimization
 **Goal:** Fast and responsive at scale
 
 **Improvements:**
@@ -198,7 +231,7 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-### 9. Advanced Project Features (Week 10)
+### 10. Advanced Project Features
 **Goal:** More powerful project management
 
 **Features:**
@@ -223,7 +256,7 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-### 10. Personal Insights Dashboard (Week 11)
+### 11. Personal Insights Dashboard
 **Goal:** "Problem dashboard" for identifying issues
 
 **Features:**
@@ -242,9 +275,9 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-## 🎨 Priority 4: Refinement (Weeks 12-14)
+## 🎨 Refinement
 
-### 11. UI/UX Polish
+### 12. UI/UX Polish
 **Improvements:**
 - [ ] Keyboard shortcuts
   - Command palette (Cmd+K)
@@ -269,7 +302,7 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-### 12. Advanced Search
+### 13. Advanced Search
 **Features:**
 - [ ] Natural language search
   - "High priority tasks due this week"
@@ -308,7 +341,7 @@ This is a personal productivity application designed for one user to manage prod
 ---
 
 ### Time Tracking
-**Status:** Not desired at this time
+Status: Not planned short-term
 
 ---
 
@@ -333,22 +366,13 @@ This is a personal productivity application designed for one user to manage prod
 
 ---
 
-## 🚫 Out of Scope
+## 🚫 Out of Scope (for now)
 
-These features are **not planned** based on single-user focus:
-
-- ❌ Real-time collaboration
-- ❌ User presence indicators
-- ❌ Team chat/messaging
-- ❌ Shared team workspaces
-- ❌ Permission management (beyond single owner)
-- ❌ Mobile-specific design
-- ❌ Push notifications (no multi-device)
-- ❌ Email notifications to others
-- ❌ Multi-organization support
+- ❌ Mobile-specific design (desktop-focused)
+- ❌ External email/push notifications (start with in-app only)
 - ❌ Client portals
-- ❌ GDPR compliance features
-- ❌ Two-factor authentication
+- ❌ Complex compliance tooling (GDPR exports, etc.)
+- ❌ Voice/AI chat operations
 
 ---
 
@@ -378,6 +402,6 @@ These features are **not planned** based on single-user focus:
 
 ## Next Steps
 
-1. ✅ Update documentation to reflect single-user design
-2. ⏭️ Start Priority 1, Week 1: Functional Dashboard
-3. ⏭️ Set up project tracking (use this app to manage this app!)
+1. ✅ Documentation aligned with multi-user app and recent changes
+2. ⏭️ Start Dashboard metrics wiring
+3. ⏭️ Implement shift templates and basic conflict detection

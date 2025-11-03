@@ -46,7 +46,7 @@ export async function createProject(uid: string, title: string, assignees?: stri
 export async function updateProject(
   uid: string,
   projectId: string,
-  data: Partial<Pick<Project, "title" | "status" | "statusMode" | "assignee" | "assignees" | "owner" | "projectManager" | "r2Number" | "installDate" | "prepDate" | "returnDate">>
+  data: Partial<Pick<Project, "title" | "status" | "statusMode" | "assignee" | "assignees" | "owner" | "projectManager" | "r2Number" | "installDate" | "prepDate" | "returnDate" | "postEventReport" | "clientId" | "venueId">>
 ) {
   // Get current project for change tracking
   const { getDoc: _getDoc, doc: _doc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
@@ -172,6 +172,32 @@ export async function updateProject(
       changes.returnDate = { 
         from: currentReturnDate ? currentReturnDate.toISOString() : null, 
         to: newReturnDate ? newReturnDate.toISOString() : null 
+      };
+    }
+  }
+
+  if (typeof (data as any).postEventReport !== "undefined") {
+    (payload as any).postEventReport = (data as any).postEventReport;
+    const hadPrev = !!(currentProject as any)?.postEventReport;
+    changes.postEventReport = { from: hadPrev ? '[existing]' : null, to: '[report]' } as any;
+  }
+  
+  if (typeof data.clientId !== "undefined") {
+    payload.clientId = data.clientId;
+    if (currentProject?.clientId !== data.clientId) {
+      changes.clientId = { 
+        from: currentProject?.clientId || null, 
+        to: data.clientId || null 
+      };
+    }
+  }
+  
+  if (typeof data.venueId !== "undefined") {
+    payload.venueId = data.venueId;
+    if (currentProject?.venueId !== data.venueId) {
+      changes.venueId = { 
+        from: currentProject?.venueId || null, 
+        to: data.venueId || null 
       };
     }
   }

@@ -1,35 +1,46 @@
 // src/hooks/useVenues.ts
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import type { Venue, WithId } from '../types';
-import { listVenues } from '../services/venues';
+import { getFirebase } from '../firebase';
 
-export function useVenues(orgId: string): [WithId<Venue>[] | null, () => void] {
+export function useVenues(orgId: string): [WithId<Venue>[] | null] {
   const [venues, setVenues] = useState<WithId<Venue>[] | null>(null);
-  const [refetchTrigger, setRefetchTrigger] = useState(0);
-
-  const refetch = useCallback(() => {
-    setRefetchTrigger(prev => prev + 1);
-  }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!orgId) {
+      setVenues([]);
+      return;
+    }
+
+    let unsubscribe: (() => void) | undefined;
+
     (async () => {
       try {
-        if (!orgId) {
-          setVenues([]);
-          return;
-        }
-        const items = await listVenues(orgId);
-        if (!cancelled) setVenues(items as WithId<Venue>[]);
-      } catch (e) {
-        console.error('Failed to load venues', e);
-        if (!cancelled) setVenues([]);
+        const { onSnapshot, query, where } = await import('firebase/firestore');
+        const fb = await getFirebase();
+        const ref = fb.col(orgId, 'venues');
+        const q = query(ref, where('active', '==', true));
+
+        unsubscribe = onSnapshot(
+          q,
+          (snapshot: any) => {
+            const items = snapshot.docs.map((doc: any) => ({
+              id: doc.id,
+              ...doc.data(),
+            })) as WithId<Venue>[];
+            setVenues(items);
+          }
+        );
+      } catch (error) {
+        console.error('Failed to setup venues listener', error);
+        setVenues([]);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, refetchTrigger]);
 
-  return [venues, refetch];
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [orgId]);
+
+  return [venues];
 }

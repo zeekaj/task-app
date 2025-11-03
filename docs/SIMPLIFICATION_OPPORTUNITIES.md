@@ -1,6 +1,10 @@
 # Code Simplification Opportunities
 
-**Purpose:** Document areas where the codebase can be simplified for single-user usage while maintaining the existing data model for future flexibility.
+Status: Archived — superseded by multi-user architecture (Updated Nov 3, 2025)
+
+Note: This document was authored during a single-user exploration. The app is now multi-user and organization-based. Do not remove the organization membership mirror or role-based checks; they are required by the current Firestore security rules. Keep real-time listeners for primary views. See `docs/SECURITY_RULES.md` for the authoritative rules and `.github/copilot-instructions.md` for current patterns.
+
+**Purpose (historical):** Document areas where the codebase could have been simplified for a hypothetical single-user usage. Kept for historical context only.
 
 **Date:** October 29, 2025
 

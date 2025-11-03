@@ -42,6 +42,8 @@ export interface Project {
   strikeDate?: Timestamp | Date | string; // Strike Date - teardown/strike
   pickupDate?: Timestamp | Date | string; // Pickup Date - equipment pickup
   returnDate?: Timestamp | Date | string; // Return Date - when project moves to 'post_event'
+  // Post-event report (completed by PM)
+  postEventReport?: PostEventReport;
   createdAt?: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
 }
@@ -112,6 +114,28 @@ export interface Blocker {
 
 export type WithId<T> = T & { id: string };
 
+// Post-Event Report
+export interface PostEventReport {
+  summary: string;
+  highlights?: string;
+  issuesAndResolutions?: string;
+  clientFeedback?: string;
+  followUps?: string;
+  budgetNotes?: string;
+  status: 'draft' | 'submitted';
+  // Checklist items - all required before signing
+  documentsOrganized: boolean;
+  photosUploaded: boolean;
+  deliverablesDelivered: boolean;
+  orderCleanedForInvoicing: boolean;
+  signedById: string; // uid
+  signedByName: string; // PM display name
+  signatureImage?: string; // base64 image data from signature canvas
+  signedAt: Timestamp | Date | string;
+  createdAt?: Timestamp | FieldValue;
+  updatedAt?: Timestamp | FieldValue;
+}
+
 /** Activity/Audit Trail */
 export type ActivityType = "created" | "updated" | "status_changed" | "assigned" | "blocked" | "unblocked" | "archived" | "deleted";
 export type ActivityEntityType = "task" | "project" | "team" | "schedule";
@@ -161,7 +185,8 @@ export interface TeamMember {
   email: string;
   phone?: string; // Phone number in (123) 456-7890 format
   role: TeamMemberRole;
-  jobTitle?: JobTitle;
+  jobTitle?: JobTitle; // Primary job title
+  approvedPositions?: JobTitle[]; // All positions this member is approved to work
   employmentType: "W2_Salaried" | "W2_Hourly" | "1099";
   payProfile?: {
     type: "hourly" | "day_rate" | "salaried";

@@ -21,6 +21,34 @@ A collaborative task and project management application for production and event
 - **Search**: Full-text search across tasks and projects
 - **Undo**: Revert the last change to any task or project
 
+## Recent Changes (November 2025)
+
+### Projects View Enhancements (November 3, 2025)
+- **Real-Time Data Updates**: Converted client and venue data to use Firestore real-time listeners
+  - `useClients` and `useVenues` hooks now use `onSnapshot` instead of one-time fetches
+  - Automatic UI updates when clients/venues are modified in any view
+  - Removed manual refetch plumbing across all components
+- **Card Layout Redesign**: Completely restructured project cards for better information density
+  - Moved status bar from horizontal (top) to vertical (left side)
+  - 5-line condensed layout:
+    - Line 1: Event title (standalone, prominent)
+    - Line 2: Status pill + R2# + actions menu
+    - Line 3: PM + team avatars
+    - Line 4: Prep and return dates with icons
+    - Line 5: Client and venue with icons
+  - Responsive grid: 1 column (mobile) → 2 (tablet) → 3 (desktop) → 4 (xl screens)
+- **Create Project Modal Enhancement**: Added Autocomplete components for client/venue selection
+  - Searchable dropdowns with sublabels (contact name for clients, location for venues)
+  - Inline creation modals for new clients/venues
+  - Automatically sets newly created entity as selected value
+  - Matches edit modal functionality for consistency
+- **Sign-Off Status Visualization**: Replaced generic "Post-Event" status with attention-grabbing Sign-Off indicator
+  - Orange animated pill with checkmark icon for all post_event status projects
+  - Consistent across Cards, List, and Kanban views
+  - Replaces previous red sign-off badge approach
+  - Filter tab and Kanban column labeled "Sign-Off"
+  - Informational only (cannot be clicked to change status)
+
 ## Recent Changes (October 2025)
 
 ### Shift Scheduling System (October 31, 2025)
@@ -140,6 +168,9 @@ npm run preview
   - Stop the dev task and start it again with `npm run dev`.
   - Close the browser tab and reopen via the Ports panel.
 - Alternative: Preview the production build with `npm run preview` (also bound to port 5173).
+ - If the page is blank/unloading unexpectedly:
+   - Ensure only one dev server is running (stale processes can cause HMR/page reload loops).
+   - Stop all dev servers, confirm port 5173 is free, then start `npm run dev` again.
 
 ### Filter System
 - Status filter includes "active" pseudo-status mapping to not_started + in_progress

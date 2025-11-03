@@ -8,107 +8,151 @@ interface CardsViewProps {
   onEdit: (member: WithId<TeamMember>) => void;
   onDelete: (id: string, name: string) => void;
   getRoleBadge: (role: TeamMemberRole | 'member') => JSX.Element | null;
-  getTopSkills: (skills?: SkillAssessment) => { name: string; value: number; }[];
 }
 
-function CardsView({ members, isAdmin, onEdit, onDelete, getRoleBadge, getTopSkills }: CardsViewProps) {
+function CardsView({ members, isAdmin, onEdit, onDelete, getRoleBadge }: CardsViewProps) {
+  // Separate team members and freelancers
+  const teamMembers = members.filter(m => m.role !== 'freelance');
+  const freelancers = members.filter(m => m.role === 'freelance');
+
+  const renderMemberCard = (member: WithId<TeamMember>) => (
+    <Card 
+      key={member.id} 
+      padding="lg" 
+      className="hover:border-cyan-500/50 hover:bg-white/5 transition-all duration-200 cursor-pointer relative group"
+      onClick={() => onEdit(member)}
+    >
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className={`w-12 h-12 rounded-full ${
+            member.role === 'freelance' 
+              ? 'bg-gradient-to-br from-purple-500 to-pink-500' 
+              : 'bg-gradient-to-br from-cyan-500 to-blue-500'
+          } flex items-center justify-center text-white font-bold text-lg`}>
+            {member.name.charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <h3 className="text-white font-semibold">{member.name}</h3>
+            {member.title && (
+              <p className="text-xs text-gray-400">{member.title}</p>
+            )}
+          </div>
+        </div>
+        {getRoleBadge(member.role)}
+      </div>
+
+      <div className="flex items-start gap-4 mb-3">
+        {member.phone && (
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+            </svg>
+            <span className="truncate">{member.phone}</span>
+          </div>
+        )}
+        {member.email && (
+          <div className="flex items-center gap-2 text-sm text-gray-400 flex-1">
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            <span className="truncate">{member.email}</span>
+          </div>
+        )}
+      </div>
+
+      <div className="mb-3">
+        <div className="flex justify-between items-center text-xs gap-4">
+          <div className="flex flex-col flex-1">
+            <div className="flex items-center gap-1 mb-1">
+              <span className="text-gray-400">Availability</span>
+              <span className="text-brand-success font-semibold">{member.availability || 100}%</span>
+            </div>
+            <div className="w-full h-2 rounded-full bg-gray-700 overflow-hidden">
+              <div
+                className="h-2 rounded-full"
+                style={{
+                  width: `${Math.max(0, Math.min(100, member.availability || 100))}%`,
+                  background: 'linear-gradient(90deg, #10b981 0%, #10b981 80%, #4b5563 100%)',
+                  transition: 'width 0.3s'
+                }}
+              />
+            </div>
+          </div>
+          <div className="flex flex-col flex-1">
+            <div className="flex items-center gap-1 mb-1">
+              <span className="text-gray-400">Workload</span>
+              <span className="text-yellow-400 font-semibold">{member.workload || 0}%</span>
+            </div>
+            <div className="w-full h-2 rounded-full bg-gray-700 overflow-hidden">
+              <div
+                className="h-2 rounded-full"
+                style={{
+                  width: `${Math.max(0, Math.min(100, member.workload || 0))}%`,
+                  background: 'linear-gradient(90deg, #f59e0b 0%, #f59e0b 80%, #4b5563 100%)',
+                  transition: 'width 0.3s'
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {member.approvedPositions && member.approvedPositions.length > 0 && (
+        <div className="mb-4">
+          <p className="text-xs text-gray-500 mb-2">Approved Positions</p>
+          <div className="flex flex-wrap gap-1">
+            {member.approvedPositions.map((position) => (
+              <span key={position} className="px-2 py-1 bg-cyan-500/10 border border-cyan-500/30 rounded text-xs text-cyan-300 font-medium">
+                {position}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {isAdmin && (
+        <div 
+          className="absolute right-4 bottom-4" 
+          onClick={(e) => e.stopPropagation()}
+        >
+          <MenuButton
+            onEdit={() => onEdit(member)}
+            onRemove={() => onDelete(member.id, member.name)}
+            disabledEdit={!isAdmin}
+            disabledRemove={!isAdmin || member.role === 'owner'}
+          />
+        </div>
+      )}
+    </Card>
+  );
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {members.map((member) => (
-        <Card key={member.id} padding="lg" className="hover:border-cyan-500/30 transition-colors">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center text-white font-bold text-lg">
-                {member.name.charAt(0).toUpperCase()}
-              </div>
-              <div>
-                <h3 className="text-white font-semibold">{member.name}</h3>
-                {member.title && (
-                  <p className="text-xs text-gray-400">{member.title}</p>
-                )}
-              </div>
-            </div>
-            {getRoleBadge(member.role)}
+    <div className="space-y-8">
+      {/* Team Members Section */}
+      {teamMembers.length > 0 && (
+        <div>
+          <div className="flex items-center gap-3 mb-4">
+            <h2 className="text-xl font-semibold text-white">Team Members</h2>
+            <Badge color="blue" size="sm">{teamMembers.length}</Badge>
           </div>
-
-          {member.email && (
-            <div className="flex items-center gap-2 text-sm text-gray-400 mb-2">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-              <span className="truncate">{member.email}</span>
-            </div>
-          )}
-
-          {member.phone && (
-            <div className="flex items-center gap-2 text-sm text-gray-400 mb-3">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-              </svg>
-              <span className="truncate">{member.phone}</span>
-            </div>
-          )}
-
-          <div className="mb-3">
-            <div className="flex justify-between items-center text-xs gap-4">
-              <div className="flex flex-col flex-1">
-                <div className="flex items-center gap-1 mb-1">
-                  <span className="text-gray-400">Availability</span>
-                  <span className="text-brand-success font-semibold">{member.availability || 100}%</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-gray-700 overflow-hidden">
-                  <div
-                    className="h-2 rounded-full"
-                    style={{
-                      width: `${Math.max(0, Math.min(100, member.availability || 100))}%`,
-                      background: 'linear-gradient(90deg, #10b981 0%, #10b981 80%, #4b5563 100%)',
-                      transition: 'width 0.3s'
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="flex flex-col flex-1">
-                <div className="flex items-center gap-1 mb-1">
-                  <span className="text-gray-400">Workload</span>
-                  <span className="text-yellow-400 font-semibold">{member.workload || 0}%</span>
-                </div>
-                <div className="w-full h-2 rounded-full bg-gray-700 overflow-hidden">
-                  <div
-                    className="h-2 rounded-full"
-                    style={{
-                      width: `${Math.max(0, Math.min(100, member.workload || 0))}%`,
-                      background: 'linear-gradient(90deg, #f59e0b 0%, #f59e0b 80%, #4b5563 100%)',
-                      transition: 'width 0.3s'
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {teamMembers.map(renderMemberCard)}
           </div>
+        </div>
+      )}
 
-          {getTopSkills(member.skills).length > 0 && (
-            <div className="mb-4">
-              <p className="text-xs text-gray-500 mb-2">Top Skills</p>
-              <div className="flex flex-wrap gap-1">
-                {getTopSkills(member.skills).map((skill) => (
-                  <span key={skill.name} className="px-2 py-1 bg-white/5 border border-white/10 rounded text-xs text-gray-300 capitalize">
-                    {skill.name} ({skill.value}/10)
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="absolute right-4 bottom-4">
-            <MenuButton
-              onEdit={() => onEdit(member)}
-              onRemove={() => onDelete(member.id, member.name)}
-              disabledEdit={!isAdmin}
-              disabledRemove={!isAdmin || member.role === 'owner'}
-            />
+      {/* Freelancers Section */}
+      {freelancers.length > 0 && (
+        <div>
+          <div className="flex items-center gap-3 mb-4">
+            <h2 className="text-xl font-semibold text-white">Freelancers</h2>
+            <Badge color="purple" size="sm">{freelancers.length}</Badge>
           </div>
-        </Card>
-      ))}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {freelancers.map(renderMemberCard)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -266,19 +310,6 @@ export function TeamView({ uid }: TeamViewProps) {
     }
   };
 
-  const getTopSkills = (skills?: SkillAssessment) => {
-    if (!skills) return [];
-    const skillEntries = Object.entries(skills) as [keyof SkillAssessment, number][];
-    return skillEntries
-      .filter(([, value]) => value >= 7)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 3)
-      .map(([skill, value]) => ({
-        name: skill.replace(/([A-Z])/g, ' $1').trim(),
-        value,
-      }));
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -345,7 +376,6 @@ export function TeamView({ uid }: TeamViewProps) {
               onEdit={handleOpenModal}
               onDelete={handleDelete}
               getRoleBadge={getRoleBadge}
-              getTopSkills={getTopSkills}
             />
           )}
           {viewMode === 'skills' && (
@@ -438,17 +468,6 @@ export function TeamView({ uid }: TeamViewProps) {
     </div>
   );
 }
-
-// Cards View Component
-interface CardsViewProps {
-  members: WithId<TeamMember>[];
-  isAdmin: boolean;
-  onEdit: (member: WithId<TeamMember>) => void;
-  onDelete: (id: string, name: string) => void;
-  getRoleBadge: (role: TeamMemberRole | 'member') => JSX.Element | null;
-  getTopSkills: (skills?: SkillAssessment) => { name: string; value: number; }[];
-}
-
 
 // Skills Radar View Component
 interface SkillsRadarViewProps {
@@ -909,74 +928,111 @@ interface TableViewProps {
 }
 
 export function TableView({ members, isAdmin, onEdit, onDelete, getRoleBadge }: TableViewProps) {
-  return (
-    <Card padding="none">
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-white/10">
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Member</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Role</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Email</th>
-              <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Phone</th>
-              <th className="px-6 py-4 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Availability</th>
-              <th className="px-6 py-4 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Workload</th>
-              <th className="px-6 py-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/5">
-            {members.map(member => (
-              <tr key={member.id} className="hover:bg-white/5 transition-colors">
-                <td className="px-6 py-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center text-white font-bold text-sm">
-                      {member.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div className="text-white font-medium">{member.name}</div>
-                      {member.title && <div className="text-xs text-gray-400">{member.title}</div>}
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  {getRoleBadge(member.role)}
-                </td>
-                <td className="px-6 py-4">
-                  <span className="text-sm text-gray-300">{member.email || '—'}</span>
-                </td>
-                <td className="px-6 py-4">
-                  <span className="text-sm text-gray-300">{member.phone || '—'}</span>
-                </td>
-                <td className="px-6 py-4 text-center">
-                  <span className="text-sm font-semibold text-brand-success">{member.availability || 100}%</span>
-                </td>
-                <td className="px-6 py-4 text-center">
-                  <span className="text-sm font-semibold text-yellow-400">{member.workload || 0}%</span>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={() => onEdit(member)}
-                      className="px-3 py-1 text-xs bg-white/5 border border-white/10 rounded hover:bg-white/10 text-white transition-colors"
-                      disabled={!isAdmin}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => onDelete(member.id, member.name)}
-                      className="px-3 py-1 text-xs bg-red-500/10 border border-red-500/30 rounded hover:bg-red-500/20 text-red-400 transition-colors disabled:opacity-50"
-                      disabled={!isAdmin || member.role === 'owner'}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </td>
+  // Separate team members and freelancers
+  const teamMembers = members.filter(m => m.role !== 'freelance');
+  const freelancers = members.filter(m => m.role === 'freelance');
+
+  const renderTable = (memberList: WithId<TeamMember>[], title?: string, badgeColor?: 'blue' | 'purple') => (
+    <div>
+      {title && (
+        <div className="flex items-center gap-3 mb-4">
+          <h2 className="text-xl font-semibold text-white">{title}</h2>
+          <Badge color={badgeColor || 'blue'} size="sm">{memberList.length}</Badge>
+        </div>
+      )}
+      <Card padding="none">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-white/10">
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Member</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Role</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Approved Positions</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Email</th>
+                <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Phone</th>
+                <th className="px-6 py-4 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Availability</th>
+                <th className="px-6 py-4 text-center text-xs font-semibold text-gray-400 uppercase tracking-wider">Workload</th>
+                <th className="px-6 py-4 text-right text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {memberList.map(member => (
+                <tr key={member.id} className="hover:bg-white/5 transition-colors">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full ${
+                        member.role === 'freelance' 
+                          ? 'bg-gradient-to-br from-purple-500 to-pink-500' 
+                          : 'bg-gradient-to-br from-cyan-500 to-blue-500'
+                      } flex items-center justify-center text-white font-bold text-sm`}>
+                        {member.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div>
+                        <div className="text-white font-medium">{member.name}</div>
+                        {member.title && <div className="text-xs text-gray-400">{member.title}</div>}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4">
+                    {getRoleBadge(member.role)}
+                  </td>
+                  <td className="px-6 py-4">
+                    {member.approvedPositions && member.approvedPositions.length > 0 ? (
+                      <div className="flex flex-wrap gap-1">
+                        {member.approvedPositions.map((position) => (
+                          <span key={position} className="px-2 py-0.5 bg-cyan-500/10 border border-cyan-500/30 rounded text-xs text-cyan-300 font-medium">
+                            {position}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-500">—</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="text-sm text-gray-300">{member.email || '—'}</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <span className="text-sm text-gray-300">{member.phone || '—'}</span>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <span className="text-sm font-semibold text-brand-success">{member.availability || 100}%</span>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <span className="text-sm font-semibold text-yellow-400">{member.workload || 0}%</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => onEdit(member)}
+                        className="px-3 py-1 text-xs bg-white/5 border border-white/10 rounded hover:bg-white/10 text-white transition-colors"
+                        disabled={!isAdmin}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => onDelete(member.id, member.name)}
+                        className="px-3 py-1 text-xs bg-red-500/10 border border-red-500/30 rounded hover:bg-red-500/20 text-red-400 transition-colors disabled:opacity-50"
+                        disabled={!isAdmin || member.role === 'owner'}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+    </div>
+  );
+
+  return (
+    <div className="space-y-8">
+      {teamMembers.length > 0 && renderTable(teamMembers, 'Team Members', 'blue')}
+      {freelancers.length > 0 && renderTable(freelancers, 'Freelancers', 'purple')}
+    </div>
   );
 }
 
@@ -986,6 +1042,10 @@ interface CapacityViewProps {
 }
 
 export function CapacityView({ members }: CapacityViewProps) {
+  // Separate team members and freelancers
+  const teamMembers = members.filter(m => m.role !== 'freelance');
+  const freelancers = members.filter(m => m.role === 'freelance');
+  
   // Calculate team metrics
   const totalMembers = members.length;
   const avgAvailability = members.reduce((sum, m) => sum + (m.availability || 100), 0) / totalMembers;
@@ -993,51 +1053,30 @@ export function CapacityView({ members }: CapacityViewProps) {
   const underutilized = members.filter(m => (m.workload || 0) < 50).length;
   const atCapacity = members.filter(m => (m.workload || 0) >= 80).length;
 
-  return (
-    <div className="space-y-6">
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card padding="lg">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-brand-cyan mb-1">{totalMembers}</div>
-            <div className="text-sm text-gray-400">Team Members</div>
-          </div>
-        </Card>
-        <Card padding="lg">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-brand-success mb-1">{avgAvailability.toFixed(0)}%</div>
-            <div className="text-sm text-gray-400">Avg Availability</div>
-          </div>
-        </Card>
-        <Card padding="lg">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-brand-warning mb-1">{avgWorkload.toFixed(0)}%</div>
-            <div className="text-sm text-gray-400">Avg Workload</div>
-          </div>
-        </Card>
-        <Card padding="lg">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-brand-violet mb-1">{underutilized}</div>
-            <div className="text-sm text-gray-400">Underutilized</div>
-          </div>
-        </Card>
-      </div>
-
-      {/* Member Capacity Bars */}
+  const renderCapacitySection = (memberList: WithId<TeamMember>[], title?: string, badgeColor?: 'blue' | 'purple') => (
+    <div>
+      {title && (
+        <div className="flex items-center gap-3 mb-4">
+          <h2 className="text-xl font-semibold text-white">{title}</h2>
+          <Badge color={badgeColor || 'blue'} size="sm">{memberList.length}</Badge>
+        </div>
+      )}
       <Card padding="lg">
-        <h3 className="text-xl font-bold text-white mb-6">Member Capacity</h3>
-        <div className="space-y-4">
-          {members.map(member => {
-            const availability = member.availability || 100;
+        <div className="space-y-3">
+          {memberList.map((member) => {
             const workload = member.workload || 0;
-            const capacity = Math.min(workload, availability);
-            const wasted = availability - capacity;
+            const availability = member.availability || 100;
+            const wasted = Math.max(0, availability - workload);
 
             return (
-              <div key={member.id}>
-                <div className="flex items-center justify-between mb-2">
+              <div key={member.id} className="space-y-2">
+                <div className="flex justify-between items-center">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center text-white font-bold text-xs">
+                    <div className={`w-8 h-8 rounded-full ${
+                      member.role === 'freelance' 
+                        ? 'bg-gradient-to-br from-purple-500 to-pink-500' 
+                        : 'bg-gradient-to-br from-cyan-500 to-blue-500'
+                    } flex items-center justify-center text-white font-bold text-xs`}>
                       {member.name.charAt(0).toUpperCase()}
                     </div>
                     <span className="text-white font-medium text-sm">{member.name}</span>
@@ -1074,6 +1113,44 @@ export function CapacityView({ members }: CapacityViewProps) {
           })}
         </div>
       </Card>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card padding="lg">
+          <div className="text-center">
+            <div className="text-3xl font-bold text-brand-cyan mb-1">{totalMembers}</div>
+            <div className="text-sm text-gray-400">Team Members</div>
+          </div>
+        </Card>
+        <Card padding="lg">
+          <div className="text-center">
+            <div className="text-3xl font-bold text-brand-success mb-1">{avgAvailability.toFixed(0)}%</div>
+            <div className="text-sm text-gray-400">Avg Availability</div>
+          </div>
+        </Card>
+        <Card padding="lg">
+          <div className="text-center">
+            <div className="text-3xl font-bold text-brand-warning mb-1">{avgWorkload.toFixed(0)}%</div>
+            <div className="text-sm text-gray-400">Avg Workload</div>
+          </div>
+        </Card>
+        <Card padding="lg">
+          <div className="text-center">
+            <div className="text-3xl font-bold text-brand-violet mb-1">{underutilized}</div>
+            <div className="text-sm text-gray-400">Underutilized</div>
+          </div>
+        </Card>
+      </div>
+
+      {/* Member Capacity Bars - Team Members */}
+      {teamMembers.length > 0 && renderCapacitySection(teamMembers, 'Team Members', 'blue')}
+
+      {/* Member Capacity Bars - Freelancers */}
+      {freelancers.length > 0 && renderCapacitySection(freelancers, 'Freelancers', 'purple')}
 
       {/* Alerts */}
       {atCapacity > 0 && (
@@ -1110,6 +1187,8 @@ export function TeamMemberModal({ member, onClose, onSave, canAssignOwner = fals
     phone: member?.phone || '',
   role: (((member as any)?.role === 'member') ? 'technician' : (member?.role || 'technician')) as TeamMemberRole,
     title: member?.title || '',
+    jobTitle: member?.jobTitle,
+    approvedPositions: member?.approvedPositions || [],
     skills: member?.skills || {
       audio: 5,
       graphicDesign: 5,
@@ -1287,6 +1366,32 @@ export function TeamMemberModal({ member, onClose, onSave, canAssignOwner = fals
                 </div>
               </div>
             )}
+
+            <div>
+              <label className="block text-sm font-medium mb-2 text-gray-300">Approved Positions</label>
+              <p className="text-xs text-gray-400 mb-3">Select all positions this person is qualified to work:</p>
+              <div className="grid grid-cols-2 gap-2">
+                {(['A1', 'A2', 'V1', 'V2', 'LD', 'ME', 'TD', 'Stagehand', 'Show Producer', 'vMix Op'] as const).map((position) => (
+                  <label key={position} className="flex items-center gap-2 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={formData.approvedPositions?.includes(position) || false}
+                      onChange={(e) => {
+                        const positions = formData.approvedPositions || [];
+                        setFormData({
+                          ...formData,
+                          approvedPositions: e.target.checked
+                            ? [...positions, position]
+                            : positions.filter((p) => p !== position),
+                        });
+                      }}
+                      className="w-4 h-4 text-cyan-500 bg-gray-700 border-gray-600 rounded focus:ring-cyan-500"
+                    />
+                    <span className="text-sm text-gray-300 group-hover:text-cyan-300 transition-colors">{position}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
 
             <div>
               <h3 className="text-lg font-semibold mb-4 text-white">Skills Assessment</h3>

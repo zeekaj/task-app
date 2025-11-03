@@ -1,35 +1,46 @@
 // src/hooks/useClients.ts
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import type { Client, WithId } from '../types';
-import { listClients } from '../services/clients';
+import { getFirebase } from '../firebase';
 
-export function useClients(orgId: string): [WithId<Client>[] | null, () => void] {
+export function useClients(orgId: string): [WithId<Client>[] | null] {
   const [clients, setClients] = useState<WithId<Client>[] | null>(null);
-  const [refetchTrigger, setRefetchTrigger] = useState(0);
-
-  const refetch = useCallback(() => {
-    setRefetchTrigger(prev => prev + 1);
-  }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    if (!orgId) {
+      setClients([]);
+      return;
+    }
+
+    let unsubscribe: (() => void) | undefined;
+
     (async () => {
       try {
-        if (!orgId) {
-          setClients([]);
-          return;
-        }
-        const items = await listClients(orgId);
-        if (!cancelled) setClients(items as WithId<Client>[]);
-      } catch (e) {
-        console.error('Failed to load clients', e);
-        if (!cancelled) setClients([]);
+        const { onSnapshot, query, where } = await import('firebase/firestore');
+        const fb = await getFirebase();
+        const ref = fb.col(orgId, 'clients');
+        const q = query(ref, where('active', '==', true));
+
+        unsubscribe = onSnapshot(
+          q,
+          (snapshot: any) => {
+            const items = snapshot.docs.map((doc: any) => ({
+              id: doc.id,
+              ...doc.data(),
+            })) as WithId<Client>[];
+            setClients(items);
+          }
+        );
+      } catch (error) {
+        console.error('Failed to setup clients listener', error);
+        setClients([]);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, [orgId, refetchTrigger]);
 
-  return [clients, refetch];
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [orgId]);
+
+  return [clients];
 }

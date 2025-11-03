@@ -12,7 +12,7 @@ interface VenuesViewProps {
 }
 
 export function VenuesView({ uid }: VenuesViewProps) {
-  const [venues, refetchVenues] = useVenues(uid);
+  const [venues] = useVenues(uid);
   const toast = useToast();
   const [createOpen, setCreateOpen] = useState(false);
   const [editingVenue, setEditingVenue] = useState<WithId<Venue> | null>(null);
@@ -101,7 +101,7 @@ export function VenuesView({ uid }: VenuesViewProps) {
       toast.success('Venue created');
       resetForm();
       setCreateOpen(false);
-      refetchVenues(); // Refresh the list
+  // Real-time listener will update the list automatically
     } catch (err) {
       console.error('Failed to create venue:', err);
       toast.error('Failed to create venue');
@@ -148,7 +148,7 @@ export function VenuesView({ uid }: VenuesViewProps) {
       toast.success('Venue updated');
       resetForm();
       setEditingVenue(null);
-      refetchVenues(); // Refresh the list
+  // Real-time listener will update the list automatically
     } catch (err) {
       toast.error('Failed to update venue');
     }
@@ -166,7 +166,7 @@ export function VenuesView({ uid }: VenuesViewProps) {
       toast.success(`Deleted ${venueToDelete.name}`);
       setDeleteConfirmOpen(false);
       setVenueToDelete(null);
-      refetchVenues(); // Refresh the list
+  // Real-time listener will update the list automatically
     } catch (err) {
       toast.error('Failed to delete venue');
     }

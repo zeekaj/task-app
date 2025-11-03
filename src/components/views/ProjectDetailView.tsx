@@ -24,6 +24,12 @@ import { ConfirmModal } from '../shared/ConfirmModal';
 import { BlockerModal } from '../BlockerModal';
 import { BlockerManagerModal } from '../BlockerManagerModal';
 import { ActivityHistory } from '../ActivityHistory';
+import PostEventReportModal, { generatePostEventReportPDF } from '../PostEventReportModal';
+import { ClientModal } from '../ClientModal';
+import { VenueModal } from '../VenueModal';
+import { Autocomplete } from '../shared/Autocomplete';
+import { createClient } from '../../services/clients';
+import { createVenue } from '../../services/venues';
 
 interface ProjectDetailViewProps {
   uid: string;
@@ -82,6 +88,13 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
   const [clients] = useClients(uid);
   const [venues] = useVenues(uid);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [showPostEventReport, setShowPostEventReport] = useState(false);
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [showVenueModal, setShowVenueModal] = useState(false);
+  const [editingClient, setEditingClient] = useState<any>(null);
+  const [editingVenue, setEditingVenue] = useState<any>(null);
+  const [prefillClientName, setPrefillClientName] = useState<string>('');
+  const [prefillVenueName, setPrefillVenueName] = useState<string>('');
 
   // Close status dropdown on click outside
   useClickOutside({
@@ -284,6 +297,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
         // Small delay to show toast before closing
         setTimeout(() => onClose(), 500);
       } catch (err) {
+        console.error('Failed to save:', err);
         showToast('Failed to save changes', 'error');
       }
     } else {
@@ -336,6 +350,90 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     } catch (err) {
       showToast('Failed to delete', 'error');
     }
+  };
+
+  const handleSaveClient = async (clientData: any) => {
+    try {
+      if (editingClient) {
+        // Update existing client
+        const { updateClient } = await import('../../services/clients');
+        await updateClient(uid, editingClient.id, clientData);
+        showToast('Client updated', 'success');
+        setEditingClient(null);
+      } else {
+        // Create new client
+        const newClientId = await createClient(uid, clientData);
+        showToast('Client created', 'success');
+        // Auto-select the new client
+        setTimeout(() => {
+          handleUpdate('clientId', newClientId);
+        }, 100);
+      }
+      setShowClientModal(false);
+    } catch (err: any) {
+      throw new Error(err.message || 'Failed to save client');
+    }
+  };
+
+  const handleSaveVenue = async (venueData: any) => {
+    try {
+      if (editingVenue) {
+        // Update existing venue
+        const { updateVenue } = await import('../../services/venues');
+        await updateVenue(uid, editingVenue.id, venueData);
+        showToast('Venue updated', 'success');
+        setEditingVenue(null);
+      } else {
+        // Create new venue
+        const newVenueId = await createVenue(uid, venueData);
+        showToast('Venue created', 'success');
+        // Auto-select the new venue
+        setTimeout(() => {
+          handleUpdate('venueId', newVenueId);
+        }, 100);
+      }
+      setShowVenueModal(false);
+    } catch (err: any) {
+      throw new Error(err.message || 'Failed to save venue');
+    }
+  };
+
+  const handleEditClient = () => {
+    const client = (clients || []).find((c) => c.id === project.clientId);
+    if (client) {
+      setEditingClient(client);
+      setShowClientModal(true);
+    }
+  };
+
+  const handleEditVenue = () => {
+    const venue = (venues || []).find((v) => v.id === project.venueId);
+    if (venue) {
+      setEditingVenue(venue);
+      setShowVenueModal(true);
+    }
+  };
+
+  const handleCloseClientModal = () => {
+    setShowClientModal(false);
+    setEditingClient(null);
+    setPrefillClientName('');
+  };
+
+  const handleCloseVenueModal = () => {
+    setShowVenueModal(false);
+    setEditingVenue(null);
+    setPrefillVenueName('');
+  };
+
+  const handleOpenClientModal = (prefillName?: string) => {
+    setPrefillClientName(prefillName || '');
+    setShowClientModal(true);
+  };
+
+  const handleOpenVenueModal = (prefillName?: string) => {
+    setPrefillVenueName(prefillName || '');
+    setShowVenueModal(true);
   };
 
   const handleMarkComplete = async () => {
@@ -419,7 +517,14 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     else if (typeof date === 'string') d = new Date(date);
     else if (date instanceof Date) d = date;
     else return '-';
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+    return d.toLocaleDateString('en-US', { 
+      month: 'short', 
+      day: 'numeric', 
+      year: 'numeric', 
+      hour: 'numeric',
+      minute: '2-digit',
+      timeZone: 'UTC' 
+    });
   };
 
   const toDateInput = (date: any): string => {
@@ -429,7 +534,13 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     else if (date instanceof Date) d = date;
     else if (typeof date === 'string') d = new Date(date);
     if (!d || Number.isNaN(d.getTime())) return '';
-    return d.toISOString().slice(0, 10);
+    // Return datetime-local format: YYYY-MM-DDTHH:MM
+    const year = d.getUTCFullYear();
+    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(d.getUTCDate()).padStart(2, '0');
+    const hours = String(d.getUTCHours()).padStart(2, '0');
+    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
   };
 
   return (
@@ -680,18 +791,94 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
             <div className="lg:col-span-2 space-y-6">
               {/* Mark Complete Button - Only in post_event status */}
               {canMarkComplete(project) && (
-                <Card>
-                  <h3 className="text-sm font-medium text-gray-400 mb-3">Project Completion</h3>
-                  <p className="text-xs text-gray-400 mb-3">Ready to mark this project as complete?</p>
-                  <button
-                    onClick={() => setShowCompletionModal(true)}
-                    className="w-full px-4 py-3 bg-green-500 hover:bg-green-600 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
-                >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Mark as Complete
-                 </button>
+                <Card className="border-2 border-red-500/30 bg-gradient-to-br from-red-500/10 to-transparent">
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="flex-shrink-0 w-10 h-10 rounded-full bg-red-500/20 flex items-center justify-center">
+                      <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-lg font-semibold text-white mb-1">Post-Event Sign-Off Required</h3>
+                      <p className="text-sm text-gray-300">Complete the post-event report and checklist to finalize this project.</p>
+                    </div>
+                  </div>
+                  {project.postEventReport && project.postEventReport.status === 'submitted' ? (
+                    <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                      <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium mb-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Post-Event Report Completed
+                      </div>
+                      <p className="text-xs text-gray-300">
+                        Signed by {project.postEventReport.signedByName} on {new Date((project.postEventReport.signedAt as any).toDate?.() || project.postEventReport.signedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  ) : project.postEventReport ? (
+                    <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                      <div className="flex items-center gap-2 text-amber-300 text-sm font-medium mb-1">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M12 18a9 9 0 110-18 9 9 0 010 18z" />
+                        </svg>
+                        Draft Saved — Submit to finalize
+                      </div>
+                      <p className="text-xs text-amber-200">Open the report to complete the checklist and sign before marking the project complete.</p>
+                    </div>
+                  ) : (
+                    <div className="mb-4 p-3 rounded-lg bg-white/5 border border-white/10">
+                      <p className="text-xs font-medium text-gray-400 mb-2">Report Includes:</p>
+                      <ul className="space-y-1 text-xs text-gray-300">
+                        <li className="flex items-center gap-2">
+                          <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                          Event summary and documentation
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                          Completion checklist (docs, photos, deliverables, invoicing)
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <svg className="w-3 h-3 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                          Project manager signature
+                        </li>
+                      </ul>
+                    </div>
+                  )}
+                 <div className="space-y-2">
+                   <button
+                     onClick={() => setShowPostEventReport(true)}
+                     className="w-full px-4 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-all shadow-lg hover:shadow-red-500/20 flex items-center justify-center gap-2"
+                   >
+                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                     </svg>
+                     {project.postEventReport ? 'View Post-Event Report' : 'Complete Post-Event Report'}
+                   </button>
+                   {project.postEventReport?.status === 'submitted' && (
+                     <>
+                       <button
+                         onClick={() => {
+                           generatePostEventReportPDF(project, project.postEventReport!);
+                         }}
+                         className="w-full px-4 py-3 bg-white/5 border border-red-500/40 text-red-300 hover:bg-red-500/10 rounded-lg transition-all flex items-center justify-center gap-2"
+                       >
+                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                         </svg>
+                         Download PDF Report
+                       </button>
+                       <button
+                         onClick={() => setShowCompletionModal(true)}
+                         className="w-full px-4 py-3 bg-white/5 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-all flex items-center justify-center gap-2"
+                       >
+                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                         </svg>
+                         Mark Project as Complete
+                       </button>
+                     </>
+                   )}
+                 </div>
              </Card>
                 )}
 
@@ -778,7 +965,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       <label className="block text-xs text-gray-500 mb-1">Prep Date</label>
                       {editingField === 'prepDate' ? (
                         <input
-                          type="date"
+                          type="datetime-local"
                           ref={el => inputRefs.current[2] = el}
                           autoFocus
                           defaultValue={toDateInput(project.prepDate)}
@@ -812,7 +999,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       <label className="block text-xs text-gray-500 mb-1">Ship Date</label>
                       {editingField === 'shipDate' ? (
                         <input
-                          type="date"
+                          type="datetime-local"
                           ref={el => inputRefs.current[3] = el}
                           autoFocus
                           defaultValue={toDateInput(project.shipDate)}
@@ -846,7 +1033,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       <label className="block text-xs text-gray-500 mb-1">Load-In Date</label>
                       {editingField === 'loadInDate' ? (
                         <input
-                          type="date"
+                          type="datetime-local"
                           ref={el => inputRefs.current[4] = el}
                           autoFocus
                           defaultValue={toDateInput(project.loadInDate)}
@@ -880,7 +1067,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       <label className="block text-xs text-gray-500 mb-1">Event Begin</label>
                       {editingField === 'eventBeginDate' ? (
                         <input
-                          type="date"
+                          type="datetime-local"
                           ref={el => inputRefs.current[5] = el}
                           autoFocus
                           defaultValue={toDateInput(project.eventBeginDate)}
@@ -914,7 +1101,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       <label className="block text-xs text-gray-500 mb-1">Event End</label>
                       {editingField === 'eventEndDate' ? (
                         <input
-                          type="date"
+                          type="datetime-local"
                           ref={el => inputRefs.current[6] = el}
                           autoFocus
                           defaultValue={toDateInput(project.eventEndDate)}
@@ -948,7 +1135,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       <label className="block text-xs text-gray-500 mb-1">Strike</label>
                       {editingField === 'strikeDate' ? (
                         <input
-                          type="date"
+                          type="datetime-local"
                           ref={el => inputRefs.current[7] = el}
                           autoFocus
                           defaultValue={toDateInput(project.strikeDate)}
@@ -982,7 +1169,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       <label className="block text-xs text-gray-500 mb-1">Pickup</label>
                       {editingField === 'pickupDate' ? (
                         <input
-                          type="date"
+                          type="datetime-local"
                           ref={el => inputRefs.current[8] = el}
                           autoFocus
                           defaultValue={toDateInput(project.pickupDate)}
@@ -1016,7 +1203,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       <label className="block text-xs text-gray-500 mb-1">Return</label>
                       {editingField === 'returnDate' ? (
                         <input
-                          type="date"
+                          type="datetime-local"
                           ref={el => inputRefs.current[9] = el}
                           autoFocus
                           defaultValue={toDateInput(project.returnDate)}
@@ -1051,63 +1238,57 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                   {/* Client / Venue */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Client</label>
-                      {editingField === 'clientId' ? (
-                        <select
-                          autoFocus
-                          value={project.clientId || ''}
-                          onChange={(e) => handleUpdate('clientId', e.target.value || null)}
-                          onBlur={(e) => handleUpdate('clientId', (e.target as HTMLSelectElement).value || null)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === 'Escape') setEditingField(null);
-                          }}
-                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none [&>option]:bg-gray-900"
+                      <Autocomplete
+                        value={project.clientId || null}
+                        options={(clients || []).map(c => ({
+                          id: c.id as string,
+                          label: c.name,
+                          sublabel: c.contactName || undefined,
+                        }))}
+                        onChange={(value) => handleUpdate('clientId', value)}
+                        onCreateNew={handleOpenClientModal}
+                        placeholder="Search clients..."
+                        label="Client"
+                        createNewLabel="+ Add New Client"
+                      />
+                      {project.clientId && (
+                        <button
+                          type="button"
+                          onClick={handleEditClient}
+                          className="mt-2 text-xs text-gray-400 hover:text-cyan-400 flex items-center gap-1"
                         >
-                          <option value="">— Not set —</option>
-                          {(clients || []).map((c) => (
-                            <option key={c.id} value={c.id as string}>{(c as any).name}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <div
-                          onClick={() => setEditingField('clientId')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
-                        >
-                          {(() => {
-                            const name = (clients || []).find((c) => c.id === (project as any).clientId)?.name;
-                            return name || 'Not set';
-                          })()}
-                        </div>
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                          Edit Client
+                        </button>
                       )}
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">Venue</label>
-                      {editingField === 'venueId' ? (
-                        <select
-                          autoFocus
-                          value={project.venueId || ''}
-                          onChange={(e) => handleUpdate('venueId', e.target.value || null)}
-                          onBlur={(e) => handleUpdate('venueId', (e.target as HTMLSelectElement).value || null)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === 'Escape') setEditingField(null);
-                          }}
-                          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none [&>option]:bg-gray-900"
+                      <Autocomplete
+                        value={project.venueId || null}
+                        options={(venues || []).map(v => ({
+                          id: v.id as string,
+                          label: v.name,
+                          sublabel: v.city && v.state ? `${v.city}, ${v.state}` : undefined,
+                        }))}
+                        onChange={(value) => handleUpdate('venueId', value)}
+                        onCreateNew={handleOpenVenueModal}
+                        placeholder="Search venues..."
+                        label="Venue"
+                        createNewLabel="+ Add New Venue"
+                      />
+                      {project.venueId && (
+                        <button
+                          type="button"
+                          onClick={handleEditVenue}
+                          className="mt-2 text-xs text-gray-400 hover:text-cyan-400 flex items-center gap-1"
                         >
-                          <option value="">— Not set —</option>
-                          {(venues || []).map((v) => (
-                            <option key={v.id} value={v.id as string}>{(v as any).name}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <div
-                          onClick={() => setEditingField('venueId')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
-                        >
-                          {(() => {
-                            const name = (venues || []).find((v) => v.id === (project as any).venueId)?.name;
-                            return name || 'Not set';
-                          })()}
-                        </div>
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                          Edit Venue
+                        </button>
                       )}
                     </div>
                   </div>
@@ -1643,6 +1824,18 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
         onConfirm={handleMarkComplete}
       />
 
+      {/* Post-Event Report Modal */}
+      <PostEventReportModal
+        open={showPostEventReport}
+        uid={uid}
+        project={project}
+        onClose={() => setShowPostEventReport(false)}
+        onSaved={(report) => {
+          setProject(prev => ({ ...prev, postEventReport: report } as any));
+          showToast('Post-Event Report saved', 'success');
+        }}
+      />
+
       {/* Task Delete Confirm Modal */}
       <ConfirmModal
         open={confirmOpen}
@@ -1739,6 +1932,28 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
           )}
         </div>,
         document.body
+      )}
+
+      {/* Client Modal */}
+      {showClientModal && (
+        <ClientModal
+          uid={uid}
+          client={editingClient}
+          prefillName={prefillClientName}
+          onSave={handleSaveClient}
+          onClose={handleCloseClientModal}
+        />
+      )}
+
+      {/* Venue Modal */}
+      {showVenueModal && (
+        <VenueModal
+          uid={uid}
+          venue={editingVenue}
+          prefillName={prefillVenueName}
+          onSave={handleSaveVenue}
+          onClose={handleCloseVenueModal}
+        />
       )}
     </Modal>
   );

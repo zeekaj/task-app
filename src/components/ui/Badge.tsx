@@ -100,7 +100,7 @@ export function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {
     planning: { label: 'Planning', color: 'purple' as BadgeColor },
     executing: { label: 'Executing', color: 'blue' as BadgeColor },
     in_progress: { label: 'In Progress', color: 'blue' as BadgeColor },
-    post_event: { label: 'Post-Event', color: 'orange' as BadgeColor },
+    post_event: { label: 'Sign-Off', color: 'orange' as BadgeColor },
     completed: { label: 'Completed', color: 'green' as BadgeColor },
     blocked: { label: 'Blocked', color: 'red' as BadgeColor },
     review: { label: 'Review', color: 'purple' as BadgeColor },

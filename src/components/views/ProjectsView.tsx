@@ -11,7 +11,10 @@ import { useVenues } from '../../hooks/useVenues';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { computeProjectStatus, canManuallyChangeStatus } from '../../utils/projectStatus';
 import { Modal } from '../shared/Modal';
+import { Autocomplete } from '../shared/Autocomplete';
 import { createProject, updateProject, archiveProject, deleteProject } from '../../services/projects';
+import { createClient } from '../../services/clients';
+import { createVenue } from '../../services/venues';
 import type { ProjectStatus, WithId, Project, Blocker } from '../../types';
 import { useToast } from '../shared/Toast';
 import { ProjectDetailView } from './ProjectDetailView';
@@ -239,7 +242,7 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
           { id: 'planning', label: 'Planning', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'planning').length },
           { id: 'executing', label: 'Executing', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'executing').length },
           { id: 'blocked', label: 'Blocked', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'blocked').length },
-          { id: 'post_event', label: 'Post-Event', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'post_event').length },
+          { id: 'post_event', label: 'Sign-Off', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'post_event').length },
           { id: 'completed', label: 'Completed', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'completed').length },
         ]}
         activeTab={filterStatus}
@@ -249,7 +252,7 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
       {/* Content based on view mode */}
   {viewMode === 'cards' && <CardsView uid={uid} projects={filteredProjects} blockers={allBlockers as any[]} clientNameById={clientNameById} venueNameById={venueNameById} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} onBlock={(id: string, title: string) => setBlockerModalProject({ id, title })} onManageBlockers={(id: string, title: string) => setBlockerManagerProject({ id, title })} />}
   {viewMode === 'list' && <ListView uid={uid} projects={filteredProjects} blockers={allBlockers as any[]} clientNameById={clientNameById} venueNameById={venueNameById} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} onBlock={(id: string, title: string) => setBlockerModalProject({ id, title })} onManageBlockers={(id: string, title: string) => setBlockerManagerProject({ id, title })} />}
-  {viewMode === 'kanban' && <KanbanView projects={projectsWithStatus} clientNameById={clientNameById} venueNameById={venueNameById} onProjectClick={setSelectedProject} />}
+  {viewMode === 'kanban' && <KanbanView projects={projectsWithStatus} onProjectClick={setSelectedProject} />}
 
       <CreateProjectModal
         uid={uid}
@@ -418,25 +421,29 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3`}>
       {projects.map(project => (
         <Card 
           key={project.id} 
           hover 
-          className="p-0 overflow-hidden cursor-pointer"
+          className="p-0 overflow-hidden cursor-pointer flex"
           onClick={() => onProjectClick(project)}
         >
-          {/* Status indicator stripe */}
-          <div className={`h-1 ${getStatusColor(project.effectiveStatus)}`} />
+          {/* Status indicator vertical bar */}
+          <div className={`w-1 ${getStatusColor(project.effectiveStatus)}`} />
           
-          <div className="p-4 space-y-3">
-            {/* Title and status with menu */}
-            <div className="flex items-start justify-between gap-2">
-              <h3 className="text-lg font-semibold text-white flex-1 line-clamp-2">
+          <div className="flex-1 p-3 space-y-1.5">
+            {/* Line 1: Event Title */}
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white truncate flex-1">
                 {project.title}
               </h3>
-              <div className="flex items-center gap-2">
-                <div className="relative status-dropdown-container">
+            </div>
+
+            {/* Line 2: Status + R2# + Menu */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-1 min-w-0">
+                <div className="relative status-dropdown-container shrink-0">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -471,12 +478,19 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
                             }}
                             onMouseLeave={() => setTooltipState({ visible: false, projectId: null, x: 0, y: 0, blockerInfo: null })}
                           >
-                            <Badge color="red" size="sm" variant="solid" className="max-w-[240px] truncate">
+                            <Badge color="red" size="sm" variant="solid" className="max-w-[120px] truncate">
                               <span className="font-semibold">BLOCKED</span>
                             </Badge>
                           </div>
                         );
                       })()
+                    ) : project.effectiveStatus === 'post_event' ? (
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/10 border border-orange-500/30 animate-pulse">
+                        <svg className="w-3.5 h-3.5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-xs font-semibold text-orange-400">Sign-Off</span>
+                      </div>
                     ) : (
                       <StatusBadge status={project.effectiveStatus} size="sm" />
                     )}
@@ -532,7 +546,11 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
                     </div>
                   )}
                 </div>
-                
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {project.r2Number && (
+                  <span className="text-sm font-semibold text-white">#{project.r2Number}</span>
+                )}
                 <div className="relative menu-dropdown-container">
                   <button
                     onClick={(e) => {
@@ -574,99 +592,75 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
               </div>
             </div>
 
-            {/* R2 Number */}
-            {project.r2Number && (
-              <div className="flex items-center gap-2 text-sm text-gray-400">
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14" />
-                </svg>
-                {project.r2Number}
-              </div>
-            )}
-
-            {/* Dates */}
-            <div className="space-y-1.5 text-sm">
-              {project.prepDate && (
-                <div className="flex items-center gap-2 text-gray-400">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            {/* Line 3: PM + Team Avatars */}
+            <div className="flex items-center gap-2">
+              {project.projectManager && (
+                <div className="flex items-center gap-1.5">
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                   </svg>
-                  <span>Prep: {formatDate(project.prepDate)}</span>
+                  <span className="text-xs text-cyan-400 truncate max-w-[140px]">{project.projectManager}</span>
                 </div>
               )}
-              {project.returnDate && (
-                <div className="flex items-center gap-2 text-gray-400">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-                  </svg>
-                  <span>Return: {formatDate(project.returnDate)}</span>
-                </div>
-              )}
-              {project.installDate && (
-                <div className="flex items-center gap-2 text-gray-400">
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <span>Install: {formatDate(project.installDate)}</span>
+              {project.assignees && project.assignees.length > 0 && (
+                <div className="flex -space-x-1.5">
+                  {project.assignees.slice(0, 4).map((memberName: string, idx: number) => (
+                    <div
+                      key={idx}
+                      className="w-5 h-5 text-[9px] rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white font-medium"
+                      title={memberName}
+                    >
+                      {memberName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                    </div>
+                  ))}
+                  {project.assignees.length > 4 && (
+                    <div className="w-5 h-5 text-[9px] rounded-full bg-gray-700 border-2 border-gray-900 flex items-center justify-center text-white font-medium">
+                      +{project.assignees.length - 4}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Client/Venue */}
-            {(project.clientId || project.venueId) && (
-              <div className="space-y-1.5 text-sm">
-                {project.clientId && (
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                    <span>Client: {clientNameById[project.clientId] || '—'}</span>
-                  </div>
-                )}
-                {project.venueId && (
-                  <div className="flex items-center gap-2 text-gray-400">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 11c1.657 0 3-1.567 3-3.5S13.657 4 12 4 9 5.567 9 7.5 10.343 11 12 11zm0 0c-4 0-7 2-7 4.5V19h14v-3.5c0-2.5-3-4.5-7-4.5z" />
-                    </svg>
-                    <span>Venue: {venueNameById[project.venueId] || '—'}</span>
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Line 4: Prep Date, Return Date */}
+            <div className="flex items-center gap-3 text-xs text-gray-400">
+              {project.prepDate && (
+                <div className="flex items-center gap-1.5">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Prep: {formatDateOnly(project.prepDate)}</span>
+                </div>
+              )}
+              {project.returnDate && (
+                <div className="flex items-center gap-1.5">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                  </svg>
+                  <span>Return: {formatDateOnly(project.returnDate)}</span>
+                </div>
+              )}
+            </div>
 
-            {/* Controls */}
-            <div className="flex items-center justify-between pt-2 border-t border-white/5">
-              {/* Team Members */}
-              <div className="flex items-center gap-2">
-                {project.projectManager && (
-                  <div className="flex items-center gap-1.5 text-xs text-gray-400">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                    <span className="text-cyan-400">{project.projectManager}</span>
-                  </div>
-                )}
-                {project.assignees && project.assignees.length > 0 && (
-                  <div className="flex items-center gap-1">
-                    <div className="flex -space-x-2">
-                      {project.assignees.slice(0, 3).map((memberName: string, idx: number) => (
-                        <div
-                          key={idx}
-                          className="w-6 h-6 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium"
-                          title={memberName}
-                        >
-                          {memberName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                        </div>
-                      ))}
-                      {project.assignees.length > 3 && (
-                        <div className="w-6 h-6 rounded-full bg-gray-700 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium">
-                          +{project.assignees.length - 3}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
+            {/* Line 5: Client and Venue */}
+            <div className="flex items-center gap-3 text-xs text-gray-400">
+              {project.clientId && clientNameById[project.clientId] && (
+                <div className="flex items-center gap-1.5">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                  </svg>
+                  <span className="truncate max-w-[120px]">{clientNameById[project.clientId]}</span>
+                </div>
+              )}
+              {project.venueId && venueNameById[project.venueId] && (
+                <div className="flex items-center gap-1.5">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  <span className="truncate max-w-[120px]">{venueNameById[project.venueId]}</span>
+                </div>
+              )}
             </div>
           </div>
         </Card>
@@ -727,9 +721,9 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, onPr
   onManageBlockers: (projectId: string, projectTitle: string) => void;
 }) {
   const toast = useToast();
-  const [savedHints, setSavedHints] = useState<Record<string, { prep?: boolean; return?: boolean; pm?: boolean; status?: boolean; mode?: boolean; r2?: boolean; install?: boolean }>>({});
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [statusMenuOpen, setStatusMenuOpen] = useState<string | null>(null);
+  const [statusMenuPos, setStatusMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [tooltipState, setTooltipState] = useState<{ visible: boolean; projectId: string | null; x: number; y: number; blockerInfo: any }>({ 
     visible: false, 
     projectId: null, 
@@ -737,13 +731,6 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, onPr
     y: 0, 
     blockerInfo: null 
   });
-
-  const markSaved = (id: string, key: keyof NonNullable<typeof savedHints[string]>) => {
-    setSavedHints((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), [key]: true } }));
-    setTimeout(() => {
-      setSavedHints((prev) => ({ ...prev, [id]: { ...(prev[id] || {}), [key]: false } }));
-    }, 1200);
-  };
 
   const handleArchive = async (projectId: string, title: string) => {
     try {
@@ -759,17 +746,36 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, onPr
     onDelete(projectId, title);
   };
 
+  // Close status menu on click outside
+  useEffect(() => {
+    if (!statusMenuOpen) return;
+    
+    const handleClickOutside = () => {
+      setStatusMenuOpen(null);
+      setStatusMenuPos(null);
+    };
+    
+    // Delay adding the listener to avoid immediate closure
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('click', handleClickOutside);
+    }, 0);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('click', handleClickOutside);
+    };
+  }, [statusMenuOpen]);
+
   return (
-    <Card className="overflow-hidden">
-      <table className="w-full">
+    <Card className="overflow-x-auto">
+      <table className="w-full min-w-[980px]">
         <thead>
           <tr className="border-b border-white/5">
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Project</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Status</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">R2#</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Prep Date</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Return Date</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Install Date</th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Ship</th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Return</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Client</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Venue</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">PM</th>
@@ -796,10 +802,21 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, onPr
                         onManageBlockers(project.id, project.title);
                         return;
                       }
+                      if (project.effectiveStatus === 'post_event') {
+                        // When in post-event, status pill is informational only in List view
+                        return;
+                      }
                       if (!canManuallyChangeStatus(project)) {
                         return;
                       }
-                      setStatusMenuOpen(statusMenuOpen === project.id ? null : project.id);
+                      if (statusMenuOpen === project.id) {
+                        setStatusMenuOpen(null);
+                        setStatusMenuPos(null);
+                      } else {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setStatusMenuOpen(project.id);
+                        setStatusMenuPos({ x: rect.left, y: rect.bottom + 4 });
+                      }
                     }}
                     className={`transition-opacity ${canManuallyChangeStatus(project) && project.effectiveStatus !== 'blocked' ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
                   >
@@ -829,130 +846,28 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, onPr
                           </div>
                         );
                       })()
+                    ) : project.effectiveStatus === 'post_event' ? (
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/10 border border-orange-500/30 animate-pulse">
+                        <svg className="w-3.5 h-3.5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span className="text-xs font-semibold text-orange-400">Sign-Off</span>
+                      </div>
                     ) : (
                       <StatusBadge status={project.effectiveStatus} size="sm" />
                     )}
                   </button>
-                  {statusMenuOpen === project.id && project.effectiveStatus !== 'blocked' && canManuallyChangeStatus(project) && (
-                    <div className="absolute left-0 mt-1 w-auto bg-[rgba(20,20,30,0.95)] backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-20">
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            await updateProject(uid, project.id, { status: 'not_started' });
-                            toast.success('Status updated to Not Started');
-                            setStatusMenuOpen(null);
-                          } catch (err) {
-                            toast.error('Failed to update status');
-                          }
-                        }}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-t-lg whitespace-nowrap ${
-                          project.effectiveStatus === 'not_started' ? 'bg-white/5' : ''
-                        }`}
-                      >
-                        <StatusBadge status="not_started" size="sm" />
-                      </button>
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            await updateProject(uid, project.id, { status: 'planning' });
-                            toast.success('Status updated to Planning');
-                            setStatusMenuOpen(null);
-                          } catch (err) {
-                            toast.error('Failed to update status');
-                          }
-                        }}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 whitespace-nowrap ${
-                          project.effectiveStatus === 'planning' ? 'bg-white/5' : ''
-                        }`}
-                      >
-                        <StatusBadge status="planning" size="sm" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onBlock(project.id, project.title);
-                          setStatusMenuOpen(null);
-                        }}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-b-lg whitespace-nowrap ${
-                          project.effectiveStatus === 'blocked' ? 'bg-white/5' : ''
-                        }`}
-                      >
-                        <StatusBadge status="blocked" size="sm" />
-                      </button>
-                    </div>
-                  )}
                   
                 </div>
               </td>
-              <td className="py-3 px-4 text-sm text-gray-400">
-                <input
-                  type="text"
-                  defaultValue={project.r2Number || ''}
-                  placeholder="R2#"
-                  onClick={(e)=>e.stopPropagation()}
-                  onBlur={async (e) => {
-                    const val = e.target.value.trim();
-                    try { 
-                      await updateProject(uid, project.id, { r2Number: val || null as any }); 
-                      markSaved(project.id, 'r2');
-                    } catch (err) { 
-                      toast.error('Failed to save'); 
-                    }
-                  }}
-                  className="bg-transparent border border-white/10 rounded px-2 py-1 text-gray-300 placeholder-gray-500 hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
-                />
-                {savedHints[project.id]?.r2 && (
-                  <svg className="inline ml-2 w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                )}
+              <td className="py-3 px-4 text-sm text-gray-300">
+                {project.r2Number ? project.r2Number : <span className="text-gray-500">—</span>}
               </td>
-              <td className="py-3 px-4 text-sm text-gray-400">
-                <input
-                  type="date"
-                  defaultValue={project.prepDate ? toDateInput(project.prepDate) : ''}
-                  onClick={(e)=>e.stopPropagation()}
-                  onBlur={async (e) => {
-                    try { await updateProject(uid, project.id, { prepDate: e.target.value || null }); markSaved(project.id, 'prep'); } catch (err) { toast.error('Failed to save'); }
-                  }}
-                  className="bg-transparent border border-white/10 rounded px-2 py-1 text-gray-300 hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
-                />
-                {savedHints[project.id]?.prep && (
-                  <svg className="inline ml-2 w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                )}
+              <td className="py-3 px-4 text-sm text-gray-300">
+                {project.prepDate ? formatDateOnly(project.prepDate) : <span className="text-gray-500">—</span>}
               </td>
-              <td className="py-3 px-4 text-sm text-gray-400">
-                <input
-                  type="date"
-                  defaultValue={project.returnDate ? toDateInput(project.returnDate) : ''}
-                  onClick={(e)=>e.stopPropagation()}
-                  onBlur={async (e) => {
-                    try { await updateProject(uid, project.id, { returnDate: e.target.value || null }); markSaved(project.id, 'return'); } catch (err) { toast.error('Failed to save'); }
-                  }}
-                  className="bg-transparent border border-white/10 rounded px-2 py-1 text-gray-300 hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
-                />
-                {savedHints[project.id]?.return && (
-                  <svg className="inline ml-2 w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                )}
-              </td>
-              <td className="py-3 px-4 text-sm text-gray-400">
-                <input
-                  type="date"
-                  defaultValue={project.installDate ? toDateInput(project.installDate) : ''}
-                  onClick={(e)=>e.stopPropagation()}
-                  onBlur={async (e) => {
-                    try { 
-                      await updateProject(uid, project.id, { installDate: e.target.value || null }); 
-                      markSaved(project.id, 'install');
-                    } catch (err) { 
-                      toast.error('Failed to save'); 
-                    }
-                  }}
-                  className="bg-transparent border border-white/10 rounded px-2 py-1 text-gray-300 hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
-                />
-                {savedHints[project.id]?.install && (
-                  <svg className="inline ml-2 w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                )}
+              <td className="py-3 px-4 text-sm text-gray-300">
+                {project.returnDate ? formatDateOnly(project.returnDate) : <span className="text-gray-500">—</span>}
               </td>
               <td className="py-3 px-4 text-sm text-gray-400">
                 {project.clientId ? (clientNameById[project.clientId] || '—') : '—'}
@@ -961,20 +876,7 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, onPr
                 {project.venueId ? (venueNameById[project.venueId] || '—') : '—'}
               </td>
               <td className="py-3 px-4 text-sm text-cyan-400">
-                <input
-                  type="text"
-                  defaultValue={project.projectManager || ''}
-                  placeholder="Set PM"
-                  onClick={(e)=>e.stopPropagation()}
-                  onBlur={async (e) => {
-                    const val = e.target.value.trim();
-                    try { await updateProject(uid, project.id, { projectManager: val || null as any }); markSaved(project.id, 'pm'); } catch (err) { toast.error('Failed to save'); }
-                  }}
-                  className="bg-transparent border border-white/10 rounded px-2 py-1 text-cyan-400 placeholder-gray-500 hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
-                />
-                {savedHints[project.id]?.pm && (
-                  <svg className="inline ml-2 w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7"/></svg>
-                )}
+                {project.projectManager ? project.projectManager : <span className="text-gray-500">—</span>}
               </td>
               <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                 {project.assignees && project.assignees.length > 0 ? (
@@ -1080,18 +982,87 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, onPr
         </div>,
         document.body
       )}
+      
+      {/* Portal status dropdown */}
+      {statusMenuOpen && statusMenuPos && (() => {
+        const project = projects.find(p => p.id === statusMenuOpen);
+        if (!project || project.effectiveStatus === 'post_event' || project.effectiveStatus === 'blocked' || !canManuallyChangeStatus(project)) return null;
+        
+        return createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              left: `${statusMenuPos.x}px`,
+              top: `${statusMenuPos.y}px`,
+              zIndex: 99999
+            }}
+            className="bg-[rgba(20,20,30,0.95)] backdrop-blur-sm border border-white/10 rounded-lg shadow-lg py-1"
+          >
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  await updateProject(uid, statusMenuOpen, { status: 'not_started' });
+                  toast.success('Status updated to Not Started');
+                  setStatusMenuOpen(null);
+                  setStatusMenuPos(null);
+                } catch (err) {
+                  toast.error('Failed to update status');
+                }
+              }}
+              className={`block px-2 py-1 text-sm hover:bg-white/10 first:rounded-t-md last:rounded-b-md ${
+                project.effectiveStatus === 'not_started' ? 'bg-white/5' : ''
+              }`}
+            >
+              <StatusBadge status="not_started" size="sm" />
+            </button>
+            <button
+              onClick={async (e) => {
+                e.stopPropagation();
+                try {
+                  await updateProject(uid, statusMenuOpen, { status: 'planning' });
+                  toast.success('Status updated to Planning');
+                  setStatusMenuOpen(null);
+                  setStatusMenuPos(null);
+                } catch (err) {
+                  toast.error('Failed to update status');
+                }
+              }}
+              className={`block px-2 py-1 text-sm hover:bg-white/10 first:rounded-t-md last:rounded-b-md ${
+                project.effectiveStatus === 'planning' ? 'bg-white/5' : ''
+              }`}
+            >
+              <StatusBadge status="planning" size="sm" />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onBlock(statusMenuOpen, project.title);
+                setStatusMenuOpen(null);
+                setStatusMenuPos(null);
+              }}
+              className={`block px-2 py-1 text-sm hover:bg-white/10 first:rounded-t-md last:rounded-b-md ${
+                project.effectiveStatus === 'blocked' ? 'bg-white/5' : ''
+              }`}
+            >
+              <StatusBadge status="blocked" size="sm" />
+            </button>
+          </div>,
+          document.body
+        );
+      })()}
     </Card>
   );
 }
 
 // Kanban View
-function KanbanView({ projects, clientNameById, venueNameById, onProjectClick }: { projects: any[]; clientNameById: Record<string, string>; venueNameById: Record<string, string>; onProjectClick: (project: any) => void }) {
+function KanbanView({ projects, onProjectClick }: { projects: any[]; onProjectClick: (project: any) => void }) {
   const columns: { id: ProjectStatus; label: string; color: string }[] = [
     { id: 'not_started', label: 'Not Started', color: 'from-gray-500/20 to-gray-600/20' },
     { id: 'planning', label: 'Planning', color: 'from-blue-500/20 to-blue-600/20' },
     { id: 'executing', label: 'Executing', color: 'from-purple-500/20 to-purple-600/20' },
     { id: 'blocked', label: 'Blocked', color: 'from-red-500/20 to-red-600/20' },
-    { id: 'post_event', label: 'Post-Event', color: 'from-orange-500/20 to-orange-600/20' },
+    { id: 'post_event', label: 'Sign-Off', color: 'from-orange-500/20 to-orange-600/20' },
     { id: 'completed', label: 'Completed', color: 'from-green-500/20 to-green-600/20' },
   ];
 
@@ -1101,7 +1072,7 @@ function KanbanView({ projects, clientNameById, venueNameById, onProjectClick }:
         const columnProjects = projects.filter(p => p.effectiveStatus === column.id);
         
         return (
-          <div key={column.id} className="flex-shrink-0 w-[220px]">
+          <div key={column.id} className="flex-shrink-0 w-[240px]">
             <div className={`bg-gradient-to-r ${column.color} backdrop-blur-sm border border-white/10 rounded-lg p-2 mb-2`}>
               <h3 className="font-semibold text-white text-sm flex items-center justify-between">
                 <span>{column.label}</span>
@@ -1113,32 +1084,29 @@ function KanbanView({ projects, clientNameById, venueNameById, onProjectClick }:
                 <Card 
                   key={project.id} 
                   hover 
-                  className="p-2 space-y-1.5 cursor-pointer"
+                  className="p-2 space-y-1.5 cursor-pointer relative"
                   onClick={() => onProjectClick(project)}
                 >
-                  <h4 className="font-medium text-white text-xs line-clamp-2">
-                    {project.title}
-                  </h4>
-                  {project.r2Number && (
-                    <div className="text-[10px] text-gray-400">
-                      {project.r2Number}
-                    </div>
+                  {/* Submitted badge (top-right) */}
+                  {project.postEventReport?.status === 'submitted' && (
+                    <span className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                      </svg>
+                      Submitted
+                    </span>
                   )}
-                  {project.prepDate && (
-                    <div className="text-[10px] text-gray-400">
-                      Prep: {formatDate(project.prepDate)}
-                    </div>
-                  )}
-                  {(project.clientId || project.venueId) && (
-                    <div className="text-[10px] text-gray-400 space-y-0.5">
-                      {project.clientId && (
-                        <div className="truncate">Client: {clientNameById[project.clientId] || '—'}</div>
-                      )}
-                      {project.venueId && (
-                        <div className="truncate">Venue: {venueNameById[project.venueId] || '—'}</div>
-                      )}
-                    </div>
-                  )}
+                  <div className="flex items-center justify-between gap-2">
+                    <h4 className="font-medium text-white text-xs line-clamp-1 flex-1">
+                      {project.title}
+                    </h4>
+                    {project.r2Number && (
+                      <span className="font-medium text-white text-xs flex-shrink-0">{project.r2Number}</span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-gray-400">
+                    {project.returnDate ? <span>Ret: {formatDateOnly(project.returnDate)}</span> : (project.prepDate ? <span>Prep: {formatDateOnly(project.prepDate)}</span> : <span>—</span>)}
+                  </div>
                   {project.projectManager && (
                     <div className="text-[10px] text-cyan-400 truncate">
                       PM: {project.projectManager}
@@ -1175,10 +1143,9 @@ function KanbanView({ projects, clientNameById, venueNameById, onProjectClick }:
 }
 
 // Helper functions
-function formatDate(date: any): string {
-  if (!date) return '-';
+function formatDateOnly(date: any): string {
+  if (!date) return '—';
   let d: Date;
-  
   if (date.toDate) {
     d = date.toDate();
   } else if (typeof date === 'string') {
@@ -1186,10 +1153,14 @@ function formatDate(date: any): string {
   } else if (date instanceof Date) {
     d = date;
   } else {
-    return '-';
+    return '—';
   }
-  
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
 }
 
 function getStatusColor(status: ProjectStatus): string {
@@ -1213,16 +1184,7 @@ function getStatusColor(status: ProjectStatus): string {
   }
 }
 
-function toDateInput(date: any): string {
-  // Convert Firestore TS / Date / string to YYYY-MM-DD for input[type=date]
-  let d: Date | null = null;
-  if (!date) return '';
-  if (typeof date === 'object' && 'toDate' in date) d = (date as any).toDate();
-  else if (date instanceof Date) d = date;
-  else if (typeof date === 'string') d = new Date(date);
-  if (!d || Number.isNaN(d.getTime())) return '';
-  return d.toISOString().slice(0,10);
-}
+// Removed datetime-local input formatter since List view no longer uses inline date editing
 
 // Create Project Modal Component (inline to keep file cohesive)
 function CreateProjectModal({
@@ -1273,13 +1235,42 @@ function CreateProjectModal({
   const invalidOrder = !!(prepDateValue && returnDateValue && new Date(prepDateValue) > new Date(returnDateValue));
   const disabled = titleEmpty || invalidOrder;
 
+  // Client/Venue modal states
+  const [showClientModal, setShowClientModal] = useState(false);
+  const [showVenueModal, setShowVenueModal] = useState(false);
+  const [clientFormData, setClientFormData] = useState({ name: '', contactName: '', email: '', phone: '' });
+  const [venueFormData, setVenueFormData] = useState({ name: '', address: '', city: '', state: '', zip: '', capacity: '' });
+
   useEffect(() => {
     if (open) {
       titleInputRef.current?.focus();
     }
   }, [open]);
 
+  const handleCreateClient = async () => {
+    try {
+      const newClientId = await createClient(uid, { ...clientFormData, active: true });
+      onClientIdChange(newClientId);
+      setShowClientModal(false);
+      setClientFormData({ name: '', contactName: '', email: '', phone: '' });
+    } catch (error) {
+      console.error('Failed to create client:', error);
+    }
+  };
+
+  const handleCreateVenue = async () => {
+    try {
+      const newVenueId = await createVenue(uid, { ...venueFormData, active: true, country: 'USA' });
+      onVenueIdChange(newVenueId);
+      setShowVenueModal(false);
+      setVenueFormData({ name: '', address: '', city: '', state: '', zip: '', capacity: '' });
+    } catch (error) {
+      console.error('Failed to create venue:', error);
+    }
+  };
+
   return (
+    <>
     <Modal open={open} onClose={onClose} title="Create Project" widthClass="max-w-xl"
       footer={
         <div className="flex items-center justify-end gap-3">
@@ -1299,34 +1290,34 @@ function CreateProjectModal({
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Client</label>
-            <select
-              value={clientIdValue}
-              onChange={e => onClientIdChange(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 [&>option]:bg-gray-900"
-            >
-              <option value="">— No client —</option>
-              {(clients || []).map((c) => (
-                <option key={c.id} value={c.id as string}>
-                  {(c as any).name}
-                </option>
-              ))}
-            </select>
+            <Autocomplete
+              value={clientIdValue || null}
+              options={(clients || []).map(c => ({
+                id: c.id as string,
+                label: c.name,
+                sublabel: c.contactName || undefined,
+              }))}
+              onChange={(value) => onClientIdChange(value || '')}
+              onCreateNew={() => setShowClientModal(true)}
+              placeholder="Search clients..."
+              label="Client"
+              createNewLabel="+ Add New Client"
+            />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">Venue</label>
-            <select
-              value={venueIdValue}
-              onChange={e => onVenueIdChange(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 [&>option]:bg-gray-900"
-            >
-              <option value="">— No venue —</option>
-              {(venues || []).map((v) => (
-                <option key={v.id} value={v.id as string}>
-                  {(v as any).name}
-                </option>
-              ))}
-            </select>
+            <Autocomplete
+              value={venueIdValue || null}
+              options={(venues || []).map(v => ({
+                id: v.id as string,
+                label: v.name,
+                sublabel: v.city && v.state ? `${v.city}, ${v.state}` : undefined,
+              }))}
+              onChange={(value) => onVenueIdChange(value || '')}
+              onCreateNew={() => setShowVenueModal(true)}
+              placeholder="Search venues..."
+              label="Venue"
+              createNewLabel="+ Add New Venue"
+            />
           </div>
         </div>
         <div>
@@ -1341,12 +1332,12 @@ function CreateProjectModal({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
      <div>
             <label className="block text-sm text-gray-400 mb-1">Prep Date</label>
-       <input type="date" value={prepDateValue} onChange={(e) => onPrepDateChange(e.target.value)}
+       <input type="datetime-local" value={prepDateValue} onChange={(e) => onPrepDateChange(e.target.value)}
          className={`w-full px-3 py-2 rounded-lg bg-white/5 border text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 ${invalidOrder ? 'border-red-500/50' : 'border-white/10'}`} />
           </div>
           <div>
             <label className="block text-sm text-gray-400 mb-1">Return Date</label>
-       <input type="date" value={returnDateValue} min={prepDateValue || undefined} onChange={(e) => onReturnDateChange(e.target.value)}
+       <input type="datetime-local" value={returnDateValue} min={prepDateValue || undefined} onChange={(e) => onReturnDateChange(e.target.value)}
          className={`w-full px-3 py-2 rounded-lg bg-white/5 border text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 ${invalidOrder ? 'border-red-500/50' : 'border-white/10'}`} />
           </div>
         </div>
@@ -1368,8 +1359,147 @@ function CreateProjectModal({
             ))}
           </select>
         </div>
-        <p className="text-xs text-gray-500">Status will be auto-managed between Prep and Return dates (Executing), and after Return (Post-Event). Before Prep you can toggle Not Started/Planning.</p>
+        <p className="text-xs text-gray-500">Status will be auto-managed between Prep and Return dates (Executing), and after Return (Sign-Off). Before Prep you can toggle Not Started/Planning.</p>
       </div>
     </Modal>
+
+    {/* Client Creation Modal */}
+    <Modal open={showClientModal} onClose={() => setShowClientModal(false)} title="Add New Client" widthClass="max-w-md">
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Client Name *</label>
+          <input
+            value={clientFormData.name}
+            onChange={(e) => setClientFormData({ ...clientFormData, name: e.target.value })}
+            placeholder="Company name"
+            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Contact Name</label>
+          <input
+            value={clientFormData.contactName}
+            onChange={(e) => setClientFormData({ ...clientFormData, contactName: e.target.value })}
+            placeholder="Primary contact"
+            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Email</label>
+          <input
+            type="email"
+            value={clientFormData.email}
+            onChange={(e) => setClientFormData({ ...clientFormData, email: e.target.value })}
+            placeholder="contact@company.com"
+            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Phone</label>
+          <input
+            type="tel"
+            value={clientFormData.phone}
+            onChange={(e) => setClientFormData({ ...clientFormData, phone: e.target.value })}
+            placeholder="(555) 123-4567"
+            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+          />
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button
+            onClick={() => setShowClientModal(false)}
+            className="px-4 py-2 text-sm font-medium text-gray-300 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleCreateClient}
+            disabled={!clientFormData.name.trim()}
+            className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Add Client
+          </button>
+        </div>
+      </div>
+    </Modal>
+
+    {/* Venue Creation Modal */}
+    <Modal open={showVenueModal} onClose={() => setShowVenueModal(false)} title="Add New Venue" widthClass="max-w-md">
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Venue Name *</label>
+          <input
+            value={venueFormData.name}
+            onChange={(e) => setVenueFormData({ ...venueFormData, name: e.target.value })}
+            placeholder="Venue name"
+            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Address</label>
+          <input
+            value={venueFormData.address}
+            onChange={(e) => setVenueFormData({ ...venueFormData, address: e.target.value })}
+            placeholder="Street address"
+            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">City</label>
+            <input
+              value={venueFormData.city}
+              onChange={(e) => setVenueFormData({ ...venueFormData, city: e.target.value })}
+              placeholder="City"
+              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">State</label>
+            <input
+              value={venueFormData.state}
+              onChange={(e) => setVenueFormData({ ...venueFormData, state: e.target.value })}
+              placeholder="ST"
+              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">ZIP</label>
+            <input
+              value={venueFormData.zip}
+              onChange={(e) => setVenueFormData({ ...venueFormData, zip: e.target.value })}
+              placeholder="12345"
+              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Capacity</label>
+            <input
+              value={venueFormData.capacity}
+              onChange={(e) => setVenueFormData({ ...venueFormData, capacity: e.target.value })}
+              placeholder="500"
+              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button
+            onClick={() => setShowVenueModal(false)}
+            className="px-4 py-2 text-sm font-medium text-gray-300 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleCreateVenue}
+            disabled={!venueFormData.name.trim()}
+            className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Add Venue
+          </button>
+        </div>
+      </div>
+    </Modal>
+  </>
   );
 }

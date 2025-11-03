@@ -220,6 +220,6 @@ Completed comprehensive shift scheduling system for granular time-based staff as
 
 
 For current documentation, see:
-- [`README.md`](../README.md) — Current project overview and developer guide
-- [`docs/SECURITY_RULES.md`](SECURITY_RULES.md) — Firestore security rules documentation
-- `.github/copilot-instructions.md` — AI coding assistant guidance
+- README.md (../README.md) — Current project overview and developer guide
+- docs/SECURITY_RULES.md (../docs/SECURITY_RULES.md) — Firestore security rules documentation
+- .github/copilot-instructions.md — AI coding assistant guidance
