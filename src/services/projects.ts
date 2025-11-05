@@ -4,7 +4,7 @@ import type { Project } from "../types";
 import { logActivity } from "./activityHistory";
 
 /** Create a new project. */
-export async function createProject(uid: string, title: string, assignees?: string | string[]) {
+export async function createProject(organizationId: string, title: string, assignees?: string | string[]) {
   try {
     const { addDoc: _addDoc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
   const fb = await getFirebase();
@@ -31,7 +31,7 @@ export async function createProject(uid: string, title: string, assignees?: stri
     }
     
   const ref = await _addDoc(collectionRef, docData);
-    await logActivity(uid, "project", ref.id, title, "created", {
+    await logActivity(organizationId, "project", ref.id, title, "created", {
       description: `Created project: ${title}`,
     });
     return ref.id;
@@ -44,14 +44,14 @@ export async function createProject(uid: string, title: string, assignees?: stri
 
 /** Update project title/status/assignees/owner (safely builds payload). */
 export async function updateProject(
-  uid: string,
+  organizationId: string,
   projectId: string,
   data: Partial<Pick<Project, "title" | "status" | "statusMode" | "assignee" | "assignees" | "owner" | "projectManager" | "r2Number" | "installDate" | "prepDate" | "returnDate" | "postEventReport" | "clientId" | "venueId">>
 ) {
   // Get current project for change tracking
   const { getDoc: _getDoc, doc: _doc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
   const fb2 = await getFirebase();
-  const projectDoc = await _getDoc(_doc(fb2.db, `users/${uid}/projects/${projectId}`));
+  const projectDoc = await _getDoc(_doc(fb2.db, `organizations/${organizationId}/projects/${projectId}`));
   const currentProject = projectDoc.exists() ? projectDoc.data() as Project : null;
   
   const payload: Record<string, unknown> = { updatedAt: _serverTimestamp() };
@@ -204,13 +204,13 @@ export async function updateProject(
 
   const { updateDoc: _updateDoc, doc: _doc2 } = await import('firebase/firestore');
   const fb3 = await getFirebase();
-  await _updateDoc(_doc2(fb3.db, `users/${uid}/projects/${projectId}`), payload);
+  await _updateDoc(_doc2(fb3.db, `organizations/${organizationId}/projects/${projectId}`), payload);
 
   // Log activity with proper parameters
   const action = Object.keys(changes).includes('status') ? "status_changed" : "updated";
   const projectTitle = data.title || currentProject?.title || "Unknown Project";
   
-  await logActivity(uid, "project", projectId, projectTitle, action, {
+  await logActivity(organizationId, "project", projectId, projectTitle, action, {
     changes,
     description: `Updated project: ${Object.keys(changes).join(', ')}`
   });
@@ -220,7 +220,7 @@ export async function updateProject(
  * Delete a project and cascade-delete its tasks and any blockers tied
  * to the project or those tasks.
  */
-export async function deleteProject(uid: string, projectId: string) {
+export async function deleteProject(organizationId: string, projectId: string) {
   const { writeBatch: _writeBatch, query: _query, where: _where, getDocs: _getDocs, doc: _doc3 } = await import('firebase/firestore');
   const fb4 = await getFirebase();
   const batch = _writeBatch(fb4.db);
@@ -230,7 +230,7 @@ export async function deleteProject(uid: string, projectId: string) {
   const tasksSnap = await _getDocs(tasksQ);
   const taskIds = tasksSnap.docs.map((d: any) => d.id);
     for (const d of tasksSnap.docs) {
-    batch.delete(_doc3(fb4.db, `users/${uid}/tasks/${(d as any).id}`));
+    batch.delete(_doc3(fb4.db, `organizations/${organizationId}/tasks/${(d as any).id}`));
   }
 
   // Delete blockers directly on the project
@@ -250,10 +250,10 @@ export async function deleteProject(uid: string, projectId: string) {
   }
 
   // Finally delete the project doc
-  batch.delete(_doc3(fb4.db, `users/${uid}/projects/${projectId}`));
+  batch.delete(_doc3(fb4.db, `organizations/${organizationId}/projects/${projectId}`));
 
   await batch.commit();
-  await logActivity(uid, "project", projectId, "Deleted Project", "deleted", {
+  await logActivity(organizationId, "project", projectId, "Deleted Project", "deleted", {
     description: "Deleted project and its tasks/blockers"
   });
 }
@@ -264,10 +264,10 @@ export async function deleteProject(uid: string, projectId: string) {
  *  - any active blockers on the project
  * If unblocking, leave 'completed'/'archived' sticky.
  */
-export async function reevaluateProjectBlockedState(uid: string, projectId: string) {
+export async function reevaluateProjectBlockedState(organizationId: string, projectId: string) {
   const fb5 = await getFirebase();
   const { getDocs: _getDocs2, query: _query2, where: _where2, getDoc: _getDoc2, doc: _doc2 } = await import('firebase/firestore');
-  const projectRef = _doc2(fb5.db, `users/${uid}/projects/${projectId}`);
+  const projectRef = _doc2(fb5.db, `organizations/${organizationId}/projects/${projectId}`);
   const [blockedTasksSnap, activeProjectBlockersSnap, projectSnap] = await Promise.all([
     _getDocs2(_query2(fb5.col(uid, "tasks"), _where2("projectId", "==", projectId), _where2("status", "==", "blocked"))),
     _getDocs2(_query2(fb5.col(uid, "blockers"), _where2("entityType", "==", "project"), _where2("entityId", "==", projectId), _where2("status", "==", "active"))),
@@ -296,9 +296,9 @@ export async function reevaluateProjectBlockedState(uid: string, projectId: stri
   }
 
   if (targetStatus && targetStatus !== currentStatus) {
-    await updateProject(uid, projectId, { status: targetStatus });
+    await updateProject(organizationId, projectId, { status: targetStatus });
     const projectTitle = (projectSnap.data() as Project).title || "Unknown Project";
-    await logActivity(uid, "project", projectId, projectTitle, "status_changed", {
+    await logActivity(organizationId, "project", projectId, projectTitle, "status_changed", {
       description: `Project status auto-set to ${targetStatus}`,
       changes: { status: { from: currentStatus, to: targetStatus } }
     });
@@ -309,8 +309,8 @@ export async function reevaluateProjectBlockedState(uid: string, projectId: stri
 
 import type { ProjectStatus } from "../types";
 
-export const archiveProject = (uid: string, projectId: string) =>
-  updateProject(uid, projectId, { status: "archived" as ProjectStatus });
+export const archiveProject = (organizationId: string, projectId: string) =>
+  updateProject(organizationId, projectId, { status: "archived" as ProjectStatus });
 
-export const unarchiveProject = (uid: string, projectId: string) =>
-  updateProject(uid, projectId, { status: "not_started" as ProjectStatus });
+export const unarchiveProject = (organizationId: string, projectId: string) =>
+  updateProject(organizationId, projectId, { status: "not_started" as ProjectStatus });

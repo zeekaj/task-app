@@ -25,7 +25,7 @@ import { updateProject, reevaluateProjectBlockedState } from "./projects";
  * - Sets the entity's status to "blocked".
  */
 export async function createBlocker(
-  uid: string,
+  organizationId: string,
   entity: { id: string; type: BlockerEntityType }, // "task" | "project"
   data: { reason: string; waitingOn?: string; expectedDate?: string | null }
 ) {
@@ -60,20 +60,20 @@ export async function createBlocker(
 
   // Block the entity
   if (entity.type === "task") {
-    await updateTask(uid, entity.id, { status: "blocked" });
+    await updateTask(organizationId, entity.id, { status: "blocked" });
 
     // If task belongs to a project, re-evaluate project state
     try {
       const fb3 = await getFirebase();
       const tSnap = await getDoc(doc(fb3.db, "users", uid, "tasks", entity.id));
       const projectId = tSnap.exists() ? (tSnap.data() as any).projectId : null;
-      if (projectId) await reevaluateProjectBlockedState(uid, projectId);
+      if (projectId) await reevaluateProjectBlockedState(organizationId, projectId);
     } catch (e: any) {
       const { logError } = await import('../utils/logger');
       logError("reevaluate after task blocked failed:", e?.message ?? e);
     }
   } else {
-    await updateProject(uid, entity.id, { status: "blocked" as ProjectStatus });
+    await updateProject(organizationId, entity.id, { status: "blocked" as ProjectStatus });
   }
 
   // Activity logging handled by calling functions
@@ -83,7 +83,7 @@ export async function createBlocker(
  * Update an existing blocker’s details (reason / waitingOn / expectedDate).
  */
 export async function updateBlocker(
-  uid: string,
+  organizationId: string,
   blockerId: string,
   data: Partial<{ reason: string; waitingOn: string; expectedDate: string | null }>
 ) {
@@ -96,7 +96,7 @@ export async function updateBlocker(
 
   if (Object.keys(payload).length > 0) {
     const fb4 = await getFirebase();
-    await updateDoc(doc(fb4.db, `users/${uid}/blockers/${blockerId}`), payload);
+    await updateDoc(doc(fb4.db, `organizations/${organizationId}/blockers/${blockerId}`), payload);
     // Activity logging handled by calling functions
   }
 }
@@ -109,7 +109,7 @@ export async function updateBlocker(
  *   - Projects: re-eval project (and check there are no blocked tasks).
  */
 export async function resolveBlocker(
-  uid: string,
+  organizationId: string,
   blockerToResolve: {
     id: string;
     reason: string;
@@ -122,7 +122,7 @@ export async function resolveBlocker(
 
   // Mark this blocker as cleared
   const fb = await getFirebase();
-  await updateDoc(doc(fb.db, `users/${uid}/blockers/${blockerToResolve.id}`), {
+  await updateDoc(doc(fb.db, `organizations/${organizationId}/blockers/${blockerToResolve.id}`), {
     status: "cleared",
     clearedReason: cleaned || null,
     clearedAt: serverTimestamp(),
@@ -145,14 +145,14 @@ export async function resolveBlocker(
   // No active blockers remain → update entity state
   if (entityType === "task") {
     // Always set to in_progress when all blockers are cleared
-    await updateTask(uid, entityId, { status: "in_progress" });
+    await updateTask(organizationId, entityId, { status: "in_progress" });
 
     // Re-evaluate the parent project if any
     try {
     const fb6 = await getFirebase();
     const tSnap = await getDoc(doc(fb6.db, "users", uid, "tasks", entityId));
       const projectId = tSnap.exists() ? (tSnap.data() as any).projectId : null;
-      if (projectId) await reevaluateProjectBlockedState(uid, projectId);
+      if (projectId) await reevaluateProjectBlockedState(organizationId, projectId);
     } catch (e: any) {
       const { logError } = await import('../utils/logger');
       logError("reevaluate after task unblocked failed:", e?.message ?? e);
@@ -166,7 +166,7 @@ export async function resolveBlocker(
 
     if (blockedTasksSnap.empty) {
       // Let reevaluation determine final status (respects archived/completed, etc.)
-      await reevaluateProjectBlockedState(uid, entityId);
+      await reevaluateProjectBlockedState(organizationId, entityId);
     }
   }
 }

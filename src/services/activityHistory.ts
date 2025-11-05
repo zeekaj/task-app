@@ -60,7 +60,7 @@ async function cleanupOldActivities(uid: string): Promise<void> {
  * Log an activity/audit trail entry
  */
 export async function logActivity(
-  uid: string,
+  organizationId: string,
   entityType: ActivityEntityType,
   entityId: string,
   entityTitle: string,
@@ -129,7 +129,7 @@ export async function logActivity(
  * Get activity history for a specific entity
  */
 export async function getEntityActivityHistory(
-  uid: string,
+  organizationId: string,
   entityType: ActivityEntityType,
   entityId: string,
   limitCount: number = 50
@@ -178,7 +178,7 @@ export async function getEntityActivityHistory(
  * Get recent activity across all entities
  */
 export async function getRecentActivity(
-  uid: string,
+  organizationId: string,
   limitCount: number = 100
 ): Promise<Activity[]> {
   try {
