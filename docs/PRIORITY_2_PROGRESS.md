@@ -10,22 +10,23 @@ Migrating from per-user data structure to organization-based collections to enab
 ## Migration Plan
 
 ### Phase 1: Data Migration
-- [ ] Create migration script for tasks
-- [ ] Create migration script for projects
-- [ ] Create migration script for blockers
-- [ ] Create migration script for activity history
-- [ ] Create migration script for clients
-- [ ] Create migration script for venues
-- [ ] Test migration on development data
+- [x] Create migration script for tasks
+- [x] Create migration script for projects
+- [x] Create migration script for blockers
+- [x] Create migration script for activity history
+- [x] Create migration script for clients
+- [x] Create migration script for venues
+- [ ] Test migration on development data (run with --dry-run)
 - [ ] Run migration on production
 
 ### Phase 2: Permission System
-- [ ] Create `src/utils/permissions.ts` with role-based functions
-- [ ] Implement `canViewAllTasks(role)`
-- [ ] Implement `canViewAllProjects(role)`
-- [ ] Implement `canEditAnyTask(role, task, userId)`
-- [ ] Implement `canDeleteTask(role, task, userId)`
-- [ ] Implement `canAssignToOthers(role)`
+- [x] Create `src/utils/permissions.ts` with role-based functions
+- [x] Implement `canViewAllTasks(role)`
+- [x] Implement `canViewAllProjects(role)`
+- [x] Implement `canEditTask(role, task, userId)`
+- [x] Implement `canDeleteTask(role, task, userId)`
+- [x] Implement `canAssignToOthers(role)`
+- [x] Implement filter functions for tasks and projects
 
 ### Phase 3: Service Layer Updates
 - [ ] Update `src/services/tasks.ts` for org collections
