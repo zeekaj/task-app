@@ -11,9 +11,15 @@ const generateId = () =>
 import { reevaluateProjectBlockedState } from "./projects";
 import { logActivity } from "./activityHistory";
 
-/** Create a new task */
+/**
+ * Create a new task
+ * @param organizationId - The organization ID (owner's uid)
+ * @param title - Task title
+ * @param projectId - Optional project ID to associate with
+ * @param options - Additional task fields
+ */
 export async function createTask(
-  uid: string,
+  organizationId: string,
   title: string,
   projectId?: string | null,
   options?: Partial<Pick<Task, "description" | "priority" | "dueDate" | "assignee" | "recurrence" | "attachments" | "comments">>
@@ -27,6 +33,7 @@ export async function createTask(
     status: "not_started" as TaskStatus,
     priority: typeof options?.priority === "number" ? options.priority : 50,
     dueDate: options?.dueDate ?? null,
+    organizationId, // Add organizationId to document
     createdAt: _serverTimestamp(),
     updatedAt: _serverTimestamp(),
   };
@@ -35,9 +42,9 @@ export async function createTask(
   if (typeof options?.attachments !== "undefined") docData.attachments = options.attachments;
 
   const fb = await getFirebase();
-  const ref = await _addDoc(fb.col(uid, "tasks"), docData as Task);
+  const ref = await _addDoc(fb.orgCol(organizationId, "tasks"), docData as Task);
 
-  await logActivity(uid, "task", ref.id, title, "created", {
+  await logActivity(organizationId, "task", ref.id, title, "created", {
     description: `Created task: ${title}`,
   });
   console.log('Activity log for created task submitted:', { taskId: ref.id, title });
