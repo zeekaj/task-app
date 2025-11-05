@@ -46,7 +46,7 @@ export function useProjects(organizationId?: string, options?: ProjectsQueryOpti
 
       return () => unsub();
     })();
-  }, [uid, optionsKey, options]);
+  }, [organizationId, optionsKey, options]);
 
   return projects;
 }
