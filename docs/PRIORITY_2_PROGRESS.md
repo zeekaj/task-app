@@ -44,37 +44,33 @@ Migrating from per-user data structure to organization-based collections to enab
 - [x] Update useBlockers to use orgCol
 
 ### Phase 5: Component Updates
-- [x] Components already pass correct organizationId via uid prop
+- [x] Components now pass organizationId via useOrganizationId hook
 - [ ] Add UserContext provider to App.tsx
 - [ ] Apply permission checks in UI components
 - [ ] Add role-based visibility filters
-- [ ] Update `src/services/tasks.ts` for org collections
-- [ ] Update `src/services/projects.ts` for org collections
-- [ ] Update `src/services/blockers.ts` for org collections
-- [ ] Update `src/services/activityHistory.ts` for org collections
-- [ ] Update `src/services/clients.ts` for org collections
-- [ ] Update `src/services/venues.ts` for org collections
+  
+	Note: Service layer updates were completed in Phase 3.
 
-### Phase 4: Hook Updates
+### Phase 6: Hook Role-Based Filtering
 - [ ] Update `src/hooks/useTasks.ts` with role-based filtering
 - [ ] Update `src/hooks/useProjects.ts` with role-based filtering
 - [ ] Update `src/hooks/useBlockers.ts`
-- [ ] Add `src/hooks/useOrganizationId.ts`
+- [x] Add `src/hooks/useOrganizationId.ts` (available)
 
-### Phase 5: UI Updates
+### Phase 7: UI Updates
 - [ ] Add My Tasks / All Tasks toggle for admins
 - [ ] Update TasksView with role-based display
 - [ ] Update ProjectsView with role-based display
 - [ ] Update ScheduleView with role-based filtering
 - [ ] Hide assignee controls for non-admins
 
-### Phase 6: Security Rules
-- [ ] Update Firestore security rules for org collections
+### Phase 8: Security Rules
+- [x] Update Firestore security rules for org collections
 - [ ] Add role-based read rules
 - [ ] Add role-based write rules
 - [ ] Test security rules with different roles
 
-### Phase 7: Testing
+### Phase 9: Testing
 - [ ] Test as Owner (full access)
 - [ ] Test as Admin (full access)
 - [ ] Test as Technician (assigned only)

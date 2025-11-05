@@ -1,4 +1,9 @@
-# Priority 2: Migration Strategy & Rollout Plan
+# [Archived] Priority 2: Migration Strategy & Rollout Plan
+
+> Note: This strategy document is archived. The organization-scoped collections and related service updates are now implemented in the codebase. For current state and remaining work, see:
+> - `../PRIORITY_2_PROGRESS.md`
+> - `../EOD_2025-11-05.md` (pickup plan)
+> - `../ROADMAP.md`
 
 ## Problem
 We need to migrate from `users/{uid}/*` to `organizations/{orgId}/*` while:

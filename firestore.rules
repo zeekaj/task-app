@@ -89,6 +89,10 @@ service cloud.firestore {
     match /organizations/{orgId}/activityHistory/{activityId} {
       allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
     }
+    // Activity log (current collection)
+    match /organizations/{orgId}/activities/{activityId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
     
     match /organizations/{orgId}/clients/{clientId} {
       allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
@@ -99,6 +103,14 @@ service cloud.firestore {
     }
     
     match /organizations/{orgId}/shifts/{shiftId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
+
+    match /organizations/{orgId}/shiftTemplates/{templateId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
+
+    match /organizations/{orgId}/scheduleEvents/{eventId} {
       allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
     }
   }

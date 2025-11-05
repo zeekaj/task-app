@@ -23,15 +23,15 @@ function removeUndefinedValues(obj: any): any {
  * Keeps the latest 100 activities and deletes older ones
  * Only runs occasionally (randomly 5% of the time) to avoid performance issues
  */
-async function cleanupOldActivities(uid: string): Promise<void> {
+async function cleanupOldActivities(organizationId: string): Promise<void> {
   try {
     // Only run cleanup 5% of the time to avoid performance issues
     if (Math.random() > 0.05) {
       return;
     }
     
-    const fb = await getFirebase();
-    const activitiesRef = fb.col(uid, 'activities');
+  const fb = await getFirebase();
+  const activitiesRef = fb.orgCol(organizationId, 'activities');
     
     // Get all activities ordered by createdAt descending
     const q = query(activitiesRef, orderBy('createdAt', 'desc'));
@@ -94,12 +94,15 @@ export async function logActivity(
       nanoseconds: timestamp.nanoseconds
     });
     
+    const fb = await getFirebase();
+    const userId = fb.auth?.currentUser?.uid || 'unknown';
+
     const activityData: Omit<Activity, 'id'> = {
       entityType,
       entityId,
       entityTitle,
       action,
-      userId: uid,
+      userId,
       createdAt: timestamp, // Client timestamp for immediate query visibility
       ...(options?.changes && { changes: options.changes }),
       ...(options?.description && { description: options.description }),
@@ -109,13 +112,12 @@ export async function logActivity(
     // Clean any undefined values before storing to Firebase
     const cleanedActivityData = removeUndefinedValues(activityData);
 
-    const fb = await getFirebase();
-    const activitiesRef = fb.col(uid, `activities`);
+  const activitiesRef = fb.orgCol(organizationId, `activities`);
     await addDoc(activitiesRef, cleanedActivityData);
     console.log('Activity document written to Firestore with client timestamp:', { entityId, entityTitle, action });
     
     // Clean up old activities in the background (keep only last 100)
-    cleanupOldActivities(uid).catch(err => {
+    cleanupOldActivities(organizationId).catch(err => {
       console.warn('Failed to cleanup old activities:', err);
     });
   } catch (error: any) {
@@ -136,7 +138,7 @@ export async function getEntityActivityHistory(
 ): Promise<Activity[]> {
   try {
     const fb = await getFirebase();
-    const activitiesRef = fb.col(uid, `activities`);
+    const activitiesRef = fb.orgCol(organizationId, `activities`);
 
     const q = query(
       activitiesRef,
@@ -183,7 +185,7 @@ export async function getRecentActivity(
 ): Promise<Activity[]> {
   try {
     const fb = await getFirebase();
-    const activitiesRef = fb.col(uid, `activities`);
+    const activitiesRef = fb.orgCol(organizationId, `activities`);
     const q = query(
       activitiesRef,
       orderBy("createdAt", "desc"),

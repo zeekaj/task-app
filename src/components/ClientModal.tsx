@@ -21,6 +21,8 @@ export function ClientModal({ client, prefillName, onSave, onClose }: ClientModa
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [emailError, setEmailError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const contactNameRef = useRef<HTMLInputElement>(null);
 
   // Format phone number as user types
@@ -41,6 +43,19 @@ export function ClientModal({ client, prefillName, onSave, onClose }: ClientModa
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatPhoneNumber(e.target.value);
     setFormData({ ...formData, contactPhone: formatted });
+    // Clear error while typing
+    if (phoneError) setPhoneError('');
+  };
+
+  const isValidEmail = (email: string) => {
+    if (!email) return true; // optional field
+    // Simple, pragmatic pattern
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  };
+
+  const isValidUsPhone = (phone: string) => {
+    if (!phone) return true; // optional field
+    return /^\(\d{3}\) \d{3}-\d{4}$/.test(phone);
   };
 
   useEffect(() => {
@@ -67,14 +82,36 @@ export function ClientModal({ client, prefillName, onSave, onClose }: ClientModa
     }
   }, [client, prefillName]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError('');
+  const validate = () => {
+    let ok = true;
+    setEmailError('');
+    setPhoneError('');
 
     if (!formData.name.trim()) {
       setError('Client name is required');
-      return;
+      ok = false;
+    } else {
+      setError('');
     }
+
+    if (!isValidEmail(formData.contactEmail)) {
+      setEmailError('Please enter a valid email (e.g., name@example.com)');
+      ok = false;
+    }
+
+    // Enforce full US number if any digits entered
+    const hasAnyDigits = /\d/.test(formData.contactPhone);
+    if (hasAnyDigits && !isValidUsPhone(formData.contactPhone)) {
+      setPhoneError('Enter a 10-digit US number as (555) 123-4567');
+      ok = false;
+    }
+
+    return ok;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!validate()) return;
 
     try {
       setSaving(true);
@@ -108,6 +145,9 @@ export function ClientModal({ client, prefillName, onSave, onClose }: ClientModa
               placeholder="Enter client name"
               autoFocus={!prefillName}
             />
+            {error && !formData.name.trim() && (
+              <div className="mt-1 text-xs text-red-400">{error}</div>
+            )}
           </div>
 
           {/* Contact Name */}
@@ -133,10 +173,16 @@ export function ClientModal({ client, prefillName, onSave, onClose }: ClientModa
             <input
               type="email"
               value={formData.contactEmail}
-              onChange={(e) => setFormData({ ...formData, contactEmail: e.target.value })}
-              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:outline-none focus:border-cyan-500"
+              onChange={(e) => {
+                setFormData({ ...formData, contactEmail: e.target.value });
+                if (emailError) setEmailError('');
+              }}
+              className={`w-full px-3 py-2 rounded-lg bg-white/5 border text-white focus:outline-none focus:border-cyan-500 ${emailError ? 'border-red-500/60' : 'border-white/10'}`}
               placeholder="contact@example.com"
             />
+            {emailError && (
+              <div className="mt-1 text-xs text-red-400">{emailError}</div>
+            )}
           </div>
 
           {/* Contact Phone */}
@@ -148,10 +194,13 @@ export function ClientModal({ client, prefillName, onSave, onClose }: ClientModa
               type="tel"
               value={formData.contactPhone}
               onChange={handlePhoneChange}
-              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:outline-none focus:border-cyan-500"
+              className={`w-full px-3 py-2 rounded-lg bg-white/5 border text-white focus:outline-none focus:border-cyan-500 ${phoneError ? 'border-red-500/60' : 'border-white/10'}`}
               placeholder="(555) 123-4567"
               maxLength={14}
             />
+            {phoneError && (
+              <div className="mt-1 text-xs text-red-400">{phoneError}</div>
+            )}
           </div>
 
           {/* Billing Notes */}
@@ -168,7 +217,7 @@ export function ClientModal({ client, prefillName, onSave, onClose }: ClientModa
           </div>
 
           {/* Error Message */}
-          {error && (
+          {error && formData.name.trim() && !emailError && !phoneError && (
             <div className="text-red-400 text-sm">{error}</div>
           )}
 

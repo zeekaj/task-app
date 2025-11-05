@@ -156,11 +156,25 @@ export async function updateTask(
     console.log('No changes detected, skipping activity log');
   }
 
+  // Re-evaluate project blocked state if status or projectId changed
   try {
     if (typeof data.status !== "undefined" || typeof data.projectId !== "undefined") {
-      const tSnap = await _getDoc(_doc(fb.db, `organizations/${organizationId}/tasks/${taskId}`));
-      const projectId = tSnap.exists() ? ((tSnap.data() as Task).projectId ?? null) : null;
-      if (projectId) await reevaluateProjectBlockedState(organizationId, projectId);
+      // If projectId changed, re-evaluate both old and new projects
+      if (typeof data.projectId !== "undefined" && currentTask?.projectId !== data.projectId) {
+        // Re-evaluate the OLD project (task was removed from it)
+        if (currentTask?.projectId) {
+          await reevaluateProjectBlockedState(organizationId, currentTask.projectId);
+        }
+        // Re-evaluate the NEW project (task was added to it)
+        if (data.projectId) {
+          await reevaluateProjectBlockedState(organizationId, data.projectId);
+        }
+      } else {
+        // Status changed but projectId didn't - re-evaluate current project
+        const tSnap = await _getDoc(_doc(fb.db, `organizations/${organizationId}/tasks/${taskId}`));
+        const projectId = tSnap.exists() ? ((tSnap.data() as Task).projectId ?? null) : null;
+        if (projectId) await reevaluateProjectBlockedState(organizationId, projectId);
+      }
     }
   } catch (e: any) {
     const { logError } = await import('../utils/logger');

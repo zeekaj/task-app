@@ -35,8 +35,8 @@ export function useScheduleEvents(orgId?: string, options?: ScheduleEventsQueryO
     (async () => {
       try {
         const { query, orderBy, where, limit, onSnapshot, Timestamp } = await import('firebase/firestore');
-        const fb = await getFirebase();
-        const collectionRef = fb.col(orgId, 'scheduleEvents');
+  const fb = await getFirebase();
+  const collectionRef = fb.orgCol(orgId, 'scheduleEvents');
 
         const constraints: any[] = [];
         

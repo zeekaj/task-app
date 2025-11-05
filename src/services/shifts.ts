@@ -13,8 +13,8 @@ export async function createShift(
 ): Promise<string> {
   try {
     const { addDoc, serverTimestamp } = await import('firebase/firestore');
-    const fb = await getFirebase();
-    const collectionRef = fb.col(orgId, "shifts");
+  const fb = await getFirebase();
+  const collectionRef = fb.orgCol(orgId, "shifts");
     
     // Filter out undefined values - Firestore doesn't accept undefined
     const cleanData: any = {};
@@ -306,8 +306,8 @@ export async function createShiftTemplate(
 ): Promise<string> {
   try {
     const { addDoc, serverTimestamp } = await import('firebase/firestore');
-    const fb = await getFirebase();
-    const collectionRef = fb.col(orgId, "shiftTemplates");
+  const fb = await getFirebase();
+  const collectionRef = fb.orgCol(orgId, "shiftTemplates");
     
     const docData: any = {
       ...data,

@@ -1,6 +1,6 @@
 # Development Roadmap - Task Management App
 
-Last Updated: November 3, 2025
+Last Updated: November 5, 2025
 
 App Type: Multi-user, organization-based production/event management with role-based access and real-time collaboration
 
@@ -20,7 +20,7 @@ This is a multi-user application for organizations coordinating projects, tasks,
 - ✅ Advanced filtering with saved preferences
 - ✅ Dark glass-morphism design system
 - ✅ Inline editing with visual feedback
-- ✅ Undo functionality
+- ✅ Cleared blocker attribution (shows who resolved a blocker)
 - ✅ Search within projects
 
 ### Oct 30, 2025 — Project Detail Modal Parity

@@ -1,4 +1,6 @@
-# Migration Execution Checklist
+# Migration Execution Checklist (Updated — Nov 5, 2025)
+
+Organization-scoped collections are live in the codebase. Use this checklist if you still need to run or re-run data migrations for existing environments. Script names may differ in your setup—adjust commands accordingly.
 
 ## Pre-Migration
 
@@ -20,8 +22,9 @@
 ## Migration Steps
 
 ### 1. Dry Run (TEST MODE)
+Run your migration script in dry-run mode if available. Example:
 ```bash
-cd /workspaces/task-app
+# Example (adjust to your script name/flags)
 node scripts/migrate-to-organizations.mjs --dry-run
 ```
 
@@ -32,8 +35,9 @@ node scripts/migrate-to-organizations.mjs --dry-run
 - [ ] Organization IDs resolved correctly
 
 ### 2. Actual Migration (LIVE MODE)
+Execute the real migration once the dry run looks good. Example:
 ```bash
-# Take a deep breath! 
+# Example (adjust to your script name/flags)
 node scripts/migrate-to-organizations.mjs
 ```
 
@@ -80,6 +84,15 @@ npm run build
 - [ ] Test as **Viewer**: Can see all, cannot edit
 
 Use `DevRoleSwitcher` component for quick role switching.
+
+---
+
+Notes
+- If your repository uses different script names, substitute accordingly. Existing scripts in this repo include:
+  - `scripts/migrate-team-members.mjs` (global teamMembers collection)
+  - `scripts/normalize-team-roles.mjs` (role hygiene)
+  - `scripts/audit-data-hygiene.mjs` and `scripts/fix-data-hygiene.mjs`
+- For current status of Priority 2 (role-based visibility), see `docs/PRIORITY_2_PROGRESS.md`.
 
 ## Rollback Plan (If Needed)
 

@@ -108,6 +108,7 @@ export interface Blocker {
   createdAt?: Timestamp;
   clearedAt?: Timestamp;
   clearedReason?: string;
+  clearedBy?: string; // userId of the person who cleared the blocker
   prevStatus?: TaskStatus | ProjectStatus | null;
   capturesPrev?: boolean;
 }

@@ -223,3 +223,15 @@ For current documentation, see:
 - README.md (../README.md) — Current project overview and developer guide
 - docs/SECURITY_RULES.md (../docs/SECURITY_RULES.md) — Firestore security rules documentation
 - .github/copilot-instructions.md — AI coding assistant guidance
+
+---
+
+## Archive Index
+
+Quick links to archived documents moved under `docs/archive/`:
+
+- EOD — 2025-10-31: docs/archive/EOD_2025-10-31.md
+- EOD — 2025-11-03: docs/archive/EOD_2025-11-03.md
+- Session Notes — 2025-10-31: docs/archive/SESSION_2025-10-31.md
+- Migration Strategy (Archived): docs/archive/MIGRATION_STRATEGY.md
+- Implementation Plan (Archived): docs/archive/IMPLEMENTATION_PLAN.md

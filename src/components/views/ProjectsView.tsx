@@ -350,7 +350,8 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
       {blockerManagerProject && (
         <BlockerManagerModal
           uid={uid}
-          entity={{ id: blockerManagerProject.id, title: blockerManagerProject.title, type: 'project' }}
+          entity={{ id: blockerManagerProject.id, title: blockerManagerProject.title, type: 'project', showAll: true }}
+          allTasks={allTasks ? allTasks.filter(t => t.projectId === blockerManagerProject.id) : []}
           onClose={() => setBlockerManagerProject(null)}
         />
       )}

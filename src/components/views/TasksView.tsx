@@ -714,10 +714,6 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                           const { updateTask } = await import("../../services/tasks");
                           await updateTask(uid, t.id, { status: newStatus });
                         }}
-                        onUndo={async () => {
-                          const { undoLastChange } = await import("../../services/undo");
-                          return await undoLastChange(uid, "task", t.id);
-                        }}
                       />
                     )}
                   </li>

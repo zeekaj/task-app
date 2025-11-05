@@ -34,11 +34,11 @@ export async function createBlocker(
 
   if (entity.type === "task") {
     const fb = await getFirebase();
-    const snap = await getDoc(doc(fb.db, "users", uid, "tasks", entity.id));
+    const snap = await getDoc(doc(fb.db, `organizations/${organizationId}/tasks/${entity.id}`));
     currentStatus = snap.exists() ? ((snap.data() as any).status ?? null) : null;
   } else {
     const fb = await getFirebase();
-    const snap = await getDoc(doc(fb.db, "users", uid, "projects", entity.id));
+    const snap = await getDoc(doc(fb.db, `organizations/${organizationId}/projects/${entity.id}`));
     currentStatus = snap.exists() ? ((snap.data() as any).status ?? null) : null;
   }
 
@@ -46,7 +46,7 @@ export async function createBlocker(
     currentStatus != null && currentStatus !== "blocked" && currentStatus !== "archived";
 
   const fb2 = await getFirebase();
-  await addDoc(fb2.col(uid, "blockers"), {
+  await addDoc(fb2.orgCol(organizationId, "blockers"), {
     reason: data.reason,
     waitingOn: data.waitingOn ?? "",
     expectedDate: data.expectedDate ? new Date(data.expectedDate) : null,
@@ -65,7 +65,7 @@ export async function createBlocker(
     // If task belongs to a project, re-evaluate project state
     try {
       const fb3 = await getFirebase();
-      const tSnap = await getDoc(doc(fb3.db, "users", uid, "tasks", entity.id));
+      const tSnap = await getDoc(doc(fb3.db, `organizations/${organizationId}/tasks/${entity.id}`));
       const projectId = tSnap.exists() ? (tSnap.data() as any).projectId : null;
       if (projectId) await reevaluateProjectBlockedState(organizationId, projectId);
     } catch (e: any) {
@@ -116,7 +116,8 @@ export async function resolveBlocker(
     entityId: string;
     entityType: BlockerEntityType;
   } & Partial<Blocker>,
-  clearedReason: string
+  clearedReason: string,
+  clearedByUserId?: string
 ) {
   const cleaned = (clearedReason ?? "").trim();
 
@@ -126,6 +127,7 @@ export async function resolveBlocker(
     status: "cleared",
     clearedReason: cleaned || null,
     clearedAt: serverTimestamp(),
+    ...(clearedByUserId && { clearedBy: clearedByUserId }),
   });
   // Activity logging handled by calling functions
 
@@ -134,7 +136,7 @@ export async function resolveBlocker(
   // Any other active blockers on this entity?
   const fb5 = await getFirebase();
   const qActive = query(
-    fb5.col(uid, "blockers"),
+    fb5.orgCol(organizationId, "blockers"),
     where("entityId", "==", entityId),
     where("entityType", "==", entityType),
     where("status", "==", "active")
@@ -150,7 +152,7 @@ export async function resolveBlocker(
     // Re-evaluate the parent project if any
     try {
     const fb6 = await getFirebase();
-    const tSnap = await getDoc(doc(fb6.db, "users", uid, "tasks", entityId));
+    const tSnap = await getDoc(doc(fb6.db, `organizations/${organizationId}/tasks/${entityId}`));
       const projectId = tSnap.exists() ? (tSnap.data() as any).projectId : null;
       if (projectId) await reevaluateProjectBlockedState(organizationId, projectId);
     } catch (e: any) {
@@ -161,7 +163,7 @@ export async function resolveBlocker(
     // For projects, ensure there are no blocked tasks remaining.
     const fb7 = await getFirebase();
     const blockedTasksSnap = await getDocs(
-      query(fb7.col(uid, "tasks"), where("projectId", "==", entityId), where("status", "==", "blocked"))
+      query(fb7.orgCol(organizationId, "tasks"), where("projectId", "==", entityId), where("status", "==", "blocked"))
     );
 
     if (blockedTasksSnap.empty) {

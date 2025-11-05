@@ -87,7 +87,7 @@ export function useShifts(organizationId: string, options: UseShiftsOptions = {}
         unsubscribe();
       }
     };
-  }, [uid, options.startDate, options.endDate, options.memberId, options.projectId, JSON.stringify(options.status)]);
+  }, [organizationId, options.startDate, options.endDate, options.memberId, options.projectId, JSON.stringify(options.status)]);
 
   return { shifts, loading, error };
 }
@@ -142,7 +142,7 @@ export function useShiftTemplates(organizationId: string) {
         unsubscribe();
       }
     };
-  }, [uid]);
+  }, [organizationId]);
 
   return { templates, loading, error };
 }

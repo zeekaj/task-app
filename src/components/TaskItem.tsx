@@ -51,14 +51,13 @@ interface TaskItemProps {
   onDelete: () => void;
   onUnarchive: () => void;
   onStatusChange: (newStatus: Task["status"]) => void;
-  onUndo: () => Promise<boolean>;
   onProjectClick?: (project: WithId<Project>) => void;
   dragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
   crossListDragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
   searchQuery?: string;
 }
 
-export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], allProjects = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onUndo, onProjectClick, searchQuery = '' }) => {
+export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], allProjects = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onProjectClick, searchQuery = '' }) => {
   const hookAllBlockers = useAllBlockers(uid);
   const safeAllBlockers = allBlockers ?? hookAllBlockers;
   const teamMembers = useTeamMembers(uid);
@@ -911,21 +910,6 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
               {/* Promote, archive, delete, unarchive buttons */}
               {!statusInfo.isArchived ? (
                 <>
-                  <button
-                    onClick={async (e) => { 
-                      e.stopPropagation(); 
-                      const success = await onUndo();
-                      if (!success) {
-                        console.log('No changes to undo');
-                      }
-                    }}
-                    className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-blue-400 hover:text-blue-500"
-                    title="Undo Last Change"
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M3 10h10a5 5 0 0 1 0 10H9M3 10l3-3m-3 3l3 3" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
                   <button
                     onClick={e => { e.stopPropagation(); onArchive(); }}
                     className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-gray-100 hover:text-gray-900"

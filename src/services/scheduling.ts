@@ -13,8 +13,8 @@ export async function createScheduleEvent(
 ) {
   try {
     const { addDoc: _addDoc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
-    const fb = await getFirebase();
-    const collectionRef = fb.col(orgId, "scheduleEvents");
+  const fb = await getFirebase();
+  const collectionRef = fb.orgCol(orgId, "scheduleEvents");
     
     const docData: any = {
       ...data,
@@ -48,8 +48,8 @@ export async function updateScheduleEvent(
 ) {
   try {
     const { updateDoc: _updateDoc, doc: _doc, getDoc: _getDoc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
-    const fb = await getFirebase();
-    const eventRef = _doc(fb.db, `users/${orgId}/scheduleEvents/${eventId}`);
+  const fb = await getFirebase();
+  const eventRef = _doc(fb.db, `organizations/${orgId}/scheduleEvents/${eventId}`);
     
     // Get current event for change tracking
     const eventSnap = await _getDoc(eventRef);
@@ -112,8 +112,8 @@ export async function bulkSetScheduleStatus(
 export async function deleteScheduleEvent(orgId: string, eventId: string) {
   try {
     const { doc: _doc, getDoc: _getDoc } = await import('firebase/firestore');
-    const fb = await getFirebase();
-    const eventRef = _doc(fb.db, `users/${orgId}/scheduleEvents/${eventId}`);
+  const fb = await getFirebase();
+  const eventRef = _doc(fb.db, `organizations/${orgId}/scheduleEvents/${eventId}`);
     
     // Get event title for activity log
     let eventTitle = "Unknown Event";
@@ -275,8 +275,8 @@ export async function listScheduleEvents(
 ) {
   try {
     const { query: _query, where: _where, orderBy: _orderBy, limit: _limit, getDocs: _getDocs, Timestamp } = await import('firebase/firestore');
-    const fb = await getFirebase();
-    const collectionRef = fb.col(orgId, "scheduleEvents");
+  const fb = await getFirebase();
+  const collectionRef = fb.orgCol(orgId, "scheduleEvents");
     
     const constraints: any[] = [];
     

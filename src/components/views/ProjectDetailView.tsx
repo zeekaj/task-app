@@ -226,6 +226,14 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     setProject(initialProject);
   }, [initialProject]);
 
+  // Sync project state when allProjects updates (e.g., blocker added)
+  useEffect(() => {
+    const updatedProject = allProjects?.find((p: any) => p.id === project.id);
+    if (updatedProject) {
+      setProject(updatedProject);
+    }
+  }, [allProjects, project.id]);
+
   // Timeline milestone order
   const milestoneOrder = [
     'prepDate',
@@ -323,7 +331,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
         setHasUnsavedChanges(false);
       }
       await updateProject(uid, project.id, { status: newStatus });
-      setProject({ ...project, status: newStatus });
+      setProject(prev => ({ ...prev, status: newStatus }));
       showToast('Status updated', 'success');
     } catch (err) {
       showToast('Failed to update status', 'error');
@@ -623,6 +631,11 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         const firstReason = activeProjectBlockers.length ? (typeof activeProjectBlockers[0]?.reason === 'object' ? JSON.stringify(activeProjectBlockers[0]?.reason) : (activeProjectBlockers[0]?.reason || 'Blocked')) : 'Blocked';
                         const extraCount = activeProjectBlockers.length > 1 ? activeProjectBlockers.length - 1 : 0;
                         const firstBlocker = activeProjectBlockers[0];
+                        // Determine if there are also task blockers
+                        const taskBlockers = Array.isArray(allBlockers)
+                          ? allBlockers.filter((b: any) => b?.entityType === 'task' && projectTasks.some(t => t.id === b.entityId) && b?.status === 'active')
+                          : [];
+                        const hasTaskBlockers = taskBlockers.length > 0;
                         return (
                           <div
                             onMouseEnter={(e) => {
@@ -631,7 +644,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                                 visible: true,
                                 x: rect.left + rect.width / 2,
                                 y: rect.top,
-                                blockerInfo: { firstReason, firstBlocker, extraCount }
+                                blockerInfo: { firstReason, firstBlocker, extraCount, hasTaskBlockers, taskBlockers }
                               });
                             }}
                             onMouseLeave={() => setTooltipState({ visible: false, x: 0, y: 0, blockerInfo: null })}
@@ -1677,10 +1690,6 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                                 const { updateTask } = await import('../../services/tasks');
                                 await updateTask(uid, t.id, { status: newStatus });
                               }}
-                              onUndo={async () => {
-                                const { undoLastChange } = await import('../../services/undo');
-                                return await undoLastChange(uid, 'task', t.id);
-                              }}
                             />
                           )}
                         </li>
@@ -1755,10 +1764,6 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                               onStatusChange={async (newStatus) => {
                                 const { updateTask } = await import('../../services/tasks');
                                 await updateTask(uid, t.id, { status: newStatus });
-                              }}
-                              onUndo={async () => {
-                                const { undoLastChange } = await import('../../services/undo');
-                                return await undoLastChange(uid, 'task', t.id);
                               }}
                             />
                           )}
@@ -1951,8 +1956,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
               uid={uid}
               entityType="project"
               entityId={project.id}
-              venues={venues}
-              clients={clients}
+              venues={venues || undefined}
+              clients={clients || undefined}
             />
           </Card>
         )}
@@ -2081,10 +2086,10 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
             zIndex: 99999,
             pointerEvents: 'none'
           }}
-          className="px-3 py-2 bg-gray-900/95 border border-red-500/30 rounded-lg shadow-xl w-64"
+          className="px-3 py-2 bg-gray-900/95 border border-red-500/30 rounded-lg shadow-xl w-72"
         >
           <div className="text-xs text-red-400 font-semibold mb-1">
-            Blocked: {tooltipState.blockerInfo.firstReason}
+            Project Blocked: {tooltipState.blockerInfo.firstReason}
           </div>
           {tooltipState.blockerInfo.firstBlocker?.waitingOn && (
             <div className="text-xs text-gray-300 mb-1">
@@ -2101,8 +2106,21 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
           )}
           {tooltipState.blockerInfo.extraCount > 0 && (
             <div className="text-xs text-gray-400 mt-1">
-              +{tooltipState.blockerInfo.extraCount} more blocker{tooltipState.blockerInfo.extraCount > 1 ? 's' : ''}
+              +{tooltipState.blockerInfo.extraCount} more project blocker{tooltipState.blockerInfo.extraCount > 1 ? 's' : ''}
             </div>
+          )}
+          {tooltipState.blockerInfo.hasTaskBlockers && (
+            <div className="text-xs text-yellow-300 mt-2 font-semibold">Task Blockers also present</div>
+          )}
+          {tooltipState.blockerInfo.hasTaskBlockers && tooltipState.blockerInfo.taskBlockers && tooltipState.blockerInfo.taskBlockers.length > 0 && (
+            <ul className="mt-1 space-y-1">
+              {tooltipState.blockerInfo.taskBlockers.slice(0, 2).map((tb: any, idx: number) => (
+                <li key={tb.id || idx} className="text-xs text-yellow-200 truncate">• {tb.reason}</li>
+              ))}
+              {tooltipState.blockerInfo.taskBlockers.length > 2 && (
+                <li className="text-xs text-yellow-400">+{tooltipState.blockerInfo.taskBlockers.length - 2} more task blocker{tooltipState.blockerInfo.taskBlockers.length - 2 > 1 ? 's' : ''}</li>
+              )}
+            </ul>
           )}
         </div>,
         document.body

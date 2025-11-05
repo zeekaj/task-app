@@ -11,6 +11,7 @@ import { Timestamp } from "firebase/firestore";
 
 import { useTasks } from "../hooks/useTasks";
 import { useTeamMembers } from "../hooks/useTeamMembers";
+import { useOrganizationId } from "../hooks/useOrganization";
 import { ConfirmModal } from "./shared/ConfirmModal";
 import { logError } from "../utils/logger";
 import type { WithId, Task, Project, Subtask, RecurrencePattern, TaskAttachment } from "../types";
@@ -51,6 +52,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   const [recurrence, setRecurrence] = useState<RecurrencePattern>(task.recurrence || { type: "none" });
   const allTasks = useTasks(uid);
   const teamMembers = useTeamMembers(uid);
+  const { orgId } = useOrganizationId();
   const [showBlockerManager, setShowBlockerManager] = useState(false);
   const [confirmAttachmentOpen, setConfirmAttachmentOpen] = useState(false);
   const [confirmAttachmentMessage, setConfirmAttachmentMessage] = useState<string>("");
@@ -248,10 +250,12 @@ export const TaskEditForm: React.FC<Props> = (props) => {
       return;
     }
 
+    if (!orgId) return;
+
     try {
       // Save task changes
       await updateTask(
-        uid,
+        orgId,
         task.id,
         {
           title: title.trim(),
@@ -288,10 +292,12 @@ export const TaskEditForm: React.FC<Props> = (props) => {
       return; // Don't autosave if title is empty
     }
     
+    if (!orgId) return;
+    
     setIsAutosaving(true);
     try {
       await updateTask(
-        uid,
+        orgId,
         task.id,
         {
           title: title.trim(),
@@ -313,7 +319,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     } finally {
       setTimeout(() => setIsAutosaving(false), 300); // Show briefly for 300ms
     }
-  }, [uid, task.id, title, description, comments, priority, dueDate, projectId, assignee, recurrence, attachments, subtasks, dependencies]);
+  }, [orgId, uid, task.id, title, description, comments, priority, dueDate, projectId, assignee, recurrence, attachments, subtasks, dependencies]);
 
   const triggerAutosave = useCallback(() => {
     // Clear existing timeout
@@ -355,7 +361,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
       };
       const updatedAttachments = [...attachments, newAttachment];
       setAttachments(updatedAttachments);
-      await updateTask(uid, task.id, { attachments: updatedAttachments });
+      if (orgId) await updateTask(orgId, task.id, { attachments: updatedAttachments });
       await logActivity(uid, "task", task.id, title, "updated", {
         description: `Attached file: ${file.name}`,
         changes: { attachments: { from: attachments, to: updatedAttachments } }
@@ -423,7 +429,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   });
 
   // Intercept status change to prompt for block/resolve reason
-  const handleStatusChange = (newStatus: Task["status"]) => {
+  const handleStatusChange = async (newStatus: Task["status"]) => {
     if (task.status === "blocked" && newStatus !== "blocked") {
       setPendingStatus(newStatus);
       setShowResolveModal(true);
@@ -431,7 +437,14 @@ export const TaskEditForm: React.FC<Props> = (props) => {
       setPendingStatus(newStatus);
       setShowBlockModal(true);
     } else {
-      onStatusChange && onStatusChange(newStatus);
+      // Update task status directly
+      if (!orgId) return;
+      try {
+        await updateTask(orgId, task.id, { status: newStatus });
+        onStatusChange && onStatusChange(newStatus);
+      } catch (error) {
+        console.error('Failed to update task status:', error);
+      }
     }
   };
 
@@ -461,7 +474,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     const updatedAttachments = [...attachments, newAttachment];
     setAttachments(updatedAttachments);
     try {
-      await updateTask(uid, task.id, { attachments: updatedAttachments });
+      if (orgId) await updateTask(orgId, task.id, { attachments: updatedAttachments });
       await logActivity(uid, "task", task.id, title, "updated", {
         description: `Attached link: ${newLinkName.trim()}`,
         changes: { attachments: { from: attachments, to: updatedAttachments } }
@@ -505,7 +518,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         const updatedAttachments = attachments.filter(a => a.id !== id);
         setAttachments(updatedAttachments);
         try {
-          await updateTask(uid, task.id, { attachments: updatedAttachments });
+          if (orgId) await updateTask(orgId, task.id, { attachments: updatedAttachments });
           await logActivity(uid, "task", task.id, title, "updated", {
             description: `Removed file: ${attachmentToRemove.name}`,
             changes: { attachments: { from: attachments, to: updatedAttachments } }
@@ -525,7 +538,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     const updatedAttachments = attachments.filter(a => a.id !== id);
     setAttachments(updatedAttachments);
     try {
-      await updateTask(uid, task.id, { attachments: updatedAttachments });
+      if (orgId) await updateTask(orgId, task.id, { attachments: updatedAttachments });
       await logActivity(uid, "task", task.id, title, "updated", {
         description: `Removed link: ${attachmentToRemove.name}`,
         changes: { attachments: { from: attachments, to: updatedAttachments } }
@@ -581,6 +594,11 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                 className="p-0.5 rounded-full transition-all duration-200 hover:scale-110"
                 onClick={(e) => {
                   e.stopPropagation();
+                  // If task is blocked, open blocker manager instead of dropdown
+                  if (task.status === 'blocked') {
+                    setShowBlockerManager(true);
+                    return;
+                  }
                   // compute position for fixed dropdown so it appears near the icon
                   const btn = e.currentTarget as HTMLElement;
                   const rect = btn.getBoundingClientRect();
@@ -588,7 +606,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                   setStatusDropdownPos({ top: rect.bottom + window.scrollY + 6, left: rect.left + window.scrollX });
                   setShowStatusDropdown((s) => !s);
                 }}
-                title={`Status: ${task.status.replace('_', ' ')} - Click to change`}
+                title={task.status === 'blocked' ? 'Task is blocked - Click to manage blockers' : `Status: ${task.status.replace('_', ' ')} - Click to change`}
               >
                 {task.status === 'not_started' && (
                   <span className="inline-flex items-center justify-center rounded-full bg-gray-200 w-6 h-6">
@@ -930,6 +948,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                     top: assigneeDropdownPos ? `${assigneeDropdownPos.top}px` : '0px',
                     left: assigneeDropdownPos ? `${assigneeDropdownPos.left}px` : '0px'
                   }}
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
                   {/* Suggestions Section */}
@@ -946,7 +965,9 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                           key={suggestion.memberId}
                           type="button"
                           className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex flex-col gap-1 border-l-2 border-brand-cyan/50"
-                          onClick={() => {
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setAssignee(suggestion.memberName);
                             setShowAssigneeDropdown(false);
                             triggerAutosave();
@@ -969,7 +990,9 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                   <button
                     type="button"
                     className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 text-sm text-brand-text/60"
-                    onClick={() => {
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
                       setAssignee("");
                       setShowAssigneeDropdown(false);
                       triggerAutosave();
@@ -984,7 +1007,9 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                       className={`w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center justify-between text-sm text-brand-text ${
                         assignee === member.name ? 'bg-brand-cyan/20' : ''
                       }`}
-                      onClick={() => {
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setAssignee(member.name);
                         setShowAssigneeDropdown(false);
                         triggerAutosave();
