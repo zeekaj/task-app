@@ -71,5 +71,35 @@ service cloud.firestore {
     match /users/{uid}/{document=**} {
       allow read, write: if isSignedIn() && (request.auth.uid == uid || isOrgMember(uid));
     }
+
+    // Organization-scoped data collections under organizations/{orgId}/...
+    // Allow owner and active org members to read/write all org data
+    match /organizations/{orgId}/tasks/{taskId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
+    
+    match /organizations/{orgId}/projects/{projectId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
+    
+    match /organizations/{orgId}/blockers/{blockerId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
+    
+    match /organizations/{orgId}/activityHistory/{activityId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
+    
+    match /organizations/{orgId}/clients/{clientId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
+    
+    match /organizations/{orgId}/venues/{venueId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
+    
+    match /organizations/{orgId}/shifts/{shiftId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
   }
 }
