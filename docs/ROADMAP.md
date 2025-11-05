@@ -51,9 +51,179 @@ This is a multi-user application for organizations coordinating projects, tasks,
 
 ---
 
-## 🎯 Near-Term Priorities
+## 🎯 Near-Term Priorities (Top 4 - Active Development)
 
-### 1. Functional Dashboard
+### 1. General vs Project-Specific Tasks
+**Goal:** Distinguish between office-based "General" tasks and project-specific tasks, with proper organization and visibility
+
+**Current State:**
+- Tasks have `projectId` field (null = general task, string = project task)
+- All tasks show in TasksView regardless of project association
+- Project tasks can be created/viewed within Project Detail modal
+
+**Changes Needed:**
+- [ ] **UI Enhancements:**
+  - [ ] Add visual grouping in TasksView: "General Tasks" section and "Project Tasks" section
+  - [ ] Add badge/icon on project tasks showing project name
+  - [ ] Add filter toggle: "Show General Only" / "Show Project Tasks Only" / "Show All"
+  - [ ] In ProjectsView cards, show task count for each project
+  - [ ] Quick-create general task from TasksView (no project selector)
+  - [ ] Quick-create project task from ProjectsView (auto-set projectId)
+- [ ] **Data Model:**
+  - [ ] Ensure `projectId: null` for all general tasks (already supported)
+  - [ ] Add computed field for UI: `isGeneralTask = projectId === null`
+- [ ] **Task Management:**
+  - [ ] Allow converting general task → project task (add projectId)
+  - [ ] Allow converting project task → general task (set projectId to null)
+  - [ ] Update activity log when task moves between general/project
+
+**Examples:**
+- General: "Achieve Dante Level 3 Certification", "Update equipment inventory"
+- Project: "Finish drafting for Paycor project", "Load in audio rig for Festival X"
+
+**Deliverable:** Clear separation between general office tasks and project-specific work, with easy organization across both types
+
+---
+
+### 2. Role-Based Task & Project Visibility
+**Goal:** Regular users see only their tasks/projects; Owners/Admins see everything with advanced filtering
+
+**Current State:**
+- All tasks stored under `users/{uid}/tasks` (user-specific collection)
+- All projects stored under `users/{uid}/projects` (user-specific collection)
+- No visibility filtering based on role or assignee
+- TeamMember has `role` field: "owner", "admin", "technician", "freelance", "viewer"
+
+**Changes Needed:**
+- [ ] **Data Model Migration:**
+  - [ ] Move tasks from `users/{uid}/tasks` → `organizations/{orgId}/tasks`
+  - [ ] Move projects from `users/{uid}/projects` → `organizations/{orgId}/projects`
+  - [ ] Add `createdBy: string` field to tasks and projects
+  - [ ] Add `organizationId: string` field to tasks and projects
+  - [ ] Ensure all tasks/projects have proper `assignee` or `assignees[]` fields
+  - [ ] Write migration script to move existing data
+- [ ] **Permission System:**
+  - [ ] Create `src/utils/permissions.ts` with role-based helpers
+  - [ ] `canViewAllTasks(role)` → true for owner/admin
+  - [ ] `canViewAllProjects(role)` → true for owner/admin
+  - [ ] `canEditAnyTask(role)` → true for owner/admin
+  - [ ] `canDeleteTask(role, task)` → true for owner/admin/creator
+  - [ ] `canAssignToOthers(role)` → true for owner/admin
+- [ ] **UI Updates:**
+  - [ ] TasksView: Filter by assignee when role = technician/freelance/viewer
+  - [ ] TasksView: Show "Assigned To" column for owner/admin
+  - [ ] ProjectsView: Filter by project team members for non-admins
+  - [ ] Add "My Tasks/Projects" vs "All Tasks/Projects" toggle for admins
+  - [ ] Show assignment info prominently on cards
+- [ ] **Firestore Security Rules:**
+  - [ ] Update rules to check organizationId and role
+  - [ ] Allow read if assignee matches uid OR role is owner/admin
+  - [ ] Allow write if owner/admin OR creator
+
+**Deliverable:** Clean, personalized views for individuals; powerful overview for managers
+
+---
+
+### 3. Schedule Integration for Tasks & Projects
+**Goal:** Auto-populate schedule with dated tasks/projects; allow users to plan their day and track progress
+
+**Current State:**
+- Schedule has shifts and schedule events
+- Tasks have `dueDate` field (string | null)
+- Projects have multiple dates (prepDate, eventBeginDate, returnDate, etc.)
+- No integration between schedule and tasks/projects
+
+**Changes Needed:**
+- [ ] **Auto-Population Rules:**
+  - [ ] Tasks with dueDate appear on schedule on that day
+  - [ ] Projects appear on schedule during active date range (prepDate → returnDate)
+  - [ ] Only show tasks/projects assigned to viewed team member(s)
+  - [ ] Add schedule item type: "task" and "project" (currently has "event", "shift")
+  - [ ] Visual distinction: tasks (purple), projects (blue), shifts (teal)
+- [ ] **Daily Schedule Planning:**
+  - [ ] Add "My Day" view in ScheduleView (single day, user-specific)
+  - [ ] Drag-and-drop tasks into time blocks
+  - [ ] Create time-blocked schedule entries: "Work on [Task] from 2pm-4pm"
+  - [ ] Add "scheduled" status to tasks (scheduled but not started)
+  - [ ] Store scheduled time blocks in new `scheduleBlocks` collection
+- [ ] **Progress Tracking:**
+  - [ ] Add "Start Timer" button on scheduled task blocks
+  - [ ] Track actual time spent vs planned time
+  - [ ] Update task progress % (0-100)
+  - [ ] Add notes/comments after completing time block
+  - [ ] Show progress indicator on task cards
+- [ ] **Data Model:**
+  ```typescript
+  interface ScheduleBlock {
+    id: string;
+    organizationId: string;
+    userId: string; // who scheduled it
+    taskId?: string;
+    projectId?: string;
+    title: string;
+    startTime: Timestamp;
+    endTime: Timestamp;
+    plannedMinutes: number;
+    actualMinutes?: number;
+    completed: boolean;
+    notes?: string;
+  }
+  ```
+- [ ] **UI Components:**
+  - [ ] Extend ScheduleView with task/project rendering
+  - [ ] Add "Plan My Day" modal: drag tasks/projects into time slots
+  - [ ] Add progress modal: timer, notes, completion checkbox
+  - [ ] Show task/project cards in schedule grid alongside shifts
+
+**Deliverable:** Seamless workflow from task assignment → scheduling → execution → completion tracking
+
+---
+
+### 4. Schedule Filtering & Personal Views
+**Goal:** All users can view full schedule but filter to their own work; permission-based editing
+
+**Current State:**
+- ScheduleView shows all shifts for organization
+- Filter by team member exists (`filterByMember`)
+- No "My Schedule" quick filter
+- Edit permissions not role-based
+
+**Changes Needed:**
+- [ ] **Quick Filters:**
+  - [ ] Add "My Schedule" button (filters to current user's shifts/tasks/projects)
+  - [ ] Add "Full Team" button (shows all org schedule)
+  - [ ] Remember last filter preference in localStorage
+  - [ ] Show filter state in header ("Viewing: My Schedule" / "Viewing: Full Team")
+- [ ] **Monthly View Filtering:**
+  - [ ] Add multi-select team member filter for monthly view
+  - [ ] Highlight current user's items in different color
+  - [ ] Add legend: My Items (bright), Team Items (dimmed)
+- [ ] **Permission-Based Editing:**
+  - [ ] Regular users can only edit their own shifts/tasks
+  - [ ] Admins/Owners can create/edit shifts for anyone
+  - [ ] Show "locked" icon on non-editable items
+  - [ ] Disable drag-drop for items user can't edit
+  - [ ] Add permission checks before opening edit modals
+- [ ] **Edit Permission Logic:**
+  ```typescript
+  canEditScheduleItem(userId, item, userRole) {
+    if (role === 'owner' || role === 'admin') return true;
+    if (item.type === 'shift' && item.assignedTo.includes(userId)) return true;
+    if (item.type === 'task' && item.assignee === userId) return true;
+    return false;
+  }
+  ```
+- [ ] **UI Updates:**
+  - [ ] Filter controls at top of ScheduleView
+  - [ ] Visual indicator for filtered view (colored border/badge)
+  - [ ] Disable edit UI elements for non-permitted items
+  - [ ] Show helpful tooltip: "Only admins can edit team shifts"
+
+**Deliverable:** Flexible schedule viewing with clear personal focus and proper permission controls
+
+---
+
+### 5. Functional Dashboard
 **Goal:** Replace placeholder data with real metrics
 
 **Tasks:**
@@ -68,7 +238,7 @@ This is a multi-user application for organizations coordinating projects, tasks,
 
 ---
 
-### 2. AI Task Allocation Engine v1
+### 6. AI Task Allocation Engine v1
 **Goal:** Smart task assignment based on skills and workload
 
 **Features:**
@@ -92,7 +262,7 @@ This is a multi-user application for organizations coordinating projects, tasks,
 
 ---
 
-### 3. Testing Infrastructure
+### 7. Testing Infrastructure
 **Goal:** Add test coverage for critical business logic
 
 **Setup:**
@@ -114,9 +284,9 @@ This is a multi-user application for organizations coordinating projects, tasks,
 
 ---
 
-## 🚀 Scheduling & Projects Enhancements
+## 🚀 Mid-Term Enhancements
 
-### 4. Shift Templates and Scheduling UX
+### 8. Shift Templates and Scheduling UX
 **Goal:** Faster creation and management of common shift patterns
 
 **Features:**
@@ -129,7 +299,7 @@ This is a multi-user application for organizations coordinating projects, tasks,
 
 **Deliverable:** Reduce time to build weekly schedules; prevent conflicts
 
-### 5. Advanced Filtering & Saved Views
+### 9. Advanced Filtering & Saved Views
 **Goal:** Find information faster
 
 **Features:**
@@ -152,7 +322,7 @@ This is a multi-user application for organizations coordinating projects, tasks,
 
 ---
 
-### 6. Task Comments & Notes
+### 10. Task Comments & Notes
 **Goal:** Keep context with tasks (no collaboration features)
 
 **Features:**
@@ -170,7 +340,7 @@ This is a multi-user application for organizations coordinating projects, tasks,
 
 ---
 
-### 7. File Attachments
+### 11. File Attachments
 **Goal:** Link files to tasks and projects
 
 **Features:**
@@ -188,7 +358,7 @@ This is a multi-user application for organizations coordinating projects, tasks,
 
 ---
 
-### 8. Gantt Chart View
+### 12. Gantt Chart View
 **Goal:** Visual timeline for projects
 
 **Features:**

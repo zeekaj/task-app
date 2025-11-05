@@ -11,6 +11,7 @@ import { createTask } from "../../services/tasks";
 import { BlockerModal } from "../BlockerModal";
 import { BlockerManagerModal } from "../BlockerManagerModal";
 import { FilterBar, defaultFilters } from "../FilterBar";
+import { ProjectDetailView } from './ProjectDetailView';
 // Removed SimpleFilterBar
 
 // Draggable wrapper for dnd-kit
@@ -62,10 +63,15 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
   // Removed streamlined UI toggle; always using classic FilterBar
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [taskTypeFilter, setTaskTypeFilter] = useState<'all' | 'general' | 'project'>(() => {
+    const saved = localStorage.getItem('taskTypeFilter');
+    return (saved as 'all' | 'general' | 'project') || 'all';
+  });
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmMessage, setConfirmMessage] = useState("");
   const [confirmAction, setConfirmAction] = useState<(() => Promise<void>) | null>(null);
   const [blockerManagerTask, setBlockerManagerTask] = useState<{ id: string; title: string; type: "task" } | null>(null);
+  const [selectedProject, setSelectedProject] = useState<WithId<Project> | null>(null);
   const filtersPanelRef = React.useRef<HTMLDivElement | null>(null);
   const toggleButtonRef = React.useRef<HTMLButtonElement | null>(null);
   const controlsWrapperRef = React.useRef<HTMLDivElement | null>(null);
@@ -193,10 +199,20 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
 
   // Memoized filtered task computation to prevent unnecessary recalculations
   const filteredTasks = useMemo((): WithId<Task>[] => {
-    let list = allTasks.filter((t: WithId<Task>) => !t.projectId);
+    // Apply task type filter first
+    let list: WithId<Task>[];
+    if (taskTypeFilter === 'general') {
+      list = allTasks.filter((t: WithId<Task>) => !t.projectId);
+    } else if (taskTypeFilter === 'project') {
+      list = allTasks.filter((t: WithId<Task>) => t.projectId);
+    } else {
+      // 'all' - include both general and project tasks
+      list = [...allTasks];
+    }
+    
     if (showAll) return list;
     
-    // Apply search filter first
+    // Apply search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       list = list.filter((t: WithId<Task>) => 
@@ -264,18 +280,30 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
       });
     }
     return list;
-  }, [allTasks, showAll, filters, searchQuery]);
+  }, [allTasks, showAll, filters, searchQuery, taskTypeFilter]);
 
   // Calculate how many tasks are hidden by filters and which ones
   const hiddenTasksInfo = useMemo(() => {
     if (showAll) return { count: 0, tasks: [] };
-    const unfilteredTasks = allTasks.filter((t: WithId<Task>) => !t.projectId);
+    let unfilteredTasks: WithId<Task>[];
+    if (taskTypeFilter === 'general') {
+      unfilteredTasks = allTasks.filter((t: WithId<Task>) => !t.projectId);
+    } else if (taskTypeFilter === 'project') {
+      unfilteredTasks = allTasks.filter((t: WithId<Task>) => t.projectId);
+    } else {
+      unfilteredTasks = [...allTasks];
+    }
     const filteredTaskIds = new Set(filteredTasks.map(t => t.id));
     const hiddenTasks = unfilteredTasks.filter(t => !filteredTaskIds.has(t.id));
     return { count: hiddenTasks.length, tasks: hiddenTasks };
-  }, [allTasks, filteredTasks, showAll]);
+  }, [allTasks, filteredTasks, showAll, taskTypeFilter]);
 
   const hiddenTaskCount = hiddenTasksInfo.count;
+
+  // Save task type filter to localStorage when it changes
+  React.useEffect(() => {
+    localStorage.setItem('taskTypeFilter', taskTypeFilter);
+  }, [taskTypeFilter]);
 
   // Track hidden badge position for tooltip portal
   useLayoutEffect(() => {
@@ -371,6 +399,14 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
               ? (t.assignee as TaskAssignee).name || (t.assignee as TaskAssignee).id
               : t.assignee)
           : "(none)";
+        else if (groupBy === "project") {
+          if (t.projectId && allProjects?.length) {
+            const project = allProjects.find(p => p.id === t.projectId);
+            key = project?.title || "(none)";
+          } else {
+            key = "(General)";
+          }
+        }
         else key = "";
         if (!groups[key]) groups[key] = [];
         groups[key].push(t);
@@ -383,7 +419,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
     }
     
     return groupTasks(filteredTasks, filters.groupBy || "none");
-  }, [filteredTasks, filters.groupBy, sortTasks]);
+  }, [filteredTasks, filters.groupBy, sortTasks, allProjects]);
 
   // Remove effect that updates dragList from backend unless a drag is in progress
 
@@ -420,7 +456,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
       {/* Filters Bar (match Project View) */}
       <div className="mt-4">
         <div ref={controlsWrapperRef} className="flex flex-col">
-          <div className="flex flex-wrap items-center gap-3 bg-[rgba(20,20,30,0.6)] backdrop-blur-sm rounded-xl px-4 py-3 border border-white/10 w-full z-[9999] overflow-visible">
+          <div className="flex flex-wrap items-center gap-3 bg-[rgba(20,20,30,0.6)] backdrop-blur-sm rounded-xl px-4 py-3 border border-white/10 w-full z-10 overflow-visible">
             {/* Search first */}
             <div className="relative">
               <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -433,6 +469,43 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                 placeholder="Search tasks..."
                 className="pl-10 pr-3 py-2 text-sm bg-[rgba(15,15,25,0.8)] border border-white/10 rounded-lg focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan/50 w-56 text-brand-text placeholder:text-gray-500 transition-all"
               />
+            </div>
+
+            {/* Task Type Filter */}
+            <div className="flex items-center gap-1 bg-[rgba(15,15,25,0.8)] border border-white/10 rounded-lg p-1">
+              <button
+                type="button"
+                onClick={() => setTaskTypeFilter('all')}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                  taskTypeFilter === 'all'
+                    ? 'bg-brand-cyan text-white shadow-lg shadow-brand-cyan/30'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                All Tasks
+              </button>
+              <button
+                type="button"
+                onClick={() => setTaskTypeFilter('general')}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                  taskTypeFilter === 'general'
+                    ? 'bg-purple-500 text-white shadow-lg shadow-purple-500/30'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                📋 General
+              </button>
+              <button
+                type="button"
+                onClick={() => setTaskTypeFilter('project')}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                  taskTypeFilter === 'project'
+                    ? 'bg-blue-500 text-white shadow-lg shadow-blue-500/30'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                📁 Project Tasks
+              </button>
             </div>
 
             {/* Inline FilterBar like Project View */}
@@ -467,8 +540,8 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
 
             {/* Group by and Arrange by controls */}
             <div className="flex items-center gap-2">
-              <Dropdown label={`Group by${filters.groupBy && filters.groupBy !== "none" ? `: ${["None","Status","Priority","Due","Assignee"][ ["none","status","priority","due","assigned"].indexOf(filters.groupBy) ]}` : ""}`}>
-                { ["none","status","priority","due","assigned"].map((val, i) => (
+              <Dropdown label={`Group by${filters.groupBy && filters.groupBy !== "none" ? `: ${["None","Status","Priority","Due","Assignee","Project"][ ["none","status","priority","due","assigned","project"].indexOf(filters.groupBy) ]}` : ""}`}>
+                { ["none","status","priority","due","assigned","project"].map((val, i) => (
                   <label key={val} className="flex items-center gap-2 px-2 py-1">
                     <input
                       type="radio"
@@ -476,7 +549,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                       checked={(filters.groupBy || "none") === val}
                       onChange={() => setFiltersWithPersistence({ ...filters, groupBy: val as TaskFilters["groupBy"] })}
                     />
-                    <span>{["None","Status","Priority","Due","Assignee"][i]}</span>
+                    <span>{["None","Status","Priority","Due","Assignee","Project"][i]}</span>
                   </label>
                 ))}
               </Dropdown>
@@ -613,11 +686,13 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                         task={t}
                         allBlockers={safeAllBlockers}
                         allTasks={filteredTasks}
+                        allProjects={allProjects}
                         searchQuery={searchQuery}
                         onStartEdit={() => setEditingTaskId(t.id)}
                         // ...existing code...
                         onManageBlockers={() => setBlockerManagerTask({ id: t.id, title: t.title, type: "task" })}
                         onStartBlock={() => setBlockerModalTask({ id: t.id, title: t.title, type: "task" })}
+                        onProjectClick={(project) => setSelectedProject(project)}
                         onArchive={async () => {
                           const { archiveTask } = await import("../../services/tasks");
                           await archiveTask(uid, t.id);
@@ -711,6 +786,16 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
           </ul>
         </div>,
         document.body
+      )}
+      
+      {/* Project Detail Modal */}
+      {selectedProject && (
+        <ProjectDetailView
+          uid={uid}
+          project={selectedProject}
+          onClose={() => setSelectedProject(null)}
+          onDeleted={() => setSelectedProject(null)}
+        />
       )}
     </div>
   );

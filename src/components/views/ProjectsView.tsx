@@ -5,6 +5,7 @@ import { Card } from '../ui/Card';
 import { StatusBadge, Badge } from '../ui/Badge';
 import { PillTabs } from '../ui/PillTabs';
 import { useProjects } from '../../hooks/useProjects';
+import { useTasks } from '../../hooks/useTasks';
 import { useAllBlockers } from '../../hooks/useBlockers';
 import { useClients } from '../../hooks/useClients';
 import { useVenues } from '../../hooks/useVenues';
@@ -30,6 +31,7 @@ type ProjectWithStatus = WithId<Project> & { effectiveStatus: ProjectStatus };
 
 export function ProjectsView({ uid }: ProjectsViewProps) {
   const projects = useProjects(uid);
+  const allTasks = useTasks(uid);
   const allBlockers = useAllBlockers(uid);
   const members = useTeamMembers(uid);
   const [clients] = useClients(uid);
@@ -67,6 +69,18 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
     }
   }, [projects]);
 
+  // Check for openProjectId from notification click
+  useEffect(() => {
+    const openProjectId = localStorage.getItem('openProjectId');
+    if (openProjectId && projects) {
+      const projectToOpen = projects.find(p => p.id === openProjectId);
+      if (projectToOpen) {
+        setSelectedProject(projectToOpen);
+        localStorage.removeItem('openProjectId');
+      }
+    }
+  }, [projects]);
+
   // Delete handlers for child components
   const handleDeleteRequest = (projectId: string, title: string) => {
     setProjectToDelete({ id: projectId, title });
@@ -91,10 +105,18 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
     effectiveStatus: computeProjectStatus(p),
   })) || [];
 
-  // Filter projects
+  // Filter projects - exclude completed by default unless explicitly filtering for completed
   const filteredProjects = filterStatus === 'all' 
-    ? projectsWithStatus 
+    ? projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus !== 'completed')
     : projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === filterStatus);
+
+  // Helper function to get task counts for a project
+  const getTaskCounts = (projectId: string) => {
+    if (!allTasks) return { total: 0, completed: 0 };
+    const projectTasks = allTasks.filter(t => t.projectId === projectId);
+    const completed = projectTasks.filter(t => t.status === 'done').length;
+    return { total: projectTasks.length, completed };
+  };
 
   const clientNameById: Record<string, string> = Object.fromEntries((clients || []).map((c: any) => [c.id, c.name]));
   const venueNameById: Record<string, string> = Object.fromEntries((venues || []).map((v: any) => [v.id, v.name]));
@@ -251,7 +273,7 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
 
       {/* Content based on view mode */}
   {viewMode === 'cards' && <CardsView uid={uid} projects={filteredProjects} blockers={allBlockers as any[]} clientNameById={clientNameById} venueNameById={venueNameById} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} onBlock={(id: string, title: string) => setBlockerModalProject({ id, title })} onManageBlockers={(id: string, title: string) => setBlockerManagerProject({ id, title })} />}
-  {viewMode === 'list' && <ListView uid={uid} projects={filteredProjects} blockers={allBlockers as any[]} clientNameById={clientNameById} venueNameById={venueNameById} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} onBlock={(id: string, title: string) => setBlockerModalProject({ id, title })} onManageBlockers={(id: string, title: string) => setBlockerManagerProject({ id, title })} />}
+  {viewMode === 'list' && <ListView uid={uid} projects={filteredProjects} blockers={allBlockers as any[]} clientNameById={clientNameById} venueNameById={venueNameById} getTaskCounts={getTaskCounts} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} onBlock={(id: string, title: string) => setBlockerModalProject({ id, title })} onManageBlockers={(id: string, title: string) => setBlockerManagerProject({ id, title })} />}
   {viewMode === 'kanban' && <KanbanView projects={projectsWithStatus} onProjectClick={setSelectedProject} />}
 
       <CreateProjectModal
@@ -485,12 +507,22 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
                         );
                       })()
                     ) : project.effectiveStatus === 'post_event' ? (
-                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/10 border border-orange-500/30 animate-pulse">
-                        <svg className="w-3.5 h-3.5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span className="text-xs font-semibold text-orange-400">Sign-Off</span>
-                      </div>
+                      // Check if awaiting owner review (purple Invoice badge)
+                      project.postEventReport?.status === 'submitted' && !project.postEventReport.ownerReviewed ? (
+                        <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-purple-500/10 border border-purple-500/30 animate-pulse">
+                          <svg className="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <span className="text-xs font-semibold text-purple-400">Invoice</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/10 border border-orange-500/30 animate-pulse">
+                          <svg className="w-3.5 h-3.5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span className="text-xs font-semibold text-orange-400">Sign-Off</span>
+                        </div>
+                      )
                     ) : (
                       <StatusBadge status={project.effectiveStatus} size="sm" />
                     )}
@@ -709,12 +741,13 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
 
 // List View
 // List View
-function ListView({ uid, projects, blockers, clientNameById, venueNameById, onProjectClick, onDelete, onBlock, onManageBlockers }: {
+function ListView({ uid, projects, blockers, clientNameById, venueNameById, getTaskCounts, onProjectClick, onDelete, onBlock, onManageBlockers }: {
   uid: string;
   projects: any[];
   blockers: WithId<Blocker>[];
   clientNameById: Record<string, string>;
   venueNameById: Record<string, string>;
+  getTaskCounts: (projectId: string) => { total: number; completed: number };
   onProjectClick: (project: any) => void;
   onDelete: (projectId: string, title: string) => void;
   onBlock: (projectId: string, projectTitle: string) => void;
@@ -773,6 +806,7 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, onPr
           <tr className="border-b border-white/5">
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Project</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Status</th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Tasks</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">R2#</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Ship</th>
             <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Return</th>
@@ -847,18 +881,42 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, onPr
                         );
                       })()
                     ) : project.effectiveStatus === 'post_event' ? (
-                      <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/10 border border-orange-500/30 animate-pulse">
-                        <svg className="w-3.5 h-3.5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        <span className="text-xs font-semibold text-orange-400">Sign-Off</span>
-                      </div>
+                      // Check if awaiting owner review (purple Invoice badge)
+                      project.postEventReport?.status === 'submitted' && !project.postEventReport.ownerReviewed ? (
+                        <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-purple-500/10 border border-purple-500/30 animate-pulse">
+                          <svg className="w-3.5 h-3.5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <span className="text-xs font-semibold text-purple-400">Invoice</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-orange-500/10 border border-orange-500/30 animate-pulse">
+                          <svg className="w-3.5 h-3.5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span className="text-xs font-semibold text-orange-400">Sign-Off</span>
+                        </div>
+                      )
                     ) : (
                       <StatusBadge status={project.effectiveStatus} size="sm" />
                     )}
                   </button>
                   
                 </div>
+              </td>
+              <td className="py-3 px-4">
+                {(() => {
+                  const counts = getTaskCounts(project.id);
+                  if (counts.total > 0) {
+                    return (
+                      <span className="text-xs px-2 py-0.5 rounded-md bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-medium"
+                        title={`${counts.completed} of ${counts.total} tasks completed`}>
+                        {counts.completed}/{counts.total}
+                      </span>
+                    );
+                  }
+                  return <span className="text-gray-500">—</span>;
+                })()}
               </td>
               <td className="py-3 px-4 text-sm text-gray-300">
                 {project.r2Number ? project.r2Number : <span className="text-gray-500">—</span>}
@@ -1056,7 +1114,10 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, onPr
 }
 
 // Kanban View
-function KanbanView({ projects, onProjectClick }: { projects: any[]; onProjectClick: (project: any) => void }) {
+function KanbanView({ projects, onProjectClick }: { 
+  projects: any[]; 
+  onProjectClick: (project: any) => void;
+}) {
   const columns: { id: ProjectStatus; label: string; color: string }[] = [
     { id: 'not_started', label: 'Not Started', color: 'from-gray-500/20 to-gray-600/20' },
     { id: 'planning', label: 'Planning', color: 'from-blue-500/20 to-blue-600/20' },
@@ -1087,8 +1148,8 @@ function KanbanView({ projects, onProjectClick }: { projects: any[]; onProjectCl
                   className="p-2 space-y-1.5 cursor-pointer relative"
                   onClick={() => onProjectClick(project)}
                 >
-                  {/* Submitted badge (top-right) */}
-                  {project.postEventReport?.status === 'submitted' && (
+                  {/* Submitted badge (top-right) - hide for completed projects */}
+                  {project.postEventReport?.status === 'submitted' && project.effectiveStatus !== 'completed' && (
                     <span className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

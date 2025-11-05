@@ -2,18 +2,49 @@ import React, { useState, useEffect } from "react";
 import type { Activity, ActivityEntityType } from "../types";
 import { getEntityActivityHistory, generateActivityDescription } from "../services/activityHistory";
 
+// Helper function to render activity description with venue/client names
+function renderActivityDescription(
+  activity: Activity, 
+  contextEntityId: string | undefined, 
+  venues: { id: string; name: string }[], 
+  clients: { id: string; name: string }[]
+) {
+  let desc = generateActivityDescription(activity, contextEntityId);
+  if (activity.changes) {
+    if (activity.changes.venueId) {
+      const fromId = activity.changes.venueId.from;
+      const toId = activity.changes.venueId.to;
+      const fromVenue = venues.find((v) => v.id === fromId)?.name || (fromId === null ? 'None' : fromId);
+      const toVenue = venues.find((v) => v.id === toId)?.name || (toId === null ? 'None' : toId);
+      desc = desc.replace(`venueId: ${fromId} → ${toId}`, `venue: ${fromVenue} → ${toVenue}`);
+    }
+    if (activity.changes.clientId) {
+      const fromId = activity.changes.clientId.from;
+      const toId = activity.changes.clientId.to;
+      const fromClient = clients.find((c) => c.id === fromId)?.name || (fromId === null ? 'None' : fromId);
+      const toClient = clients.find((c) => c.id === toId)?.name || (toId === null ? 'None' : toId);
+      desc = desc.replace(`clientId: ${fromId} → ${toId}`, `client: ${fromClient} → ${toClient}`);
+    }
+  }
+  return desc;
+}
+
 interface ActivityHistoryProps {
   uid: string;
   entityType: ActivityEntityType;
   entityId: string;
   className?: string;
+  venues?: { id: string; name: string }[];
+  clients?: { id: string; name: string }[];
 }
 
 export const ActivityHistory: React.FC<ActivityHistoryProps> = ({
   uid,
   entityType,
   entityId,
-  className = ""
+  className = "",
+  venues = [],
+  clients = [],
 }) => {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(false);
@@ -163,7 +194,7 @@ export const ActivityHistory: React.FC<ActivityHistoryProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-brand-text">
-                    {generateActivityDescription(activity, entityId)}
+                    {renderActivityDescription(activity, entityId, venues, clients)}
                   </p>
                   <p className="text-xs text-gray-400 mt-1">
                     {formatDate(activity.createdAt)}

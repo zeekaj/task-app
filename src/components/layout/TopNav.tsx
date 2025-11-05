@@ -2,7 +2,9 @@
 import { useState } from 'react';
 import { TopNavTabs } from '../ui/PillTabs';
 import { Badge } from '../ui/Badge';
+import { NotificationBell } from '../NotificationBell';
 import logo from '../../assets/Logo Only-cropped.png';
+import type { Notification } from '../../types';
 
 interface TopNavProps {
   activeTab: string;
@@ -14,10 +16,13 @@ interface TopNavProps {
     role?: string;
     title?: string;
   };
+  uid: string;
+  organizationId: string | null;
+  onNotificationClick?: (notification: Notification & { id: string }) => void;
   onSignOut?: () => void | Promise<void>;
 }
 
-export function TopNav({ activeTab, onTabChange, account, onSignOut }: TopNavProps) {
+export function TopNav({ activeTab, onTabChange, account, uid, organizationId, onNotificationClick, onSignOut }: TopNavProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const tabs = [
     {
@@ -95,6 +100,20 @@ export function TopNav({ activeTab, onTabChange, account, onSignOut }: TopNavPro
 
           {/* Settings and Account */}
           <div className="flex items-center gap-2 relative">
+            {/* Notification Bell */}
+            {organizationId && (
+              <NotificationBell
+                uid={uid}
+                organizationId={organizationId}
+                onNotificationClick={(notification) => {
+                  // Navigate to the related project
+                  if (onNotificationClick) {
+                    onNotificationClick(notification);
+                  }
+                }}
+              />
+            )}
+
             <button 
               onClick={() => onTabChange('settings')}
               className={`

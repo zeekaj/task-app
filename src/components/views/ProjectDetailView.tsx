@@ -6,6 +6,8 @@ import { StatusBadge, Badge } from '../ui/Badge';
 import { PillTabs } from '../ui/PillTabs';
 import { Modal } from '../shared/Modal';
 import { updateProject, deleteProject, archiveProject } from '../../services/projects';
+import { logActivity } from '../../services/activityHistory';
+import { deleteNotificationsForEntity } from '../../services/notifications';
 import { createTask } from '../../services/tasks';
 import { useTasks } from '../../hooks/useTasks';
 import { useAllBlockers } from '../../hooks/useBlockers';
@@ -13,6 +15,7 @@ import { useProjects } from '../../hooks/useProjects';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useClients } from '../../hooks/useClients';
 import { useVenues } from '../../hooks/useVenues';
+import { useOrganizationId } from '../../hooks/useOrganization';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { computeProjectStatus } from '../../utils/projectStatus';
 import type { Project, ProjectStatus, WithId } from '../../types';
@@ -39,6 +42,7 @@ interface ProjectDetailViewProps {
 }
 
 export function ProjectDetailView({ uid, project: initialProject, onClose, onDeleted }: ProjectDetailViewProps) {
+  const { orgId } = useOrganizationId();
   const [project, setProject] = useState(initialProject);
   const [activeTab, setActiveTab] = useState('overview');
   const [editingField, setEditingField] = useState<string | null>(null);
@@ -85,6 +89,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
   const allBlockers = useAllBlockers(uid);
   const allProjects = useProjects(uid);
   const teamMembers = useTeamMembers(uid);
+  const currentUserMember = teamMembers?.find((m: any) => m.userId === uid);
+  const isOwner = currentUserMember?.role === 'owner';
   const [clients] = useClients(uid);
   const [venues] = useVenues(uid);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
@@ -145,6 +151,9 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
   const activeProjectBlockers = Array.isArray(allBlockers)
     ? allBlockers.filter((b: any) => b?.entityType === 'project' && b?.entityId === project.id && b?.status === 'active')
     : [];
+
+  // Check if project is completed (read-only mode)
+  const isCompleted = project.status === 'completed';
 
   // Filter tasks for this project
   const projectTasks = tasks?.filter(t => t.projectId === project.id) || [];
@@ -443,6 +452,17 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
        await updateProject(uid, project.id, pendingChanges as any);
      }
      await updateProject(uid, project.id, { status: 'completed' });
+     
+     // Delete all notifications related to this project
+     if (orgId) {
+       try {
+         await deleteNotificationsForEntity(orgId, 'project', project.id);
+       } catch (err) {
+         console.error('Failed to delete notifications:', err);
+         // Don't block completion if notification deletion fails
+       }
+     }
+     
      setProject({ ...project, status: 'completed' });
      showToast('Project marked as complete!', 'success');
      setShowCompletionModal(false);
@@ -563,7 +583,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
         {/* Header */}
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1">
-            {editingField === 'title' ? (
+            {editingField === 'title' && !isCompleted ? (
               <input
                 autoFocus
                 defaultValue={project.title}
@@ -578,8 +598,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
               />
             ) : (
               <h2
-                onClick={() => setEditingField('title')}
-                className="text-3xl font-bold text-white cursor-pointer hover:text-cyan-400 transition-colors"
+                onClick={() => !isCompleted && setEditingField('title')}
+                className={`text-3xl font-bold text-white ${!isCompleted ? 'cursor-pointer hover:text-cyan-400 transition-colors' : 'cursor-default'}`}
               >
                 {project.title}
               </h2>
@@ -622,6 +642,23 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                           </div>
                         );
                       })()
+                    ) : effectiveStatus === 'post_event' ? (
+                      // Check if awaiting owner review (purple Invoice badge)
+                      project.postEventReport?.status === 'submitted' && !project.postEventReport.ownerReviewed ? (
+                        <div className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-purple-500/10 border border-purple-500/30 animate-pulse">
+                          <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                          <span className="text-sm font-semibold text-purple-400">Invoice</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-orange-500/10 border border-orange-500/30 animate-pulse">
+                          <svg className="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span className="text-sm font-semibold text-orange-400">Sign-Off</span>
+                        </div>
+                      )
                     ) : (
                       <StatusBadge status={effectiveStatus} size="md" />
                     )}
@@ -667,7 +704,27 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                   
                 </div>
               ) : (
-                <StatusBadge status={effectiveStatus} size="md" />
+                // When status cannot be manually changed, show appropriate badge
+                effectiveStatus === 'post_event' ? (
+                  // Check if awaiting owner review (purple Invoice badge)
+                  project.postEventReport?.status === 'submitted' && !project.postEventReport.ownerReviewed ? (
+                    <div className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-purple-500/10 border border-purple-500/30 animate-pulse">
+                      <svg className="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                      </svg>
+                      <span className="text-sm font-semibold text-purple-400">Invoice</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1 px-3 py-1.5 rounded-md bg-orange-500/10 border border-orange-500/30 animate-pulse">
+                      <svg className="w-4 h-4 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      <span className="text-sm font-semibold text-orange-400">Sign-Off</span>
+                    </div>
+                  )
+                ) : (
+                  <StatusBadge status={effectiveStatus} size="md" />
+                )
               )}
                {project.projectManager && (
                  <div className="flex items-center gap-2 ml-2 px-3 py-1 bg-white/5 rounded-lg border border-white/10">
@@ -704,43 +761,45 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
           </div>
           <div className="flex items-center gap-2">
             {/* Schedule actions */}
-            <div className="relative schedule-dropdown-container">
-              <button
-                onClick={(e) => { e.stopPropagation(); setScheduleMenuOpen(!scheduleMenuOpen); }}
-                className="px-3 py-2 text-sm text-cyan-400 bg-white/5 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/10 flex items-center gap-2"
-                title="Generate schedule items"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M3 11h18M5 19h14a2 2 0 002-2v-6H3v6a2 2 0 002 2z" />
-                </svg>
-                Schedule
-                <svg className={`w-3 h-3 transition-transform ${scheduleMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              {scheduleMenuOpen && (
-                <div className="absolute right-0 top-full mt-1 min-w-[220px] bg-[rgba(20,20,30,0.95)] backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-30 overflow-hidden">
-                  <button
-                    onClick={handleCreateProjectHold}
-                    className="w-full text-left px-4 py-2 text-sm hover:bg-white/10 text-white flex items-center gap-2"
-                  >
-                    <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M3 11h18M5 19h14a2 2 0 002-2v-6H3v6a2 2 0 002 2z" />
-                    </svg>
-                    Create Project Hold
-                  </button>
-                  <button
-                    onClick={handleGenerateTentativeShifts}
-                    className="w-full text-left px-4 py-2 text-sm hover:bg-white/10 text-white flex items-center gap-2"
-                  >
-                    <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Create Soft Shifts
-                  </button>
-                </div>
-              )}
-            </div>
+            {!isCompleted && (
+              <div className="relative schedule-dropdown-container">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setScheduleMenuOpen(!scheduleMenuOpen); }}
+                  className="px-3 py-2 text-sm text-cyan-400 bg-white/5 border border-cyan-500/30 rounded-lg hover:bg-cyan-500/10 flex items-center gap-2"
+                  title="Generate schedule items"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M3 11h18M5 19h14a2 2 0 002-2v-6H3v6a2 2 0 002 2z" />
+                  </svg>
+                  Schedule
+                  <svg className={`w-3 h-3 transition-transform ${scheduleMenuOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {scheduleMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1 min-w-[220px] bg-[rgba(20,20,30,0.95)] backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-30 overflow-hidden">
+                    <button
+                      onClick={handleCreateProjectHold}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-white/10 text-white flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3M3 11h18M5 19h14a2 2 0 002-2v-6H3v6a2 2 0 002 2z" />
+                      </svg>
+                      Create Project Hold
+                    </button>
+                    <button
+                      onClick={handleGenerateTentativeShifts}
+                      className="w-full text-left px-4 py-2 text-sm hover:bg-white/10 text-white flex items-center gap-2"
+                    >
+                      <svg className="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Create Soft Shifts
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <button
               onClick={handleArchive}
               className="px-3 py-2 text-sm text-gray-300 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10 flex items-center gap-2"
@@ -803,7 +862,36 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       <p className="text-sm text-gray-300">Complete the post-event report and checklist to finalize this project.</p>
                     </div>
                   </div>
-                  {project.postEventReport && project.postEventReport.status === 'submitted' ? (
+                  
+                  {/* Owner Review Status */}
+                  {project.postEventReport?.status === 'submitted' && project.postEventReport.ownerReviewed && (
+                    <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                      <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium mb-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Owner Approved - Ready to Invoice
+                      </div>
+                      <p className="text-xs text-gray-300">
+                        Approved by {project.postEventReport.ownerReviewedByName} on {new Date((project.postEventReport.ownerReviewedAt as any)?.toDate?.() || project.postEventReport.ownerReviewedAt!).toLocaleDateString()}
+                      </p>
+                    </div>
+                  )}
+                  
+                  {/* PM Submission Status */}
+                  {project.postEventReport && project.postEventReport.status === 'submitted' && !project.postEventReport.ownerReviewed ? (
+                    <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
+                      <div className="flex items-center gap-2 text-amber-300 text-sm font-medium mb-2">
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Awaiting Owner Review
+                      </div>
+                      <p className="text-xs text-amber-200">
+                        Submitted by {project.postEventReport.signedByName} on {new Date((project.postEventReport.signedAt as any).toDate?.() || project.postEventReport.signedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  ) : project.postEventReport && project.postEventReport.status === 'submitted' ? (
                     <div className="mb-4 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
                       <div className="flex items-center gap-2 text-emerald-400 text-sm font-medium mb-2">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -845,6 +933,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                     </div>
                   )}
                  <div className="space-y-2">
+                   {/* PM can always view/edit report */}
                    <button
                      onClick={() => setShowPostEventReport(true)}
                      className="w-full px-4 py-3 bg-red-500 hover:bg-red-600 text-white font-semibold rounded-lg transition-all shadow-lg hover:shadow-red-500/20 flex items-center justify-center gap-2"
@@ -854,6 +943,71 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                      </svg>
                      {project.postEventReport ? 'View Post-Event Report' : 'Complete Post-Event Report'}
                    </button>
+                   
+                   {/* Owner review button - only if submitted and not yet reviewed */}
+                   {isOwner && project.postEventReport?.status === 'submitted' && !project.postEventReport.ownerReviewed && (
+                     <button
+                       onClick={async () => {
+                         try {
+                           const updatedReport = {
+                             ...project.postEventReport!,
+                             ownerReviewed: true,
+                             ownerReviewedBy: uid,
+                             ownerReviewedByName: currentUserMember?.name || 'Owner',
+                             ownerReviewedAt: new Date(),
+                           };
+                           
+                           // Save pending changes first
+                           if (hasUnsavedChanges && Object.keys(pendingChanges).length > 0) {
+                             await updateProject(uid, project.id, pendingChanges as any);
+                           }
+                           
+                           // Update report and mark project as complete
+                           await updateProject(uid, project.id, { 
+                             postEventReport: updatedReport,
+                             status: 'completed'
+                           });
+                           
+                           // Log the approval
+                           await logActivity(
+                             uid,
+                             'project',
+                             project.id,
+                             project.title,
+                             'status_changed',
+                             {
+                               description: 'Post-Event Report approved and project marked complete',
+                               changes: { 
+                                 ownerReviewed: { from: false, to: true },
+                                 status: { from: project.status, to: 'completed' }
+                               }
+                             }
+                           );
+                           
+                           // Delete related notifications (project is complete)
+                           if (orgId) {
+                             try {
+                               await deleteNotificationsForEntity(orgId, 'project', project.id);
+                             } catch (err) {
+                               console.error('Failed to delete notifications:', err);
+                             }
+                           }
+                           
+                           setProject(prev => ({ ...prev, postEventReport: updatedReport, status: 'completed' } as any));
+                           showToast('Report approved and project marked complete!', 'success');
+                         } catch (err) {
+                           showToast('Failed to approve report', 'error');
+                         }
+                       }}
+                       className="w-full px-4 py-3 bg-emerald-500 hover:bg-emerald-600 text-white font-semibold rounded-lg transition-all shadow-lg hover:shadow-emerald-500/20 flex items-center justify-center gap-2"
+                     >
+                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                       </svg>
+                       Approve & Complete Project
+                     </button>
+                   )}
+                   
                    {project.postEventReport?.status === 'submitted' && (
                      <>
                        <button
@@ -866,15 +1020,6 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                          </svg>
                          Download PDF Report
-                       </button>
-                       <button
-                         onClick={() => setShowCompletionModal(true)}
-                         className="w-full px-4 py-3 bg-white/5 border border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-all flex items-center justify-center gap-2"
-                       >
-                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                         </svg>
-                         Mark Project as Complete
                        </button>
                      </>
                    )}
@@ -890,7 +1035,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                   <div className="grid grid-cols-3 gap-4">
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">R2 Number</label>
-                      {editingField === 'r2Number' ? (
+                      {editingField === 'r2Number' && !isCompleted ? (
                         <input
                           ref={el => inputRefs.current[0] = el}
                           autoFocus
@@ -914,8 +1059,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         />
                       ) : (
                         <div
-                          onClick={() => setEditingField('r2Number')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
+                          onClick={() => !isCompleted && setEditingField('r2Number')}
+                          className={`px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white ${!isCompleted ? 'cursor-pointer hover:border-cyan-500/50' : 'cursor-default opacity-70'}`}
                         >
                           {project.r2Number || 'Not set'}
                         </div>
@@ -923,7 +1068,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Project Manager</label>
-                      {editingField === 'projectManager' ? (
+                      {editingField === 'projectManager' && !isCompleted ? (
                         <select
                           ref={el => inputRefs.current[1] = el}
                           autoFocus
@@ -954,8 +1099,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         </select>
                       ) : (
                         <div
-                          onClick={() => setEditingField('projectManager')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-cyan-400 cursor-pointer hover:border-cyan-500/50"
+                          onClick={() => !isCompleted && setEditingField('projectManager')}
+                          className={`px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white ${!isCompleted ? 'cursor-pointer hover:border-cyan-500/50' : 'cursor-default opacity-70'}`}
                         >
                           {project.projectManager || 'Not assigned'}
                         </div>
@@ -963,7 +1108,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Prep Date</label>
-                      {editingField === 'prepDate' ? (
+                      {editingField === 'prepDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
                           ref={el => inputRefs.current[2] = el}
@@ -988,8 +1133,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         />
                       ) : (
                         <div
-                          onClick={() => setEditingField('prepDate')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
+                          onClick={() => !isCompleted && setEditingField('prepDate')}
+                          className={`px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white ${!isCompleted ? 'cursor-pointer hover:border-cyan-500/50' : 'cursor-default opacity-70'}`}
                         >
                           {formatDate(project.prepDate)}
                         </div>
@@ -997,7 +1142,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Ship Date</label>
-                      {editingField === 'shipDate' ? (
+                      {editingField === 'shipDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
                           ref={el => inputRefs.current[3] = el}
@@ -1022,8 +1167,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         />
                       ) : (
                         <div
-                          onClick={() => setEditingField('shipDate')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
+                          onClick={() => !isCompleted && setEditingField('shipDate')}
+                          className={`px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white ${!isCompleted ? 'cursor-pointer hover:border-cyan-500/50' : 'cursor-default opacity-70'}`}
                         >
                           {formatDate(project.shipDate)}
                         </div>
@@ -1031,7 +1176,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Load-In Date</label>
-                      {editingField === 'loadInDate' ? (
+                      {editingField === 'loadInDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
                           ref={el => inputRefs.current[4] = el}
@@ -1056,8 +1201,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         />
                       ) : (
                         <div
-                          onClick={() => setEditingField('loadInDate')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
+                          onClick={() => !isCompleted && setEditingField('loadInDate')}
+                          className={`px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white ${!isCompleted ? 'cursor-pointer hover:border-cyan-500/50' : 'cursor-default opacity-70'}`}
                         >
                           {formatDate(project.loadInDate)}
                         </div>
@@ -1065,7 +1210,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Event Begin</label>
-                      {editingField === 'eventBeginDate' ? (
+                      {editingField === 'eventBeginDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
                           ref={el => inputRefs.current[5] = el}
@@ -1090,8 +1235,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         />
                       ) : (
                         <div
-                          onClick={() => setEditingField('eventBeginDate')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
+                          onClick={() => !isCompleted && setEditingField('eventBeginDate')}
+                          className={`px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white ${!isCompleted ? 'cursor-pointer hover:border-cyan-500/50' : 'cursor-default opacity-70'}`}
                         >
                           {formatDate(project.eventBeginDate)}
                         </div>
@@ -1099,7 +1244,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Event End</label>
-                      {editingField === 'eventEndDate' ? (
+                      {editingField === 'eventEndDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
                           ref={el => inputRefs.current[6] = el}
@@ -1124,8 +1269,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         />
                       ) : (
                         <div
-                          onClick={() => setEditingField('eventEndDate')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
+                          onClick={() => !isCompleted && setEditingField('eventEndDate')}
+                          className={`px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white ${!isCompleted ? 'cursor-pointer hover:border-cyan-500/50' : 'cursor-default opacity-70'}`}
                         >
                           {formatDate(project.eventEndDate)}
                         </div>
@@ -1133,7 +1278,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Strike</label>
-                      {editingField === 'strikeDate' ? (
+                      {editingField === 'strikeDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
                           ref={el => inputRefs.current[7] = el}
@@ -1158,8 +1303,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         />
                       ) : (
                         <div
-                          onClick={() => setEditingField('strikeDate')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
+                          onClick={() => !isCompleted && setEditingField('strikeDate')}
+                          className={`px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white ${!isCompleted ? 'cursor-pointer hover:border-cyan-500/50' : 'cursor-default opacity-70'}`}
                         >
                           {formatDate(project.strikeDate)}
                         </div>
@@ -1167,7 +1312,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Pickup</label>
-                      {editingField === 'pickupDate' ? (
+                      {editingField === 'pickupDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
                           ref={el => inputRefs.current[8] = el}
@@ -1192,8 +1337,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         />
                       ) : (
                         <div
-                          onClick={() => setEditingField('pickupDate')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
+                          onClick={() => !isCompleted && setEditingField('pickupDate')}
+                          className={`px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white ${!isCompleted ? 'cursor-pointer hover:border-cyan-500/50' : 'cursor-default opacity-70'}`}
                         >
                           {formatDate(project.pickupDate)}
                         </div>
@@ -1201,7 +1346,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">Return</label>
-                      {editingField === 'returnDate' ? (
+                      {editingField === 'returnDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
                           ref={el => inputRefs.current[9] = el}
@@ -1227,8 +1372,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         />
                       ) : (
                         <div
-                          onClick={() => setEditingField('returnDate')}
-                          className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-pointer hover:border-cyan-500/50"
+                          onClick={() => !isCompleted && setEditingField('returnDate')}
+                          className={`px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white ${!isCompleted ? 'cursor-pointer hover:border-cyan-500/50' : 'cursor-default opacity-70'}`}
                         >
                           {formatDate(project.returnDate)}
                         </div>
@@ -1238,57 +1383,75 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                   {/* Client / Venue */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Autocomplete
-                        value={project.clientId || null}
-                        options={(clients || []).map(c => ({
-                          id: c.id as string,
-                          label: c.name,
-                          sublabel: c.contactName || undefined,
-                        }))}
-                        onChange={(value) => handleUpdate('clientId', value)}
-                        onCreateNew={handleOpenClientModal}
-                        placeholder="Search clients..."
-                        label="Client"
-                        createNewLabel="+ Add New Client"
-                      />
-                      {project.clientId && (
-                        <button
-                          type="button"
-                          onClick={handleEditClient}
-                          className="mt-2 text-xs text-gray-400 hover:text-cyan-400 flex items-center gap-1"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                          Edit Client
-                        </button>
+                      <label className="block text-xs text-gray-500 mb-1">Client</label>
+                      {isCompleted ? (
+                        <div className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-default opacity-70">
+                          {clients?.find(c => c.id === project.clientId)?.name || 'Not set'}
+                        </div>
+                      ) : (
+                        <>
+                          <Autocomplete
+                            value={project.clientId || null}
+                            options={(clients || []).map(c => ({
+                              id: c.id as string,
+                              label: c.name,
+                              sublabel: c.contactName || undefined,
+                            }))}
+                            onChange={(value) => handleUpdate('clientId', value)}
+                            onCreateNew={handleOpenClientModal}
+                            placeholder="Search clients..."
+                            label="Client"
+                            createNewLabel="+ Add New Client"
+                          />
+                          {project.clientId && (
+                            <button
+                              type="button"
+                              onClick={handleEditClient}
+                              className="mt-2 text-xs text-gray-400 hover:text-cyan-400 flex items-center gap-1"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                              Edit Client
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                     <div>
-                      <Autocomplete
-                        value={project.venueId || null}
-                        options={(venues || []).map(v => ({
-                          id: v.id as string,
-                          label: v.name,
-                          sublabel: v.city && v.state ? `${v.city}, ${v.state}` : undefined,
-                        }))}
-                        onChange={(value) => handleUpdate('venueId', value)}
-                        onCreateNew={handleOpenVenueModal}
-                        placeholder="Search venues..."
-                        label="Venue"
-                        createNewLabel="+ Add New Venue"
-                      />
-                      {project.venueId && (
-                        <button
-                          type="button"
-                          onClick={handleEditVenue}
-                          className="mt-2 text-xs text-gray-400 hover:text-cyan-400 flex items-center gap-1"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                          </svg>
-                          Edit Venue
-                        </button>
+                      <label className="block text-xs text-gray-500 mb-1">Venue</label>
+                      {isCompleted ? (
+                        <div className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white cursor-default opacity-70">
+                          {venues?.find(v => v.id === project.venueId)?.name || 'Not set'}
+                        </div>
+                      ) : (
+                        <>
+                          <Autocomplete
+                            value={project.venueId || null}
+                            options={(venues || []).map(v => ({
+                              id: v.id as string,
+                              label: v.name,
+                              sublabel: v.city && v.state ? `${v.city}, ${v.state}` : undefined,
+                            }))}
+                            onChange={(value) => handleUpdate('venueId', value)}
+                            onCreateNew={handleOpenVenueModal}
+                            placeholder="Search venues..."
+                            label="Venue"
+                            createNewLabel="+ Add New Venue"
+                          />
+                          {project.venueId && (
+                            <button
+                              type="button"
+                              onClick={handleEditVenue}
+                              className="mt-2 text-xs text-gray-400 hover:text-cyan-400 flex items-center gap-1"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
+                              Edit Venue
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -1408,29 +1571,31 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
               </div>
             </div>
 
-            {/* Quick Add Task */}
-            <Card className="overflow-visible">
-              <form onSubmit={handleQuickAddTask} className="flex items-center gap-3">
-                <input
-                  type="text"
-                  placeholder="Add a new task to this project..."
-                  value={newTaskTitle}
-                  onChange={(e) => setNewTaskTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Escape') setNewTaskTitle('');
-                  }}
-                  disabled={creatingTask}
-                  className="flex-1 bg-transparent border border-white/10 rounded px-3 py-2 text-gray-200 placeholder-gray-500 hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
-                />
-                <button
-                  type="submit"
-                  disabled={creatingTask || !newTaskTitle.trim()}
-                  className="px-3 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium disabled:opacity-50"
-                >
-                  {creatingTask ? 'Adding…' : 'Add Task'}
-                </button>
-              </form>
-            </Card>
+            {/* Quick Add Task - hide for completed projects */}
+            {!isCompleted && (
+              <Card className="overflow-visible">
+                <form onSubmit={handleQuickAddTask} className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    placeholder="Add a new task to this project..."
+                    value={newTaskTitle}
+                    onChange={(e) => setNewTaskTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') setNewTaskTitle('');
+                    }}
+                    disabled={creatingTask}
+                    className="flex-1 bg-transparent border border-white/10 rounded px-3 py-2 text-gray-200 placeholder-gray-500 hover:bg-white/5 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
+                  />
+                  <button
+                    type="submit"
+                    disabled={creatingTask || !newTaskTitle.trim()}
+                    className="px-3 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-medium disabled:opacity-50"
+                  >
+                    {creatingTask ? 'Adding…' : 'Add Task'}
+                  </button>
+                </form>
+              </Card>
+            )}
             {projectTasks.length === 0 ? (
               <Card>
                 <div className="text-center py-12">
@@ -1665,15 +1830,17 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-medium text-gray-400">Project Team</h3>
-                <button
-                  onClick={() => setShowTeamMemberDropdown(!showTeamMemberDropdown)}
-                  className="px-3 py-1.5 text-sm text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded-lg flex items-center gap-1 transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Add Team Member
-                </button>
+                {!isCompleted && (
+                  <button
+                    onClick={() => setShowTeamMemberDropdown(!showTeamMemberDropdown)}
+                    className="px-3 py-1.5 text-sm text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded-lg flex items-center gap-1 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Add Team Member
+                  </button>
+                )}
               </div>
 
               {showTeamMemberDropdown && (
@@ -1780,7 +1947,13 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
         {activeTab === 'activity' && (
           <Card>
             <h3 className="text-sm font-medium text-gray-400 mb-4">Project Activity</h3>
-            <ActivityHistory uid={uid} entityType="project" entityId={project.id} />
+            <ActivityHistory
+              uid={uid}
+              entityType="project"
+              entityId={project.id}
+              venues={venues}
+              clients={clients}
+            />
           </Card>
         )}
       </div>
@@ -1828,6 +2001,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
       <PostEventReportModal
         open={showPostEventReport}
         uid={uid}
+        organizationId={orgId || uid}
         project={project}
         onClose={() => setShowPostEventReport(false)}
         onSaved={(report) => {

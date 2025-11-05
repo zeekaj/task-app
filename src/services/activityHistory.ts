@@ -1,4 +1,4 @@
-import { addDoc, query, where, orderBy, limit, getDocs, Timestamp } from "firebase/firestore";
+import { addDoc, query, where, orderBy, limit, getDocs, Timestamp, writeBatch } from "firebase/firestore";
 import { getFirebase } from '../firebase';
 import type { Activity, ActivityEntityType, ActivityType } from '../types';
 
@@ -16,6 +16,44 @@ function removeUndefinedValues(obj: any): any {
     }
   }
   return cleaned;
+}
+
+/**
+ * Cleanup old activities to keep only the most recent ones
+ * Keeps the latest 100 activities and deletes older ones
+ * Only runs occasionally (randomly 5% of the time) to avoid performance issues
+ */
+async function cleanupOldActivities(uid: string): Promise<void> {
+  try {
+    // Only run cleanup 5% of the time to avoid performance issues
+    if (Math.random() > 0.05) {
+      return;
+    }
+    
+    const fb = await getFirebase();
+    const activitiesRef = fb.col(uid, 'activities');
+    
+    // Get all activities ordered by createdAt descending
+    const q = query(activitiesRef, orderBy('createdAt', 'desc'));
+    const snapshot = await getDocs(q);
+    
+    // Keep only the first 100, delete the rest
+    const docsToDelete = snapshot.docs.slice(100);
+    
+    if (docsToDelete.length > 0) {
+      console.log(`Cleaning up ${docsToDelete.length} old activities`);
+      
+      // Use batch delete for efficiency
+      const batch = writeBatch(fb.db);
+      docsToDelete.forEach((doc: any) => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+    }
+  } catch (error: any) {
+    console.error('Error cleaning up old activities:', error?.message ?? error);
+    // Don't throw - cleanup is not critical
+  }
 }
 
 /**
@@ -75,6 +113,11 @@ export async function logActivity(
     const activitiesRef = fb.col(uid, `activities`);
     await addDoc(activitiesRef, cleanedActivityData);
     console.log('Activity document written to Firestore with client timestamp:', { entityId, entityTitle, action });
+    
+    // Clean up old activities in the background (keep only last 100)
+    cleanupOldActivities(uid).catch(err => {
+      console.warn('Failed to cleanup old activities:', err);
+    });
   } catch (error: any) {
     const { logError } = await import('../utils/logger');
     logError("Error logging activity:", error?.message ?? error);

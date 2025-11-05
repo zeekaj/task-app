@@ -132,6 +132,11 @@ export interface PostEventReport {
   signedByName: string; // PM display name
   signatureImage?: string; // base64 image data from signature canvas
   signedAt: Timestamp | Date | string;
+  // Owner approval (required before project can be marked complete)
+  ownerReviewed?: boolean;
+  ownerReviewedBy?: string; // uid of owner
+  ownerReviewedByName?: string; // owner display name
+  ownerReviewedAt?: Timestamp | Date | string;
   createdAt?: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
 }
@@ -153,6 +158,24 @@ export interface Activity {
   createdAt: Timestamp | FieldValue;
 }
 
+/** Notifications */
+export type NotificationType = 'post_event_report_submitted' | 'project_completed' | 'project_blocked';
+
+export interface Notification {
+  id?: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  recipientId: string; // uid of user who should receive this
+  read: boolean;
+  entityType: 'project' | 'task';
+  entityId: string; // ID of related project/task
+  entityTitle: string; // Title for quick reference
+  createdAt: Timestamp | FieldValue;
+  createdBy?: string; // uid of user who triggered the notification
+  createdByName?: string; // name of user who triggered
+}
+
 /** Filters */
 export type StatusFilter = "active" | "blocked" | "done" | "archived";
 export type DueFilter = "any" | "overdue" | "today" | "week" | "month";
@@ -162,7 +185,7 @@ export interface TaskFilters {
   due: DueFilter[];
   assigned?: string[]; // filter by assigned user(s)
   includeArchived: boolean;
-  groupBy?: "none" | "status" | "priority" | "due" | "assigned";
+  groupBy?: "none" | "status" | "priority" | "due" | "assigned" | "project";
 }
 
 /** Team Members */

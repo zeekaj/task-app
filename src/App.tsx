@@ -15,9 +15,10 @@ import { ScheduleView } from "./components/views/ScheduleView";
 import { LoginView } from "./components/views/LoginView";
 import { FirstTimePasswordView } from "./components/views/FirstTimePasswordView";
 import { ToastProvider } from "./components/shared/Toast";
-import type { TeamMember } from "./types";
+import type { TeamMember, Notification, WithId } from "./types";
 import { upsertOrgMembership } from "./services/organizations";
 import { updateTeamMember, findTeamMemberByOrgAndEmail } from "./services/teamMembers";
+import { DevRoleSwitcher } from "./components/DevRoleSwitcher";
 
 type TabView = 'dashboard' | 'team' | 'tasks' | 'projects' | 'schedule' | 'settings' | 'style-guide';
 type AuthView = 'login' | 'first-time-password';
@@ -36,16 +37,28 @@ function MainApp() {
   const user = useAuth();
   const { orgId } = useOrganizationId();
   const [teamMember, setTeamMember] = useState<(TeamMember & { id: string }) | null | undefined>(undefined);
+  const [realTeamMember, setRealTeamMember] = useState<(TeamMember & { id: string }) | null | undefined>(undefined);
+  const [impersonatedMember, setImpersonatedMember] = useState<WithId<TeamMember> | null>(null);
   const [authView, setAuthView] = useState<AuthView>('login');
   // Reserved hook for future first-time setup flow was removed to satisfy lint (no-unused-vars)
   
-  console.log('MainApp render, user:', user?.uid, 'orgId:', orgId, 'activeTab:', localStorage.getItem('activeTab'));
+  console.log('MainApp render, user:', user?.uid, 'orgId:', orgId, 'activeTab:', localStorage.getItem('activeTab'), 'impersonated:', impersonatedMember?.name);
   
   // Load active tab from localStorage, default to 'dashboard'
   const [activeTab, setActiveTab] = useState<TabView>(() => {
     const saved = localStorage.getItem('activeTab');
     return (saved as TabView) || 'dashboard';
   });
+
+  // Handle notification clicks - navigate to related project
+  const handleNotificationClick = (notification: Notification & { id: string }) => {
+    if (notification.entityType === 'project' && notification.entityId) {
+      // Switch to projects tab
+      setActiveTab('projects');
+      // Store the project ID to open in ProjectsView
+      localStorage.setItem('openProjectId', notification.entityId);
+    }
+  };
 
   // Save active tab to localStorage whenever it changes
   useEffect(() => {
@@ -57,6 +70,7 @@ function MainApp() {
     // Avoid flicker: don't change teamMember while auth is still resolving
     if (user === undefined) {
       setTeamMember(undefined);
+      setRealTeamMember(undefined);
       return;
     }
     if (user) {
@@ -95,7 +109,11 @@ function MainApp() {
             // role sync is non-critical here
           }
         }
-        setTeamMember(member);
+        setRealTeamMember(member);
+        // If not impersonating, use the real member
+        if (!impersonatedMember) {
+          setTeamMember(member);
+        }
         // Ensure org membership mirror exists for security rules
         if (member && member.organizationId && member.role) {
           try {
@@ -108,8 +126,20 @@ function MainApp() {
     } else {
       // user explicitly signed out
       setTeamMember(null);
+      setRealTeamMember(null);
     }
-  }, [user]);
+  }, [user, impersonatedMember]);
+
+  // Handle dev mode impersonation
+  const handleSwitchUser = (member: WithId<TeamMember>) => {
+    setImpersonatedMember(member);
+    setTeamMember(member);
+  };
+
+  const handleResetToReal = () => {
+    setImpersonatedMember(null);
+    setTeamMember(realTeamMember);
+  };
 
   const handleLoginSuccess = () => {
     // User state will update via useAuth hook
@@ -250,9 +280,20 @@ function MainApp() {
   role: teamMember?.role,
         title: teamMember?.title,
       }}
+      uid={user.uid}
+      organizationId={orgId}
+      onNotificationClick={handleNotificationClick}
       onSignOut={async () => { await signOutUser(); }}
     >
       {viewContent}
+      
+      {/* Development-only role switcher */}
+      <DevRoleSwitcher
+        currentUserId={user.uid}
+        currentMember={realTeamMember || null}
+        onSwitchUser={handleSwitchUser}
+        onResetToReal={handleResetToReal}
+      />
     </AppLayout>
   );
 };

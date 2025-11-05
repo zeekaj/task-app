@@ -1,10 +1,10 @@
 // src/components/TaskItem.tsx
 import React, { useState, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import type { Task, Blocker, WithId } from "../types";
+import type { Task, Blocker, WithId, Project } from "../types";
 import { useAllBlockers } from "../hooks/useBlockers";
 import { useTeamMembers } from "../hooks/useTeamMembers";
-import { updateTask } from "../services/tasks";
+import { updateTask, convertTaskToProject } from "../services/tasks";
 import Icon from "./Icon";
 import { useClickOutside } from "../hooks/useClickOutside";
 // ConfirmModal removed from TaskItem; parent views handle confirmations
@@ -42,6 +42,7 @@ interface TaskItemProps {
   task: WithId<Task>;
   allBlockers?: WithId<Blocker>[];
   allTasks?: WithId<Task>[];
+  allProjects?: WithId<Project>[];
   onStartEdit: () => void;
   // onStartPromote removed
   onManageBlockers: () => void;
@@ -51,21 +52,31 @@ interface TaskItemProps {
   onUnarchive: () => void;
   onStatusChange: (newStatus: Task["status"]) => void;
   onUndo: () => Promise<boolean>;
+  onProjectClick?: (project: WithId<Project>) => void;
   dragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
   crossListDragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
   searchQuery?: string;
 }
 
-export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onUndo, searchQuery = '' }) => {
+export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], allProjects = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onUndo, onProjectClick, searchQuery = '' }) => {
   const hookAllBlockers = useAllBlockers(uid);
   const safeAllBlockers = allBlockers ?? hookAllBlockers;
   const teamMembers = useTeamMembers(uid);
+  
+  // Find project info if task has projectId
+  const project = useMemo(() => {
+    if (!task.projectId) return null;
+    return allProjects.find(p => p.id === task.projectId);
+  }, [task.projectId, allProjects]);
+  
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [statusDropdownPos, setStatusDropdownPos] = useState<{ top: number; left: number } | null>(null);
   const [editingDueDate, setEditingDueDate] = useState(false);
   // removed unused editingAssignee state
   const [showAssigneeDropdown, setShowAssigneeDropdown] = useState(false);
   const [assigneeDropdownPos, setAssigneeDropdownPos] = useState<{ top: number; left: number } | null>(null);
+  const [showProjectSelector, setShowProjectSelector] = useState(false);
+  const [projectSelectorPos, setProjectSelectorPos] = useState<{ top: number; left: number } | null>(null);
   const [showPrioritySlider, setShowPrioritySlider] = useState(false);
   const [tempPriority, setTempPriority] = useState(task.priority);
   const [tempDueDate, setTempDueDate] = useState(task.dueDate || "");
@@ -77,6 +88,8 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
   const statusButtonRef = useRef<HTMLButtonElement>(null);
   const assigneeButtonRef = useRef<HTMLSpanElement>(null);
   const assigneeDropdownRef = useRef<HTMLDivElement>(null);
+  const projectSelectorRef = useRef<HTMLDivElement>(null);
+  const projectButtonRef = useRef<HTMLButtonElement>(null);
   const priorityHideTimeoutRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
   
   // Position status dropdown when it opens
@@ -99,6 +112,16 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
     }
   }, [showAssigneeDropdown]);
   
+  // Position project selector when it opens
+  React.useEffect(() => {
+    if (showProjectSelector && projectButtonRef.current) {
+      const rect = projectButtonRef.current.getBoundingClientRect();
+      setProjectSelectorPos({ top: rect.bottom + 4, left: rect.left });
+    } else {
+      setProjectSelectorPos(null);
+    }
+  }, [showProjectSelector]);
+  
   // Close priority slider when clicking outside
   useClickOutside({
     enabled: showPrioritySlider,
@@ -120,6 +143,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
       setShowAssigneeDropdown(false);
     },
     selector: `[data-assignee-dropdown-menu="${task.id}"]`
+  });
+  
+  // Close project selector when clicking outside
+  useClickOutside({
+    enabled: showProjectSelector,
+    onClickOutside: () => {
+      setShowProjectSelector(false);
+    },
+    selector: `[data-project-selector="${task.id}"]`
   });
 
   // Update temp priority when task priority changes
@@ -220,6 +252,18 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
     const currentAssignee = typeof task.assignee === "string" ? task.assignee : task.assignee?.name || undefined;
     if (assigneeValue !== currentAssignee) {
       await updateTask(uid, task.id, { assignee: assigneeValue });
+    }
+  };
+
+  // Handle converting task to project task
+  const handleConvertToProject = async (projectId: string) => {
+    try {
+      const selectedProject = allProjects.find(p => p.id === projectId);
+      await convertTaskToProject(uid, task.id, projectId, selectedProject?.title);
+      setShowProjectSelector(false);
+    } catch (error) {
+      console.error("Failed to convert task to project:", error);
+      // Could show a toast notification here
     }
   };
 
@@ -554,6 +598,25 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                     >
                       {typeof task.title === "object" ? highlightText(JSON.stringify(task.title)) : highlightText(task.title)}
                     </p>
+                    {/* Project badge for project tasks */}
+                    {project && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (onProjectClick) {
+                            onProjectClick(project);
+                          }
+                        }}
+                        className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 whitespace-nowrap flex-shrink-0 hover:bg-blue-500/30 hover:border-blue-500/50 transition-all cursor-pointer"
+                        title={`Click to view project: ${project.title}`}
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                        </svg>
+                        {project.title}
+                      </button>
+                    )}
                     {/* Description indicator */}
                     {task.description && (
                       <span
@@ -720,6 +783,45 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                   document.body
                 )}
               </div>
+              
+              {/* Project Selector Dropdown Portal */}
+              {showProjectSelector && projectSelectorPos && createPortal(
+                <div
+                  ref={projectSelectorRef}
+                  data-project-selector={task.id}
+                  className="fixed bg-gray-800/95 border border-indigo-500/50 rounded-lg shadow-xl py-1 z-[9999] min-w-[220px] max-h-[400px] overflow-y-auto backdrop-blur-xl"
+                  style={{ 
+                    top: `${projectSelectorPos.top}px`,
+                    left: `${projectSelectorPos.left}px`
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="px-3 py-2 text-xs font-semibold text-indigo-300 border-b border-indigo-500/30">
+                    Select Project
+                  </div>
+                  {allProjects && allProjects.length > 0 ? (
+                    allProjects
+                      .filter(p => p.status !== 'completed' && p.status !== 'archived')
+                      .map((proj) => (
+                        <button
+                          key={proj.id}
+                          type="button"
+                          className="w-full px-3 py-2 text-left hover:bg-indigo-600/20 flex flex-col gap-1 text-sm text-brand-text border-b border-white/5 last:border-0"
+                          onClick={() => handleConvertToProject(proj.id!)}
+                        >
+                          <span className="font-medium">{proj.title}</span>
+                          {proj.r2Number && (
+                            <span className="text-xs text-brand-text/60">R2# {proj.r2Number}</span>
+                          )}
+                        </button>
+                      ))
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-brand-text/60">No active projects available</div>
+                  )}
+                </div>,
+                document.body
+              )}
+              
               {/* Priority badge with hover slider */}
               {!statusInfo.isArchived && (
                 <div 
@@ -792,6 +894,18 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                   title="Open full edit window"
                 >
                   Edit
+                </button>
+              )}
+              {/* Move to Project button - only for general tasks */}
+              {!statusInfo.isArchived && !task.projectId && allProjects.length > 0 && (
+                <button
+                  ref={projectButtonRef}
+                  type="button"
+                  className="hidden md:block px-2 py-1 text-xs border rounded dark:bg-indigo-600/20 bg-indigo-100 dark:hover:bg-indigo-600/30 hover:bg-indigo-200 dark:text-indigo-300 text-indigo-700 border-indigo-500/30"
+                  onClick={e => { e.stopPropagation(); setShowProjectSelector(!showProjectSelector); }}
+                  title="Move task to a project"
+                >
+                  Move to Project
                 </button>
               )}
               {/* Promote, archive, delete, unarchive buttons */}

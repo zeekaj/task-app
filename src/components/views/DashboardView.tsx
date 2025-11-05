@@ -86,7 +86,7 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
         
         const fb = await getFirebase();
         const activitiesRef = fb.col(uid, 'activities');
-        const q = query(activitiesRef, orderBy('createdAt', 'desc'), limit(10));
+        const q = query(activitiesRef, orderBy('createdAt', 'desc'), limit(50));
         
         unsubscribeRef.current = onSnapshot(q, (snapshot: any) => {
           if (!isMounted) {

@@ -120,6 +120,12 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     });
   }, [title, description, projectId, allTasks, teamMembers, allProjects]);
   
+  // Find associated project
+  const project = React.useMemo(() => {
+    if (!projectId || !allProjects?.length) return null;
+    return allProjects.find(p => p.id === projectId) || null;
+  }, [projectId, allProjects]);
+  
   // Position assignee dropdown when it opens
   useEffect(() => {
     if (showAssigneeDropdown && assigneeButtonRef.current) {
@@ -758,6 +764,16 @@ export const TaskEditForm: React.FC<Props> = (props) => {
             style={{ boxShadow: '0 2px 6px rgba(120,120,120,0.15), inset 0 1px 2px #fff' }}>
               {getPriorityLabel(priority)} ({priority})
             </span>
+            
+            {/* Project Badge */}
+            {project && (
+              <span
+                className="text-xs font-medium px-2 py-1 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                title={`Part of project: ${project.title}`}
+              >
+                {project.title}
+              </span>
+            )}
             
             {/* Autosave Indicator - appears after priority badge */}
             {isAutosaving && (

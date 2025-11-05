@@ -161,6 +161,57 @@ export async function updateTask(
   }
 }
 
+/** Convert a general task to a project-specific task by setting projectId */
+export async function convertTaskToProject(
+  uid: string,
+  taskId: string,
+  projectId: string,
+  projectTitle?: string
+) {
+  const fb = await getFirebase();
+  const { doc: _doc, getDoc: _getDoc } = await import('firebase/firestore');
+
+  // Get current task to verify it exists and is general (no projectId)
+  const taskRef = _doc(fb.db, `users/${uid}/tasks/${taskId}`);
+  const taskSnap = await _getDoc(taskRef);
+  
+  if (!taskSnap.exists()) {
+    throw new Error("Task not found");
+  }
+
+  const currentTask = taskSnap.data() as Task;
+  
+  if (currentTask.projectId) {
+    throw new Error("Task is already associated with a project");
+  }
+
+  // Update the task with the new projectId
+  await updateTask(uid, taskId, { projectId });
+
+  // Log the conversion activity
+  await logActivity(uid, "task", taskId, currentTask.title || "Unknown Task", "updated", {
+    description: `Converted general task to project task: ${projectTitle || projectId}`,
+    changes: {
+      projectId: {
+        from: null,
+        to: projectId,
+      },
+    },
+  });
+
+  console.log('Task converted to project task:', { taskId, projectId, taskTitle: currentTask.title });
+
+  // Re-evaluate project blocked state if needed
+  try {
+    await reevaluateProjectBlockedState(uid, projectId);
+  } catch (e: any) {
+    const { logError } = await import('../utils/logger');
+    logError("reevaluateProjectBlockedState after convertTaskToProject failed:", e?.message ?? e);
+  }
+
+  return { success: true };
+}
+
 /** Remove a task */
 export async function removeTask(uid: string, taskId: string) {
   const fb = await getFirebase();
