@@ -57,7 +57,7 @@ export async function updateShift(
   try {
     const { updateDoc, doc, getDoc, serverTimestamp } = await import('firebase/firestore');
     const fb = await getFirebase();
-    const shiftRef = doc(fb.db, `users/${orgId}/shifts/${shiftId}`);
+    const shiftRef = doc(fb.db, `organizations/${orgId}/shifts/${shiftId}`);
     
     // Get current shift for change tracking
     const shiftSnap = await getDoc(shiftRef);
@@ -120,7 +120,7 @@ export async function deleteShift(orgId: string, shiftId: string): Promise<void>
   try {
     const { doc, getDoc, writeBatch } = await import('firebase/firestore');
     const fb = await getFirebase();
-    const shiftRef = doc(fb.db, `users/${orgId}/shifts/${shiftId}`);
+    const shiftRef = doc(fb.db, `organizations/${orgId}/shifts/${shiftId}`);
     
     // Get shift title for activity log
     let shiftTitle = "Unknown Shift";
@@ -337,7 +337,7 @@ export async function createShiftFromTemplate(
   try {
     const { doc, getDoc } = await import('firebase/firestore');
     const fb = await getFirebase();
-    const templateRef = doc(fb.db, `users/${orgId}/shiftTemplates/${templateId}`);
+    const templateRef = doc(fb.db, `organizations/${orgId}/shiftTemplates/${templateId}`);
     const templateSnap = await getDoc(templateRef);
     
     if (!templateSnap.exists()) {

@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import type { WithId, Project } from '../types';
 
 // A hook that defers subscribing to projects until `enabled` is true.
-export function useMaybeProjects(uid?: string | null, enabled?: boolean) {
+export function useMaybeProjects(organizationId?: string | null, enabled?: boolean) {
   const [projects, setProjects] = useState<WithId<Project>[]>([]);
 
   useEffect(() => {
-    if (!enabled || !uid) {
+    if (!enabled || !organizationId) {
       setProjects([]);
       return;
     }
@@ -17,7 +17,7 @@ export function useMaybeProjects(uid?: string | null, enabled?: boolean) {
     (async () => {
       const fb = await (await import('../firebase')).getFirebase();
       const { onSnapshot, query, orderBy } = await import('firebase/firestore');
-      const ref = fb.col(uid, 'projects');
+      const ref = fb.orgCol(organizationId, 'projects');
       const q = query(ref, orderBy('title'));
       unsub = onSnapshot(q, (snap: any) => {
         if (!mounted) return;
@@ -29,7 +29,7 @@ export function useMaybeProjects(uid?: string | null, enabled?: boolean) {
       mounted = false;
       if (unsub) unsub();
     };
-  }, [uid, enabled]);
+  }, [organizationId, enabled]);
 
   return projects;
 }
