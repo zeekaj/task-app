@@ -29,6 +29,25 @@ Migrating from per-user data structure to organization-based collections to enab
 - [x] Implement filter functions for tasks and projects
 
 ### Phase 3: Service Layer Updates
+- [x] Update tasks.ts (all CRUD operations)
+- [x] Update projects.ts (all CRUD operations)
+- [x] Update blockers.ts
+- [x] Update activityHistory.ts
+- [x] Update clients.ts
+- [x] Update venues.ts
+- [x] Add organizationId field to all new documents
+- [x] Update all Firestore paths to organizations/{orgId}/*
+
+### Phase 4: Hook Updates
+- [x] Update useTasks to use orgCol
+- [x] Update useProjects to use orgCol
+- [x] Update useBlockers to use orgCol
+
+### Phase 5: Component Updates
+- [x] Components already pass correct organizationId via uid prop
+- [ ] Add UserContext provider to App.tsx
+- [ ] Apply permission checks in UI components
+- [ ] Add role-based visibility filters
 - [ ] Update `src/services/tasks.ts` for org collections
 - [ ] Update `src/services/projects.ts` for org collections
 - [ ] Update `src/services/blockers.ts` for org collections
