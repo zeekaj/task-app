@@ -19,17 +19,20 @@ import type { TeamMember, Notification, WithId } from "./types";
 import { upsertOrgMembership } from "./services/organizations";
 import { updateTeamMember, findTeamMemberByOrgAndEmail } from "./services/teamMembers";
 import { DevRoleSwitcher } from "./components/DevRoleSwitcher";
+import { UserContextProvider } from "./hooks/useUserContext";
 
 type TabView = 'dashboard' | 'team' | 'tasks' | 'projects' | 'schedule' | 'settings' | 'style-guide';
 type AuthView = 'login' | 'first-time-password';
 
 const App = () => {
   return (
-    <ToastProvider>
-      <Routes>
-        <Route path="/*" element={<MainApp />} />
-      </Routes>
-    </ToastProvider>
+    <UserContextProvider>
+      <ToastProvider>
+        <Routes>
+          <Route path="/*" element={<MainApp />} />
+        </Routes>
+      </ToastProvider>
+    </UserContextProvider>
   );
 };
 
