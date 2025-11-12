@@ -1,7 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { createTask } from "../../services/tasks";
+import { useUserContext } from "../../hooks/useUserContext";
 
 export const QuickAddTask: React.FC<{ uid: string; projectId: string }> = ({ uid, projectId }) => {
+  const { teamMemberId } = useUserContext();
   const inputRef = useRef<HTMLInputElement>(null);
   const [title, setTitle] = useState("");
   const [loading, setLoading] = useState(false);
@@ -17,9 +19,9 @@ export const QuickAddTask: React.FC<{ uid: string; projectId: string }> = ({ uid
     setLoading(true);
     setError(null);
     try {
-  await createTask(uid, title.trim(), projectId);
-  setTitle("");
-  // Optionally, you could trigger a callback to refresh tasks if needed
+      await createTask(uid, title.trim(), projectId, {}, teamMemberId || undefined);
+      setTitle("");
+      // Optionally, you could trigger a callback to refresh tasks if needed
     } catch (err: any) {
       setError(err?.message || "Failed to add task.");
     } finally {

@@ -3,8 +3,9 @@ import { useState } from 'react';
 import { TopNavTabs } from '../ui/PillTabs';
 import { Badge } from '../ui/Badge';
 import { NotificationBell } from '../NotificationBell';
+import { ProfileModal } from '../ProfileModal';
 import logo from '../../assets/Logo Only-cropped.png';
-import type { Notification } from '../../types';
+import type { Notification, TeamMember } from '../../types';
 
 interface TopNavProps {
   activeTab: string;
@@ -18,12 +19,15 @@ interface TopNavProps {
   };
   uid: string;
   organizationId: string | null;
+  teamMember?: (TeamMember & { id: string }) | null;
   onNotificationClick?: (notification: Notification & { id: string }) => void;
   onSignOut?: () => void | Promise<void>;
+  onProfileUpdate?: (updates: Partial<TeamMember>) => Promise<void>;
 }
 
-export function TopNav({ activeTab, onTabChange, account, uid, organizationId, onNotificationClick, onSignOut }: TopNavProps) {
+export function TopNav({ activeTab, onTabChange, account, uid, organizationId, teamMember, onNotificationClick, onSignOut, onProfileUpdate }: TopNavProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showProfileModal, setShowProfileModal] = useState(false);
   const tabs = [
     {
       id: 'dashboard',
@@ -31,15 +35,6 @@ export function TopNav({ activeTab, onTabChange, account, uid, organizationId, o
       icon: (
         <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-        </svg>
-      )
-    },
-    {
-      id: 'team',
-      label: 'Team',
-      icon: (
-        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
         </svg>
       )
     },
@@ -169,7 +164,10 @@ export function TopNav({ activeTab, onTabChange, account, uid, organizationId, o
                   {account?.email && <div className="text-gray-400 text-xs">{account.email}</div>}
                 </div>
                 <button
-                  onClick={() => { setMenuOpen(false); onTabChange('settings'); }}
+                  onClick={() => { 
+                    setMenuOpen(false); 
+                    setShowProfileModal(true);
+                  }}
                   className="w-full text-left px-3 py-2 text-sm rounded-lg hover:bg-white/5 text-gray-200"
                 >
                   Edit Profile
@@ -185,6 +183,15 @@ export function TopNav({ activeTab, onTabChange, account, uid, organizationId, o
           </div>
         </div>
       </div>
+
+      {/* Profile Modal */}
+      {showProfileModal && teamMember && onProfileUpdate && (
+        <ProfileModal
+          member={teamMember}
+          onClose={() => setShowProfileModal(false)}
+          onSave={onProfileUpdate}
+        />
+      )}
     </header>
   );
 }

@@ -9,7 +9,7 @@ import { useKeydown } from "../hooks/useKeydown";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { Timestamp } from "firebase/firestore";
 
-import { useTasks } from "../hooks/useTasks";
+import { useRoleBasedTasks } from "../hooks/useRoleBasedTasks";
 import { useTeamMembers } from "../hooks/useTeamMembers";
 import { useOrganizationId } from "../hooks/useOrganization";
 import { ConfirmModal } from "./shared/ConfirmModal";
@@ -50,7 +50,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   const [subtasks, setSubtasks] = useState<Subtask[]>(task.subtasks || []);
   const [dependencies, setDependencies] = useState<string[]>(task.dependencies || []);
   const [recurrence, setRecurrence] = useState<RecurrencePattern>(task.recurrence || { type: "none" });
-  const allTasks = useTasks(uid);
+  const allTasks = useRoleBasedTasks(uid);
   const teamMembers = useTeamMembers(uid);
   const { orgId } = useOrganizationId();
   const [showBlockerManager, setShowBlockerManager] = useState(false);
@@ -79,6 +79,10 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const statusDropdownRef = useRef<HTMLDivElement>(null);
   const [statusDropdownPos, setStatusDropdownPos] = useState<{ top: number; left: number } | null>(null);
+  
+  // Task conversion state
+  const [showConversionModal, setShowConversionModal] = useState(false);
+  const [selectedProjectForConversion, setSelectedProjectForConversion] = useState<string>("");
   
   // Assignee dropdown state
   const [showAssigneeDropdown, setShowAssigneeDropdown] = useState(false);
@@ -182,21 +186,23 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   };
 
   const getPriorityColor = (value: number): string => {
-    if (value === 0) return "bg-gray-200";
-    if (value <= 20) return "bg-gradient-to-r from-blue-200 via-blue-300 to-blue-400";
-    if (value <= 40) return "bg-gradient-to-r from-green-200 via-green-300 to-green-400";
-    if (value <= 60) return "bg-gradient-to-r from-yellow-200 via-yellow-300 to-yellow-400";
-    if (value <= 80) return "bg-gradient-to-r from-orange-200 via-orange-300 to-orange-400";
-    return "bg-gradient-to-r from-red-300 via-red-400 to-red-500";
+    // Brand-aligned badge background for priority label
+    if (value === 0) return "bg-gray-700";
+    if (value <= 20) return "bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600";
+    if (value <= 40) return "bg-gradient-to-r from-[#00D0FF] via-blue-400 to-indigo-500";
+    if (value <= 60) return "bg-gradient-to-r from-indigo-500 via-indigo-400 to-[#A38BFF]";
+    if (value <= 80) return "bg-gradient-to-r from-[#A38BFF] via-indigo-400 to-[#A38BFF]";
+    return "bg-gradient-to-r from-red-400 via-red-500 to-red-600";
   };
 
   const getPrioritySliderColor = (value: number): string => {
-    if (value === 0) return "#9ca3af"; // gray
-    if (value <= 20) return "#60a5fa"; // blue
-    if (value <= 40) return "#4ade80"; // green
-    if (value <= 60) return "#facc15"; // yellow
-    if (value <= 80) return "#fb923c"; // orange
-    return "#ef4444"; // red
+    // Map to app brand scheme: slate → blue → cyan → indigo → violet → red
+    if (value === 0) return "#9ca3af"; // slate-400 (neutral)
+    if (value <= 20) return "#60a5fa"; // blue-400
+    if (value <= 40) return "#00D0FF"; // brand.cyan
+    if (value <= 60) return "#6366f1"; // indigo-500
+    if (value <= 80) return "#A38BFF"; // brand.violet
+    return "#ef4444"; // red-500 (urgent)
   };
 
   // Highlight helper: splits text and wraps matches
@@ -896,12 +902,13 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                   onTouchEnd={triggerAutosave}
                   className="flex-1 h-2 rounded-lg appearance-none cursor-pointer"
                   style={{
+                    // Brand-aligned gradient: slate → blue → cyan → indigo → violet → red
                     background: `linear-gradient(to right, 
-                      #9ca3af 0%, 
+                      #64748b 0%, 
                       #60a5fa 20%, 
-                      #4ade80 40%, 
-                      #facc15 60%, 
-                      #fb923c 80%, 
+                      #00D0FF 40%, 
+                      #6366f1 60%, 
+                      #A38BFF 80%, 
                       #ef4444 100%)`,
                   }}
                 />
@@ -1039,6 +1046,55 @@ export const TaskEditForm: React.FC<Props> = (props) => {
               </select>
             </div>
           </div>
+          
+          {/* Task Conversion Button */}
+          {projectId ? (
+            <div className="mt-2 px-1">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!orgId) return;
+                  if (!confirm('Convert this task to a general task? It will be unlinked from the current project.')) return;
+                  try {
+                    await updateTask(orgId, task.id, { projectId: null });
+                    await logActivity(uid, "task", task.id, title, "updated", {
+                      description: `Converted from project task to general task (unlinked from ${project?.title || projectId})`,
+                      changes: { projectId: { from: projectId, to: null } }
+                    });
+                    setProjectId("");
+                    alert('Task converted to general task successfully!');
+                  } catch (err) {
+                    logError("Error converting task:", (err as any)?.message ?? err);
+                    alert("Failed to convert task: " + (err instanceof Error ? err.message : String(err)));
+                  }
+                }}
+                className="w-full px-2 py-1.5 bg-purple-500/10 text-purple-400 border border-purple-500/30 text-xs rounded-lg hover:bg-purple-500/20 focus:ring-2 focus:ring-purple-500 transition-all flex items-center justify-center gap-1.5"
+                title="Convert this project task to a general task by unlinking it"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+                Convert to General Task
+              </button>
+            </div>
+          ) : (
+            <div className="mt-2 px-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedProjectForConversion("");
+                  setShowConversionModal(true);
+                }}
+                className="w-full px-2 py-1.5 bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 text-xs rounded-lg hover:bg-indigo-500/20 focus:ring-2 focus:ring-indigo-500 transition-all flex items-center justify-center gap-1.5"
+                title="Convert this general task to a project task by assigning it to a project"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                </svg>
+                Convert to Project Task
+              </button>
+            </div>
+          )}
         </div>
 
         {/* 🔄 Tabbed Sections - Advanced Features, Attachments & Notes, Activity History */}
@@ -1619,6 +1675,73 @@ export const TaskEditForm: React.FC<Props> = (props) => {
           // no-op: cleanup handled by clearing action
         }}
       />
+      
+      {/* Task Conversion Modal */}
+      {showConversionModal && (
+        <div className="absolute inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-20">
+          <div className="bg-[rgba(20,20,30,0.95)] border border-indigo-500/30 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg text-brand-text font-medium mb-4">Convert to Project Task</h3>
+            <p className="text-sm text-gray-400 mb-4">
+              Select a project to link this task to. The task will become part of the selected project.
+            </p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-brand-text mb-2">Select Project</label>
+              <select
+                className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                value={selectedProjectForConversion}
+                onChange={(e) => setSelectedProjectForConversion(e.target.value)}
+                autoFocus
+              >
+                <option value="">— Choose a project —</option>
+                {allProjects
+                  .filter(p => p.status !== 'archived' && p.status !== 'completed')
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>{p.title}</option>
+                  ))}
+              </select>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                className="px-4 py-2 rounded-lg bg-gray-800/40 text-brand-text border border-white/10 hover:bg-gray-800/60 transition-colors"
+                onClick={() => {
+                  setShowConversionModal(false);
+                  setSelectedProjectForConversion("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="px-4 py-2 rounded-lg bg-indigo-500 text-white hover:bg-indigo-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!selectedProjectForConversion}
+                onClick={async () => {
+                  if (!orgId || !selectedProjectForConversion) return;
+                  
+                  const selectedProject = allProjects.find(p => p.id === selectedProjectForConversion);
+                  if (!selectedProject) return;
+                  
+                  try {
+                    await updateTask(orgId, task.id, { projectId: selectedProject.id });
+                    await logActivity(uid, "task", task.id, title, "updated", {
+                      description: `Converted from general task to project task (linked to ${selectedProject.title})`,
+                      changes: { projectId: { from: null, to: selectedProject.id } }
+                    });
+                    setProjectId(selectedProject.id);
+                    setShowConversionModal(false);
+                    setSelectedProjectForConversion("");
+                  } catch (err) {
+                    logError("Error converting task:", (err as any)?.message ?? err);
+                    alert("Failed to convert task: " + (err instanceof Error ? err.message : String(err)));
+                  }
+                }}
+              >
+                Convert Task
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
 
   );

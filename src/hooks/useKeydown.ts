@@ -10,8 +10,25 @@ type KeyBindings = {
  * Custom hook to handle keydown events with proper cleanup
  * Consolidates document keyboard event listeners to prevent memory leaks
  */
-export function useKeydown(bindings: KeyBindings, enabled: boolean = true) {
+interface UseKeydownOptions {
+  /** Ignore events originating within elements matching this selector (or any in array) */
+  ignoreSelector?: string | string[];
+}
+
+export function useKeydown(bindings: KeyBindings, enabled: boolean = true, options?: UseKeydownOptions) {
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Respect ignore selector(s) to allow nested widgets (like dropdown search inputs) to handle Escape
+    const target = e.target as Element | null;
+    const selectors = options?.ignoreSelector
+      ? (Array.isArray(options.ignoreSelector) ? options.ignoreSelector : [options.ignoreSelector])
+      : [];
+    if (target && selectors.length > 0) {
+      for (const sel of selectors) {
+        if (sel && target.closest(sel)) {
+          return; // don't handle globally
+        }
+      }
+    }
     // For each key binding
     Object.entries(bindings).forEach(([key, handler]) => {
       const isEnterBinding = key === 'Enter' && e.key === 'Enter';
@@ -24,7 +41,7 @@ export function useKeydown(bindings: KeyBindings, enabled: boolean = true) {
         handler(e);
       }
     });
-  }, [bindings]);
+  }, [bindings, options?.ignoreSelector]);
 
   useEffect(() => {
     if (!enabled) return;

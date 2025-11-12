@@ -3,6 +3,14 @@
 import type { TeamMemberRole, Task, Project } from '../types';
 
 /**
+ * Normalize legacy 'member' role to 'technician'
+ * @param role The role to normalize
+ */
+function normalizeRole(role: TeamMemberRole | string): TeamMemberRole {
+  return role === 'member' ? 'technician' : role as TeamMemberRole;
+}
+
+/**
  * Role-based permission system for organization data visibility
  * 
  * Roles (from highest to lowest access):
@@ -15,30 +23,36 @@ import type { TeamMemberRole, Task, Project } from '../types';
 
 /**
  * Check if a role can view all tasks in the organization
+ * Note: Technicians, admins, and owners can see all tasks
+ * Freelancers can only see their own tasks and tasks assigned to them
  */
-export function canViewAllTasks(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin' || role === 'technician' || role === 'viewer';
+export function canViewAllTasks(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician' || normalized === 'viewer';
 }
 
 /**
  * Check if a role can view all projects in the organization
  */
-export function canViewAllProjects(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin' || role === 'technician' || role === 'viewer';
+export function canViewAllProjects(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician' || normalized === 'viewer';
 }
 
 /**
  * Check if a role can view all team members in the organization
  */
-export function canViewAllTeamMembers(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin' || role === 'technician' || role === 'viewer';
+export function canViewAllTeamMembers(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician' || normalized === 'viewer';
 }
 
 /**
  * Check if a role can view all shifts in the organization
  */
-export function canViewAllShifts(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin' || role === 'technician' || role === 'viewer';
+export function canViewAllShifts(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician' || normalized === 'viewer';
 }
 
 /**
@@ -47,15 +61,16 @@ export function canViewAllShifts(role: TeamMemberRole): boolean {
  * @param task Task to check
  * @param userId Current user's ID
  */
-export function canEditTask(role: TeamMemberRole, task: Task, userId: string): boolean {
+export function canEditTask(role: TeamMemberRole | string, task: Task, userId: string): boolean {
+  const normalized = normalizeRole(role);
   // Owner and admin can edit anything
-  if (role === 'owner' || role === 'admin') return true;
+  if (normalized === 'owner' || normalized === 'admin') return true;
   
   // Technicians can edit anything
-  if (role === 'technician') return true;
+  if (normalized === 'technician') return true;
   
   // Freelancers can only edit tasks assigned to them
-  if (role === 'freelance') {
+  if (normalized === 'freelance') {
     return task.assignee === userId;
   }
   
@@ -69,12 +84,13 @@ export function canEditTask(role: TeamMemberRole, task: Task, userId: string): b
  * @param task Task to check
  * @param userId Current user's ID (task creator)
  */
-export function canDeleteTask(role: TeamMemberRole, task: Task, userId: string): boolean {
+export function canDeleteTask(role: TeamMemberRole | string, task: Task, userId: string): boolean {
+  const normalized = normalizeRole(role);
   // Owner and admin can delete anything
-  if (role === 'owner' || role === 'admin') return true;
+  if (normalized === 'owner' || normalized === 'admin') return true;
   
   // Technicians can delete their own tasks
-  if (role === 'technician') {
+  if (normalized === 'technician') {
     // Assume task has a createdBy field, or check assignee
     return task.assignee === userId;
   }
@@ -89,12 +105,13 @@ export function canDeleteTask(role: TeamMemberRole, task: Task, userId: string):
  * @param project Project to check
  * @param userId Current user's ID
  */
-export function canEditProject(role: TeamMemberRole, project: Project, userId: string): boolean {
+export function canEditProject(role: TeamMemberRole | string, project: Project, userId: string): boolean {
+  const normalized = normalizeRole(role);
   // Owner and admin can edit anything
-  if (role === 'owner' || role === 'admin') return true;
+  if (normalized === 'owner' || normalized === 'admin') return true;
   
   // Technicians can edit anything
-  if (role === 'technician') return true;
+  if (normalized === 'technician') return true;
   
   // Project manager can edit their projects
   if (project.projectManager === userId) return true;
@@ -113,44 +130,50 @@ export function canEditProject(role: TeamMemberRole, project: Project, userId: s
  * Check if a user can delete a project
  * @param role User's role
  */
-export function canDeleteProject(role: TeamMemberRole): boolean {
+export function canDeleteProject(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
   // Only owner and admin can delete projects
-  return role === 'owner' || role === 'admin';
+  return normalized === 'owner' || normalized === 'admin';
 }
 
 /**
  * Check if a user can assign tasks/projects to other team members
  */
-export function canAssignToOthers(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin' || role === 'technician';
+export function canAssignToOthers(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician';
 }
 
 /**
  * Check if a user can create new tasks
  */
-export function canCreateTask(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin' || role === 'technician';
+export function canCreateTask(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician';
 }
 
 /**
  * Check if a user can create new projects
  */
-export function canCreateProject(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin' || role === 'technician';
+export function canCreateProject(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician';
 }
 
 /**
  * Check if a user can manage team members (create, edit, archive)
  */
-export function canManageTeamMembers(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin';
+export function canManageTeamMembers(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin';
 }
 
 /**
  * Check if a user can manage shifts (create, edit, delete)
  */
-export function canManageShifts(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin' || role === 'technician';
+export function canManageShifts(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician';
 }
 
 /**
@@ -159,12 +182,13 @@ export function canManageShifts(role: TeamMemberRole): boolean {
  * @param shiftEmployeeIds Array of employee IDs assigned to the shift
  * @param userId Current user's ID
  */
-export function canViewShift(role: TeamMemberRole, shiftEmployeeIds: string[], userId: string): boolean {
+export function canViewShift(role: TeamMemberRole | string, shiftEmployeeIds: string[], userId: string): boolean {
   // Owner, admin, technician, and viewer can see all shifts
   if (canViewAllShifts(role)) return true;
   
   // Freelancers can only see shifts they're assigned to
-  if (role === 'freelance') {
+  const normalized = normalizeRole(role);
+  if (normalized === 'freelance') {
     return shiftEmployeeIds.includes(userId);
   }
   
@@ -174,42 +198,56 @@ export function canViewShift(role: TeamMemberRole, shiftEmployeeIds: string[], u
 /**
  * Check if a user can manage clients and venues
  */
-export function canManageClientsAndVenues(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin' || role === 'technician';
+export function canManageClientsAndVenues(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician';
 }
 
 /**
  * Check if a user can block/unblock tasks or projects
  */
-export function canManageBlockers(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin' || role === 'technician';
+export function canManageBlockers(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician';
 }
 
 /**
  * Check if a user can view activity history
  */
-export function canViewActivityHistory(role: TeamMemberRole): boolean {
-  return role === 'owner' || role === 'admin' || role === 'technician' || role === 'viewer';
+export function canViewActivityHistory(role: TeamMemberRole | string): boolean {
+  const normalized = normalizeRole(role);
+  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician' || normalized === 'viewer';
 }
 
 /**
  * Filter tasks based on user's role and permissions
  * @param tasks Array of tasks
- * @param role User's role
- * @param userId Current user's ID
+ * @param _role User's role (kept for API consistency, currently all roles use same filtering)
+ * @param userId Current user's ID (team member ID, not Firebase Auth UID)
+ * @param userProjects Optional array of project IDs the user is assigned to
  */
-export function filterTasksByPermission(tasks: Task[], role: TeamMemberRole, userId: string): Task[] {
-  // If user can view all tasks, return everything
-  if (canViewAllTasks(role)) {
-    return tasks;
-  }
-  
-  // Freelancers can only see tasks assigned to them
-  if (role === 'freelance') {
-    return tasks.filter(task => task.assignee === userId);
-  }
-  
-  return [];
+export function filterTasksByPermission<T extends Task>(
+  tasks: T[], 
+  _role: TeamMemberRole,
+  userId: string,
+  userProjects?: string[]
+): T[] {
+  // Everyone sees only:
+  // 1. Tasks they created
+  // 2. Tasks assigned to them
+  // 3. Tasks in projects they're assigned to
+  return tasks.filter(task => {
+    // Can see tasks they created
+    if (task.createdBy === userId) return true;
+    
+    // Can see tasks assigned to them
+    if (task.assignee === userId) return true;
+    
+    // Can see tasks in projects they're assigned to
+    if (task.projectId && userProjects?.includes(task.projectId)) return true;
+    
+    return false;
+  });
 }
 
 /**
@@ -218,7 +256,7 @@ export function filterTasksByPermission(tasks: Task[], role: TeamMemberRole, use
  * @param role User's role
  * @param userId Current user's ID
  */
-export function filterProjectsByPermission(projects: Project[], role: TeamMemberRole, userId: string): Project[] {
+export function filterProjectsByPermission<T extends Project>(projects: T[], role: TeamMemberRole, userId: string): T[] {
   // If user can view all projects, return everything
   if (canViewAllProjects(role)) {
     return projects;

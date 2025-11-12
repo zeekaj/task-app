@@ -72,17 +72,37 @@ export async function logActivity(
   }
 ): Promise<void> {
   try {
-    // Try to get the user's display name from Firebase Auth
+    const fb = await getFirebase();
+    const userId = fb.auth?.currentUser?.uid || 'unknown';
+    
+    // Try to get the user's display name from options, team member record, or Firebase Auth
     let userName = options?.userName;
-    if (!userName) {
+    if (!userName && userId !== 'unknown') {
       try {
-        const fb = await getFirebase();
-        if (fb.auth && fb.auth.currentUser) {
+        // Try to get name from team member record first
+        const { query, where, getDocs, limit, collection } = await import('firebase/firestore');
+        const teamMembersRef = collection(fb.db, 'teamMembers');
+        const q = query(teamMembersRef, where('userId', '==', userId), where('organizationId', '==', organizationId), limit(1));
+        const snapshot = await getDocs(q);
+        
+        if (!snapshot.empty) {
+          const teamMemberData = snapshot.docs[0].data();
+          userName = teamMemberData.name || teamMemberData.email || 'Unknown User';
+        } else if (fb.auth && fb.auth.currentUser) {
+          // Fall back to Firebase Auth user info
           userName = fb.auth.currentUser.displayName || fb.auth.currentUser.email || "Unknown User";
         }
       } catch (e) {
-        // ignore
+        console.warn('Error fetching team member name for activity log:', e);
+        // Fall back to Firebase Auth if team member lookup fails
+        if (fb.auth && fb.auth.currentUser) {
+          userName = fb.auth.currentUser.displayName || fb.auth.currentUser.email || "Unknown User";
+        }
       }
+    }
+    
+    if (!userName) {
+      userName = "Unknown User";
     }
     
     // Use client timestamp for immediate query visibility
@@ -91,12 +111,10 @@ export async function logActivity(
     console.log('Creating activity with timestamp:', {
       date: now.toISOString(),
       seconds: timestamp.seconds,
-      nanoseconds: timestamp.nanoseconds
+      nanoseconds: timestamp.nanoseconds,
+      userName
     });
     
-    const fb = await getFirebase();
-    const userId = fb.auth?.currentUser?.uid || 'unknown';
-
     const activityData: Omit<Activity, 'id'> = {
       entityType,
       entityId,

@@ -19,8 +19,8 @@ function CardsView({ members, isAdmin, onEdit, onDelete, getRoleBadge }: CardsVi
     <Card 
       key={member.id} 
       padding="lg" 
-      className="hover:border-cyan-500/50 hover:bg-white/5 transition-all duration-200 cursor-pointer relative group"
-      onClick={() => onEdit(member)}
+      className={`hover:border-cyan-500/50 hover:bg-white/5 transition-all duration-200 relative group ${isAdmin ? 'cursor-pointer' : 'cursor-default'}`}
+      onClick={() => { if (isAdmin) onEdit(member); }}
     >
       <div className="flex items-start justify-between mb-4">
         <div className="flex items-center gap-3">
@@ -118,8 +118,8 @@ function CardsView({ members, isAdmin, onEdit, onDelete, getRoleBadge }: CardsVi
           <MenuButton
             onEdit={() => onEdit(member)}
             onRemove={() => onDelete(member.id, member.name)}
-            disabledEdit={!isAdmin}
-            disabledRemove={!isAdmin || member.role === 'owner'}
+            disabledEdit={false}
+            disabledRemove={member.role === 'owner'}
           />
         </div>
       )}
@@ -204,9 +204,9 @@ import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { PillTabs } from '../ui/PillTabs';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useUserContext } from '../../hooks/useUserContext';
 import { createTeamMember, updateTeamMember, deleteTeamMember, transferOwnership } from '../../services/teamMembers';
 import { logActivity } from '../../services/activityHistory';
-import { getTeamMemberByUserId } from '../../services/auth';
 import { useToast } from '../shared/Toast';
 import type { TeamMember, TeamMemberRole, SkillAssessment, WithId } from '../../types';
 
@@ -222,18 +222,11 @@ export function TeamView({ uid }: TeamViewProps) {
   const [viewMode, setViewMode] = useState<TeamViewMode>('cards');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingMember, setEditingMember] = useState<WithId<TeamMember> | null>(null);
-  const [currentUserMember, setCurrentUserMember] = useState<(TeamMember & { id: string }) | null>(null);
+  const { role: ctxRole } = useUserContext();
   const [transferOpen, setTransferOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [memberToDelete, setMemberToDelete] = useState<{ id: string; name: string } | null>(null);
-
-  // Get current user's team member record to check role
-  useEffect(() => {
-    (async () => {
-      const member = await getTeamMemberByUserId(uid);
-      setCurrentUserMember(member);
-    })();
-  }, [uid]);
+  
 
   if (members === null) {
     return (
@@ -244,13 +237,13 @@ export function TeamView({ uid }: TeamViewProps) {
   }
 
   const activeMembers = members.filter(m => m.active);
-  // Derive role from fetched record or from self entry in the list
-  const selfFromList = activeMembers.find(m => m.userId === uid);
-  const currentRole = currentUserMember?.role || selfFromList?.role;
+  // Role comes from impersonation-aware user context
+  const currentRole = ctxRole;
   const isOwner = currentRole === 'owner';
   const isAdmin = isOwner || currentRole === 'admin';
 
   const handleOpenModal = (member?: WithId<TeamMember>) => {
+    if (!isAdmin) return;
     setEditingMember(member || null);
     setModalOpen(true);
   };
@@ -1003,20 +996,23 @@ export function TableView({ members, isAdmin, onEdit, onDelete, getRoleBadge }: 
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex justify-end gap-2">
-                      <button
-                        onClick={() => onEdit(member)}
-                        className="px-3 py-1 text-xs bg-white/5 border border-white/10 rounded hover:bg-white/10 text-white transition-colors"
-                        disabled={!isAdmin}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => onDelete(member.id, member.name)}
-                        className="px-3 py-1 text-xs bg-red-500/10 border border-red-500/30 rounded hover:bg-red-500/20 text-red-400 transition-colors disabled:opacity-50"
-                        disabled={!isAdmin || member.role === 'owner'}
-                      >
-                        Remove
-                      </button>
+                      {isAdmin && (
+                        <>
+                          <button
+                            onClick={() => onEdit(member)}
+                            className="px-3 py-1 text-xs bg-white/5 border border-white/10 rounded hover:bg-white/10 text-white transition-colors"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            onClick={() => onDelete(member.id, member.name)}
+                            className="px-3 py-1 text-xs bg-red-500/10 border border-red-500/30 rounded hover:bg-red-500/20 text-red-400 transition-colors"
+                            disabled={member.role === 'owner'}
+                          >
+                            Remove
+                          </button>
+                        </>
+                      )}
                     </div>
                   </td>
                 </tr>

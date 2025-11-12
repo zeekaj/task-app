@@ -9,13 +9,14 @@ import { updateProject, deleteProject, archiveProject } from '../../services/pro
 import { logActivity } from '../../services/activityHistory';
 import { deleteNotificationsForEntity } from '../../services/notifications';
 import { createTask } from '../../services/tasks';
-import { useTasks } from '../../hooks/useTasks';
+import { useRoleBasedTasks } from '../../hooks/useRoleBasedTasks';
 import { useAllBlockers } from '../../hooks/useBlockers';
-import { useProjects } from '../../hooks/useProjects';
+import { useRoleBasedProjects } from '../../hooks/useRoleBasedProjects';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useClients } from '../../hooks/useClients';
 import { useVenues } from '../../hooks/useVenues';
 import { useOrganizationId } from '../../hooks/useOrganization';
+import { useUserContext } from '../../hooks/useUserContext';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { computeProjectStatus } from '../../utils/projectStatus';
 import type { Project, ProjectStatus, WithId } from '../../types';
@@ -43,6 +44,7 @@ interface ProjectDetailViewProps {
 
 export function ProjectDetailView({ uid, project: initialProject, onClose, onDeleted }: ProjectDetailViewProps) {
   const { orgId } = useOrganizationId();
+  const { teamMemberId } = useUserContext();
   const [project, setProject] = useState(initialProject);
   const [activeTab, setActiveTab] = useState('overview');
   const [editingField, setEditingField] = useState<string | null>(null);
@@ -85,9 +87,9 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
   ];
   const inputRefs = useRef<(HTMLInputElement | HTMLSelectElement | null)[]>([]);
   const [localToast, setLocalToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const tasks = useTasks(uid);
+  const tasks = useRoleBasedTasks(uid);
   const allBlockers = useAllBlockers(uid);
-  const allProjects = useProjects(uid);
+  const allProjects = useRoleBasedProjects(uid);
   const teamMembers = useTeamMembers(uid);
   const currentUserMember = teamMembers?.find((m: any) => m.userId === uid);
   const isOwner = currentUserMember?.role === 'owner';
@@ -136,7 +138,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     if (!title) return;
     try {
       setCreatingTask(true);
-      await createTask(uid, title, project.id);
+      await createTask(uid, title, project.id, {}, teamMemberId || undefined);
       setNewTaskTitle('');
       showToast('Task added', 'success');
     } catch (err: any) {

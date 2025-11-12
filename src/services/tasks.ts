@@ -17,12 +17,14 @@ import { logActivity } from "./activityHistory";
  * @param title - Task title
  * @param projectId - Optional project ID to associate with
  * @param options - Additional task fields
+ * @param createdBy - User ID of the person creating the task
  */
 export async function createTask(
   organizationId: string,
   title: string,
   projectId?: string | null,
-  options?: Partial<Pick<Task, "description" | "priority" | "dueDate" | "assignee" | "recurrence" | "attachments" | "comments">>
+  options?: Partial<Pick<Task, "description" | "priority" | "dueDate" | "assignee" | "recurrence" | "attachments" | "comments">>,
+  createdBy?: string
 ) {
   const { serverTimestamp: _serverTimestamp, addDoc: _addDoc } = await import('firebase/firestore');
   const docData: any = {
@@ -34,6 +36,7 @@ export async function createTask(
     priority: typeof options?.priority === "number" ? options.priority : 50,
     dueDate: options?.dueDate ?? null,
     organizationId, // Add organizationId to document
+    createdBy: createdBy || undefined, // Add creator's userId
     createdAt: _serverTimestamp(),
     updatedAt: _serverTimestamp(),
   };

@@ -24,6 +24,16 @@ export const TaskRow: React.FC<Props> = ({
   const priority =
     typeof (task as any).priority === "number" ? (task as any).priority : null;
 
+  // Brand-aligned priority badge classes (same mapping as TaskItem)
+  const getPriorityBgGradient = (value: number): string => {
+    if (value === 0) return "bg-gray-700";
+    if (value < 25) return "bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600";
+    if (value < 50) return "bg-gradient-to-r from-[#00D0FF] via-blue-400 to-indigo-500";
+    if (value < 75) return "bg-gradient-to-r from-indigo-500 via-indigo-400 to-[#A38BFF]";
+    if (value < 90) return "bg-gradient-to-r from-[#A38BFF] via-indigo-400 to-[#A38BFF]";
+    return "bg-gradient-to-r from-red-400 via-red-500 to-red-600";
+  };
+
   return (
     <li className="px-2 py-1.5 hover:bg-gray-50 rounded-md transition-colors">
       <div className="flex items-center gap-2">
@@ -41,7 +51,15 @@ export const TaskRow: React.FC<Props> = ({
 
           {/* meta line */}
           <div className="text-xs text-gray-500 flex flex-wrap items-center gap-x-3 gap-y-0.5">
-            {priority !== null && <span>Priority {priority}</span>}
+            {priority !== null && (
+              <span
+                className={`text-[11px] font-semibold rounded-lg px-1.5 py-0.5 shadow-md border border-zinc-300 text-white ${getPriorityBgGradient(priority)}`}
+                title={`Priority ${priority}`}
+                style={{ boxShadow: '0 2px 6px rgba(120,120,120,0.15), inset 0 1px 2px #fff' }}
+              >
+                {priority}
+              </span>
+            )}
             {due && <span>Due {due}</span>}
             {blocked && <span className="text-red-600">Blocked</span>}
           </div>

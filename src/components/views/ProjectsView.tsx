@@ -4,12 +4,14 @@ import { createPortal } from 'react-dom';
 import { Card } from '../ui/Card';
 import { StatusBadge, Badge } from '../ui/Badge';
 import { PillTabs } from '../ui/PillTabs';
-import { useProjects } from '../../hooks/useProjects';
 import { useTasks } from '../../hooks/useTasks';
 import { useAllBlockers } from '../../hooks/useBlockers';
 import { useClients } from '../../hooks/useClients';
 import { useVenues } from '../../hooks/useVenues';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useUserContext } from '../../hooks/useUserContext';
+import { useRoleBasedProjects } from '../../hooks/useRoleBasedProjects';
+import { canCreateProject } from '../../utils/permissions';
 import { computeProjectStatus, canManuallyChangeStatus } from '../../utils/projectStatus';
 import { Modal } from '../shared/Modal';
 import { Autocomplete } from '../shared/Autocomplete';
@@ -30,7 +32,24 @@ type ViewMode = 'cards' | 'list' | 'kanban';
 type ProjectWithStatus = WithId<Project> & { effectiveStatus: ProjectStatus };
 
 export function ProjectsView({ uid }: ProjectsViewProps) {
-  const projects = useProjects(uid);
+  // Get user context for role-based permissions
+  const { role } = useUserContext();
+  
+  // Toggle for admins to switch between "My Projects" and "All Projects"
+  const [viewingAllProjects, setViewingAllProjects] = useState(() => {
+    const saved = localStorage.getItem('viewingAllProjects');
+    return saved === 'true'; // Default to false (My Projects)
+  });
+  
+  // Save viewing preference
+  useEffect(() => {
+    localStorage.setItem('viewingAllProjects', String(viewingAllProjects));
+  }, [viewingAllProjects]);
+  
+  // Use role-based projects hook: skip filter when admin/owner views "All Projects"
+  const shouldSkipRoleFilter = (role === 'owner' || role === 'admin') && viewingAllProjects;
+  const projects = useRoleBasedProjects(uid, undefined, shouldSkipRoleFilter);
+  
   const allTasks = useTasks(uid);
   const allBlockers = useAllBlockers(uid);
   const members = useTeamMembers(uid);
@@ -147,9 +166,11 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
             </div>
             <h3 className="text-lg font-medium text-white mb-2">No projects yet</h3>
             <p className="text-gray-400 mb-6">Create your first project to get started</p>
-            <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200">
+              {canCreateProject(role || 'viewer') && (
+                <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200">
               Create Project
             </button>
+              )}
           </div>
         </Card>
 
@@ -208,6 +229,34 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-white">Projects</h2>
         <div className="flex items-center gap-4">
+            {/* My Projects / All Projects toggle for admins */}
+            {(role === 'owner' || role === 'admin') && (
+              <div className="flex items-center gap-2 bg-[rgba(20,20,30,0.6)] backdrop-blur-sm border border-white/10 rounded-lg p-1">
+                <button
+                  type="button"
+                  onClick={() => setViewingAllProjects(false)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                    !viewingAllProjects
+                      ? 'bg-brand-cyan text-white shadow-lg shadow-brand-cyan/30'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  My Projects
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingAllProjects(true)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                    viewingAllProjects
+                      ? 'bg-brand-cyan text-white shadow-lg shadow-brand-cyan/30'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  All Projects
+                </button>
+              </div>
+            )}
+          
           {/* View mode toggle */}
           <div className="flex items-center gap-2 bg-[rgba(20,20,30,0.6)] backdrop-blur-sm border border-white/10 rounded-lg p-1">
             <button
@@ -250,9 +299,11 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
               </svg>
             </button>
           </div>
-          <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200" title="Create new project">
+            {canCreateProject(role || 'viewer') && (
+              <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200" title="Create new project">
             + New Project
           </button>
+            )}
         </div>
       </div>
 

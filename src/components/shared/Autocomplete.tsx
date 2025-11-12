@@ -39,15 +39,17 @@ export function Autocomplete({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Update input value when the selected value changes
+  // Update input value when the selected value changes (but only when dropdown is closed)
   useEffect(() => {
-    if (value) {
-      const selected = options.find(opt => opt.id === value);
-      setInputValue(selected?.label || '');
-    } else {
-      setInputValue('');
+    if (!isOpen) {
+      if (value) {
+        const selected = options.find(opt => opt.id === value);
+        setInputValue(selected?.label || '');
+      } else {
+        setInputValue('');
+      }
     }
-  }, [value, options]);
+  }, [value, options, isOpen]);
 
   // Filter options based on input
   const filteredOptions = options.filter(opt =>
@@ -129,6 +131,10 @@ export function Autocomplete({
   const handleInputFocus = () => {
     setIsOpen(true);
     updateDropdownPosition();
+    // Select all text so user can immediately type to replace
+    if (inputRef.current) {
+      inputRef.current.select();
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

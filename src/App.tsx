@@ -1,12 +1,11 @@
 // src/App.tsx - Redesigned with top navigation and email/password auth
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Routes, Route } from "react-router-dom";
 import { useAuth } from "./hooks/useAuth";
 import { useOrganizationId } from "./hooks/useOrganization";
 import { getTeamMemberByUserId, signOutUser } from "./services/auth";
 import { AppLayout } from "./components/layout/AppLayout";
 import { DashboardView } from "./components/views/DashboardView";
-import { TeamView } from "./components/views/TeamView";
 import { TasksView } from "./components/views/TasksView";
 import { ProjectsView } from "./components/views/ProjectsView";
 import { SettingsView } from "./components/views/SettingsView";
@@ -17,7 +16,7 @@ import { FirstTimePasswordView } from "./components/views/FirstTimePasswordView"
 import { ToastProvider } from "./components/shared/Toast";
 import type { TeamMember, Notification, WithId } from "./types";
 import { upsertOrgMembership } from "./services/organizations";
-import { updateTeamMember, findTeamMemberByOrgAndEmail } from "./services/teamMembers";
+import { updateTeamMember, findTeamMemberByOrgAndEmail, getTeamMemberById } from "./services/teamMembers";
 import { DevRoleSwitcher } from "./components/DevRoleSwitcher";
 import { UserContextProvider } from "./hooks/useUserContext";
 
@@ -52,6 +51,13 @@ function MainApp() {
     const saved = localStorage.getItem('activeTab');
     return (saved as TabView) || 'dashboard';
   });
+
+  // If previously stored tab was 'team', redirect to settings since Team moved under Settings
+  useEffect(() => {
+    if (activeTab === 'team') {
+      setActiveTab('settings');
+    }
+  }, []);
 
   // Handle notification clicks - navigate to related project
   const handleNotificationClick = (notification: Notification & { id: string }) => {
@@ -134,15 +140,36 @@ function MainApp() {
   }, [user, impersonatedMember]);
 
   // Handle dev mode impersonation
-  const handleSwitchUser = (member: WithId<TeamMember>) => {
+  const handleSwitchUser = useCallback((member: WithId<TeamMember>) => {
     setImpersonatedMember(member);
     setTeamMember(member);
-  };
+  }, []);
 
-  const handleResetToReal = () => {
+  const handleResetToReal = useCallback(() => {
     setImpersonatedMember(null);
     setTeamMember(realTeamMember);
-  };
+  }, [realTeamMember]);
+
+  // Restore impersonation across refreshes in development (fetch by id immediately)
+  useEffect(() => {
+    const isDev = import.meta.env?.MODE === 'development' || import.meta.env?.DEV === true;
+    if (!isDev) return;
+    if (impersonatedMember) return; // already impersonating
+    try {
+      const savedId = localStorage.getItem('devRoleSwitcher.impersonatedId');
+      if (!savedId) return;
+      (async () => {
+        const found = await getTeamMemberById(savedId);
+        if (found && found.active !== false) {
+          handleSwitchUser(found);
+        } else {
+          localStorage.removeItem('devRoleSwitcher.impersonatedId');
+        }
+      })();
+    } catch {
+      // ignore storage errors
+    }
+  }, [impersonatedMember]);
 
   const handleLoginSuccess = () => {
     // User state will update via useAuth hook
@@ -250,9 +277,7 @@ function MainApp() {
     case 'dashboard':
       viewContent = <DashboardView uid={orgId || user.uid} />;
       break;
-    case 'team':
-      viewContent = <TeamView uid={orgId || user.uid} />;
-      break;
+    // 'team' tab deprecated; Team Management now lives under Settings
     case 'tasks':
       viewContent = <TasksView uid={orgId || user.uid} />;
       break;
@@ -272,21 +297,38 @@ function MainApp() {
       viewContent = <DashboardView uid={orgId || user.uid} />;
   }
 
+  // Handle profile updates
+  const handleProfileUpdate = async (updates: Partial<TeamMember>) => {
+    if (!teamMember?.id) return;
+    await updateTeamMember(teamMember.id, updates);
+    // Refresh the team member data
+    const updated = await getTeamMemberById(teamMember.id);
+    if (updated) {
+      setTeamMember(updated);
+      // Also update realTeamMember if we're not impersonating
+      if (!impersonatedMember) {
+        setRealTeamMember(updated);
+      }
+    }
+  };
+
   return (
     <AppLayout
       activeTab={activeTab}
       onTabChange={(tab) => setActiveTab(tab as TabView)}
       account={{
         name: teamMember?.name || user.displayName || (user.email ? user.email.split('@')[0] : undefined),
-        email: user.email || undefined,
+        email: teamMember?.email || user.email || undefined,
         avatarUrl: teamMember?.avatar,
-  role: teamMember?.role,
+        role: teamMember?.role,
         title: teamMember?.title,
       }}
       uid={user.uid}
       organizationId={orgId}
+      teamMember={teamMember}
       onNotificationClick={handleNotificationClick}
       onSignOut={async () => { await signOutUser(); }}
+      onProfileUpdate={handleProfileUpdate}
     >
       {viewContent}
       
@@ -294,6 +336,7 @@ function MainApp() {
       <DevRoleSwitcher
         currentUserId={user.uid}
         currentMember={realTeamMember || null}
+        impersonated={impersonatedMember}
         onSwitchUser={handleSwitchUser}
         onResetToReal={handleResetToReal}
       />

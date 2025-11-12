@@ -19,8 +19,11 @@ import { ProjectDetailView } from './ProjectDetailView';
 // Main TasksView component
 
 import { useAllBlockers } from "../../hooks/useBlockers";
-import { useTasks } from "../../hooks/useTasks";
 import { useProjects } from "../../hooks/useProjects";
+import { useUserContext } from "../../hooks/useUserContext";
+import { useRoleBasedTasks } from "../../hooks/useRoleBasedTasks";
+import { useTeamMembers } from "../../hooks/useTeamMembers";
+import { canCreateTask } from "../../utils/permissions";
 
 interface TasksViewProps {
   uid: string;
@@ -30,9 +33,30 @@ interface TasksViewProps {
 }
 
 function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, allBlockers: propAllBlockers }: TasksViewProps) {
+  // Get user context for role-based permissions
+  const { role, teamMemberId, organizationId } = useUserContext();
+  
+  // Get team members for creator grouping
+  const teamMembers = useTeamMembers(organizationId || uid);
+  
+  // Toggle for admins to switch between "My Tasks" and "All Tasks"
+  const [viewingAllTasks, setViewingAllTasks] = useState(() => {
+    const saved = localStorage.getItem('viewingAllTasks');
+    return saved === 'true'; // Default to false (My Tasks)
+  });
+  
+  // Save viewing preference
+  React.useEffect(() => {
+    localStorage.setItem('viewingAllTasks', String(viewingAllTasks));
+  }, [viewingAllTasks]);
+  
   const hookAllBlockers = useAllBlockers(uid);
   const safeAllBlockers = propAllBlockers ?? hookAllBlockers;
-  const hookTasks = useTasks(uid);
+  
+  // Use role-based tasks hook: skip filter when admin/owner views "All Tasks"
+  const shouldSkipRoleFilter = (role === 'owner' || role === 'admin') && viewingAllTasks;
+  const hookTasks = useRoleBasedTasks(uid, undefined, shouldSkipRoleFilter);
+  
   const hookProjects = useProjects(uid);
   const allTasks = propAllTasks ?? hookTasks;
   const allProjects = propAllProjects ?? hookProjects;
@@ -387,7 +411,54 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
   // Memoized grouped and sorted tasks to prevent recalculation on every render
   const groupedTasks = useMemo(() => {
     function groupTasks(tasks: WithId<Task>[], groupBy: string): Record<string, WithId<Task>[]> {
-      if (!groupBy || groupBy === "none") return { "": sortTasks(tasks) };
+      if (!groupBy || groupBy === "none") {
+        // If admin/owner is viewing "All Tasks", group by creator
+        if ((role === 'owner' || role === 'admin') && viewingAllTasks) {
+          const groups: Record<string, WithId<Task>[]> = {};
+          
+          for (const task of tasks) {
+            // Find the creator's name from team members
+            const creator = teamMembers?.find(m => m.id === task.createdBy);
+            const creatorName = creator?.name || 'Unknown';
+            const groupKey = `👤 ${creatorName}`;
+            
+            if (!groups[groupKey]) {
+              groups[groupKey] = [];
+            }
+            groups[groupKey].push(task);
+          }
+          
+          // Sort tasks within each group
+          Object.keys(groups).forEach(key => {
+            groups[key] = sortTasks(groups[key]);
+          });
+          
+          // If no tasks, return empty group
+          if (Object.keys(groups).length === 0) {
+            return { "": [] };
+          }
+          
+          return groups;
+        }
+        
+        // If viewing "all" tasks and not grouping by anything else, group by task type
+        if (taskTypeFilter === 'all') {
+          const generalTasks = tasks.filter(t => !t.projectId);
+          const projectTasks = tasks.filter(t => t.projectId);
+          const result: Record<string, WithId<Task>[]> = {};
+          if (generalTasks.length > 0) {
+            result["📋 General Tasks"] = sortTasks(generalTasks);
+          }
+          if (projectTasks.length > 0) {
+            result["📁 Project Tasks"] = sortTasks(projectTasks);
+          }
+          if (generalTasks.length === 0 && projectTasks.length === 0) {
+            result[""] = [];
+          }
+          return result;
+        }
+        return { "": sortTasks(tasks) };
+      }
       const groups: Record<string, WithId<Task>[]> = {};
       for (const t of tasks) {
         let key = "";
@@ -419,7 +490,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
     }
     
     return groupTasks(filteredTasks, filters.groupBy || "none");
-  }, [filteredTasks, filters.groupBy, sortTasks, allProjects]);
+  }, [filteredTasks, filters.groupBy, sortTasks, allProjects, taskTypeFilter, role, viewingAllTasks, teamMembers]);
 
   // Remove effect that updates dragList from backend unless a drag is in progress
 
@@ -429,7 +500,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
     e.preventDefault();
     if (!quickAdd.trim()) return;
     try {
-      await createTask(uid, quickAdd.trim(), null);
+      await createTask(uid, quickAdd.trim(), null, {}, teamMemberId || undefined);
       setQuickAdd("");
     } catch (error) {
       console.error("Error creating task:", error);
@@ -442,9 +513,38 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
   <div className="space-y-6">
       <div className="flex items-end justify-between">
   <h1 className="text-3xl font-bold text-brand-text">Tasks</h1>
+          {/* My Tasks / All Tasks toggle for admins */}
+          {(role === 'owner' || role === 'admin') && (
+            <div className="flex items-center gap-2 bg-[rgba(20,20,30,0.6)] backdrop-blur-sm border border-white/10 rounded-lg p-1">
+              <button
+                type="button"
+                onClick={() => setViewingAllTasks(false)}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                  !viewingAllTasks
+                    ? 'bg-brand-cyan text-white shadow-lg shadow-brand-cyan/30'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                My Tasks
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewingAllTasks(true)}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                  viewingAllTasks
+                    ? 'bg-brand-cyan text-white shadow-lg shadow-brand-cyan/30'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                All Tasks
+              </button>
+            </div>
+          )}
       </div>
 
-      <form onSubmit={handleQuickAdd} className="mt-3">
+        {/* Quick Add - hide for viewers and freelancers */}
+        {canCreateTask(role || 'viewer') && (
+          <form onSubmit={handleQuickAdd} className="mt-3">
         <input
           className="w-full bg-[rgba(20,20,30,0.6)] backdrop-blur-sm border border-white/10 rounded-lg px-4 py-3 text-base text-brand-text placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan/50 transition-all"
           placeholder="✨ Add a new task..."
@@ -452,6 +552,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
           onChange={(e) => setQuickAdd(e.target.value)}
         />
       </form>
+        )}
 
       {/* Filters Bar (match Project View) */}
       <div className="mt-4">

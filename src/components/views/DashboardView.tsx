@@ -1,11 +1,14 @@
 // Dashboard View - Main overview page
 import { useMemo, useEffect, useState, useRef, memo } from 'react';
 import { KPITile, ChartPanel } from '../ui/Card';
-import { useTasks } from '../../hooks/useTasks';
-import { useProjects } from '../../hooks/useProjects';
+import { useRoleBasedTasks } from '../../hooks/useRoleBasedTasks';
+import { useRoleBasedProjects } from '../../hooks/useRoleBasedProjects';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useUserContext } from '../../hooks/useUserContext';
 import { computeProjectStatus } from '../../utils/projectStatus';
 import type { Activity } from '../../types';
+import { TaskCreateForm } from '../TaskCreateForm';
+import { Modal } from '../shared/Modal';
 
 // Helper to navigate and set filters
 const navigateToView = (view: 'tasks' | 'projects' | 'team', filters?: Record<string, any>) => {
@@ -43,10 +46,14 @@ interface DashboardViewProps {
 }
 
 const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
-  const tasks = useTasks(uid);
-  const projects = useProjects(uid);
+  const tasks = useRoleBasedTasks(uid);
+  const projects = useRoleBasedProjects(uid);
   const teamMembers = useTeamMembers(uid);
   const [recentActivity, setRecentActivity] = useState<Activity[]>([]);
+  const [showQuickAddTask, setShowQuickAddTask] = useState(false);
+  
+  // Get organization ID from user context
+  const { organizationId } = useUserContext();
   
   // Prevent state from being reset on remount by keeping unsubscribe at module level
   const unsubscribeRef = useRef<(() => void) | null>(null);
@@ -65,8 +72,8 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
 
   // Fetch recent activity with real-time updates
   useEffect(() => {
-    console.log('useEffect running, uid:', uid);
-    if (!uid) return;
+    console.log('useEffect running, uid:', uid, 'organizationId:', organizationId);
+    if (!uid || !organizationId) return;
     
     // Clean up any existing listener before setting up a new one
     if (unsubscribeRef.current) {
@@ -85,7 +92,7 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
         if (!isMounted) return; // Check if still mounted before setting up listener
         
         const fb = await getFirebase();
-        const activitiesRef = fb.col(uid, 'activities');
+        const activitiesRef = fb.orgCol(organizationId, 'activities');
         const q = query(activitiesRef, orderBy('createdAt', 'desc'), limit(50));
         
         unsubscribeRef.current = onSnapshot(q, (snapshot: any) => {
@@ -149,12 +156,10 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
       if (unsubscribeRef.current) {
         console.log('Cleanup: unsubscribing from Firestore listener');
         unsubscribeRef.current();
-        unsubscribeRef.current = null;
-      }
-    };
-  }, [uid]);
-
-  // Calculate KPI metrics
+      unsubscribeRef.current = null;
+    }
+  };
+  }, [uid, organizationId]);  // Calculate KPI metrics
   const metrics = useMemo(() => {
     // Active team members (active: true)
     const activeTeamMembers = teamMembers?.filter(m => m.active).length || 0;
@@ -465,6 +470,7 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
   }, [tasks, projects, teamMembers, recentActivity]);
 
   return (
+    <>
     <div className="space-y-6">
       {/* Page Header with Quick Actions */}
       <div className="flex items-center justify-between">
@@ -475,25 +481,13 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
         <div className="flex items-center gap-3">
           {/* Quick Actions */}
           <button
-            onClick={() => {
-              // TODO: Open quick add task modal
-              console.log('Quick add task');
-            }}
+            onClick={() => setShowQuickAddTask(true)}
             className="flex items-center gap-2 px-4 py-2 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/30 rounded-lg text-cyan-400 text-sm font-medium transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
             Quick Add Task
-          </button>
-          <button
-            onClick={() => window.location.reload()}
-            className="flex items-center gap-2 px-4 py-2 bg-gray-800/50 hover:bg-gray-800 border border-gray-700 rounded-lg text-gray-400 text-sm font-medium transition-colors"
-            title="Refresh dashboard data"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-            </svg>
           </button>
         </div>
       </div>
@@ -837,13 +831,17 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
                   description = 'Archived';
                 }
                 
+                // Get the user name who performed the action
+                const userName = activity.userName || 'Someone';
+                
                 return (
                   <div key={activity.id} className="flex items-start gap-3 pb-3 border-b border-gray-800 last:border-0">
                     <div className="flex-shrink-0 w-2 h-2 mt-1.5 rounded-full bg-cyan-500" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-gray-300 truncate">{activity.entityTitle}</p>
-                      <p className="text-xs text-gray-500 mt-0.5 capitalize">
-                        {description} · {timeAgo}
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        <span className="text-cyan-400 font-medium">{userName}</span>
+                        <span className="capitalize"> · {description} · {timeAgo}</span>
                       </p>
                     </div>
                   </div>
@@ -1426,6 +1424,25 @@ const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
         </div>
       </ChartPanel>
     </div>
+
+    {/* Quick Add Task Modal */}
+    {showQuickAddTask && (
+      <Modal
+        open={showQuickAddTask}
+        onClose={() => setShowQuickAddTask(false)}
+        title="Quick Add Task"
+      >
+        <TaskCreateForm
+          uid={uid}
+          allProjects={projects}
+          onCreated={() => {
+            setShowQuickAddTask(false);
+            // Optionally show a success toast or refresh
+          }}
+        />
+      </Modal>
+    )}
+  </>
   );
 };
 

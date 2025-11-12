@@ -41,6 +41,23 @@ export const FilterBar: React.FC<{
       return () => clearTimeout(t);
     }
   }, [saved]);
+  const prioritySwatch = (level: 0|1|2|3|4) => {
+    // Solid color swatches aligned with brand mapping
+    const map: Record<0|1|2|3|4, string> = {
+      0: '#64748b',   // slate
+      1: '#60a5fa',   // blue
+      2: '#00D0FF',   // brand cyan
+      3: '#A38BFF',   // brand violet (high)
+      4: '#ef4444',   // red (urgent)
+    };
+    return (
+      <span
+        className="inline-block w-3 h-3 rounded-full border border-white/20"
+        style={{ backgroundColor: map[level] }}
+        aria-hidden
+      />
+    );
+  };
   return (
     <div className={`flex flex-row flex-wrap items-center gap-3 min-h-[40px]`}>
       {/* Show all tasks toggle */}
@@ -124,7 +141,10 @@ export const FilterBar: React.FC<{
                                           onChange({ ...filters, minPriority: next });
                                         }}
                                       />
-                                      <span>{priorities.find((p) => p.value === level)?.label}</span>
+                                      <span className="flex items-center gap-2">
+                                        {prioritySwatch(level)}
+                                        {priorities.find((p) => p.value === level)?.label}
+                                      </span>
                                     </label>
                                   ))}
                                 </>

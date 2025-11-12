@@ -1,5 +1,5 @@
 // src/services/teamMembers.ts
-import { addDoc, updateDoc, doc, serverTimestamp, collection, getDocs, query, where, writeBatch } from 'firebase/firestore';
+import { addDoc, updateDoc, doc, serverTimestamp, collection, getDocs, query, where, writeBatch, getDoc } from 'firebase/firestore';
 import { getFirestoreClient } from '../firebase';
 import type { TeamMember, SkillAssessment } from '../types';
 
@@ -238,4 +238,13 @@ export async function deleteTeamMember(memberId: string) {
     active: false, 
     updatedAt: serverTimestamp() 
   });
+}
+
+/** Fetch a single team member by document id */
+export async function getTeamMemberById(memberId: string): Promise<(TeamMember & { id: string }) | null> {
+  const { db } = await getFirestoreClient();
+  const ref = doc(db, 'teamMembers', memberId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return null;
+  return { id: snap.id, ...(snap.data() as TeamMember) } as TeamMember & { id: string };
 }

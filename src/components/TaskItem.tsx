@@ -27,14 +27,14 @@ const getPriorityLabel = (priority: number): string => {
   return "Urgent";
 };
 
-// Helper to get background gradient for priority badge
+// Helper to get background gradient for priority badge (brand-aligned)
 const getPriorityBgGradient = (priority: number): string => {
   if (priority === 0) return "bg-gray-700";
-  if (priority < 25) return "bg-gradient-to-r from-gray-400 via-gray-500 to-gray-600";
-  if (priority < 50) return "bg-gradient-to-r from-brand-violet via-blue-400 to-brand-cyan";
-  if (priority < 75) return "bg-gradient-to-r from-brand-cyan via-green-400 to-brand-success";
-  if (priority < 90) return "bg-gradient-to-r from-brand-success via-yellow-400 to-brand-warning";
-  return "bg-gradient-to-r from-brand-warning via-orange-500 to-red-500";
+  if (priority < 25) return "bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600";
+  if (priority < 50) return "bg-gradient-to-r from-[#00D0FF] via-blue-400 to-indigo-500";
+  if (priority < 75) return "bg-gradient-to-r from-indigo-500 via-indigo-400 to-[#A38BFF]";
+  if (priority < 90) return "bg-gradient-to-r from-[#A38BFF] via-indigo-400 to-[#A38BFF]";
+  return "bg-gradient-to-r from-red-400 via-red-500 to-red-600";
 };
 
 interface TaskItemProps {
@@ -837,7 +837,8 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                       style={{
                         animation: 'expandSlider 0.2s ease-out forwards',
                         transformOrigin: 'center center',
-                        background: 'linear-gradient(to right, #9ca3af 0%, #60a5fa 25%, #34d399 50%, #fbbf24 75%, #f97316 90%, #ef4444 100%)',
+                        // Brand-aligned gradient: slate → blue → cyan → indigo → violet → red
+                        background: 'linear-gradient(to right, #64748b 0%, #60a5fa 20%, #00D0FF 40%, #6366f1 60%, #A38BFF 80%, #ef4444 100%)',
                         boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 2px rgba(255, 255, 255, 0.3)'
                       }}
                       onClick={(e) => e.stopPropagation()}
