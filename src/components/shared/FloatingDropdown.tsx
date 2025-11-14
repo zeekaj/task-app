@@ -1,5 +1,6 @@
 // src/components/shared/FloatingDropdown.tsx
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 
 interface FloatingDropdownProps {
@@ -19,6 +20,10 @@ interface FloatingDropdownProps {
   calculateWidth?: (buttonRect: DOMRect) => number;
   /** Vertical offset from trigger (default: 6px) */
   offsetY?: number;
+  /** Horizontal alignment relative to trigger (default: 'left') */
+  align?: 'left' | 'center' | 'right';
+  /** Clamp horizontally within viewport (default: true) */
+  clamp?: boolean;
 }
 
 /**
@@ -37,6 +42,8 @@ export function FloatingDropdown({
   menuClassName = '',
   calculateWidth,
   offsetY = 6,
+  align = 'left',
+  clamp = true,
 }: FloatingDropdownProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const triggerRef = useRef<HTMLDivElement>(null);
@@ -57,7 +64,8 @@ export function FloatingDropdown({
   useEffect(() => {
     if (!isOpen) return;
     
-    const handleClick = (e: MouseEvent) => {
+    // Use mousedown capture so modal-level stopPropagation doesn't block outside detection
+    const handlePointerDown = (e: MouseEvent) => {
       const target = e.target as Node;
       const insideTrigger = triggerRef.current?.contains(target);
       const insideMenu = menuRef.current?.contains(target);
@@ -66,41 +74,57 @@ export function FloatingDropdown({
       }
     };
 
-    // Defer to avoid the same click that opened the dropdown
+    // Defer attaching to avoid closing from the opening click
     const timer = setTimeout(() => {
-      document.addEventListener('click', handleClick);
+      document.addEventListener('mousedown', handlePointerDown, true);
     }, 50);
 
     // Recompute position on resize/scroll
     const recompute = () => {
       if (!triggerRef.current) return;
       const r = triggerRef.current.getBoundingClientRect();
-      const width = calculateWidth 
-        ? calculateWidth(r) 
+      const width = calculateWidth
+        ? calculateWidth(r)
         : Math.max(220, Math.min(320, r.width + 32));
-      setMenuPos({ left: r.left, top: r.bottom + offsetY, width });
+      let left = r.left;
+      if (align === 'center') left = r.left + (r.width / 2) - (width / 2);
+      else if (align === 'right') left = r.right - width;
+      if (clamp) {
+        const margin = 8;
+        if (left + width > window.innerWidth - margin) left = window.innerWidth - margin - width;
+        if (left < margin) left = margin;
+      }
+      setMenuPos({ left, top: r.bottom + offsetY, width });
     };
     window.addEventListener('resize', recompute);
     window.addEventListener('scroll', recompute, true);
 
     return () => {
       clearTimeout(timer);
-      document.removeEventListener('click', handleClick);
+      document.removeEventListener('mousedown', handlePointerDown, true);
       window.removeEventListener('resize', recompute);
       window.removeEventListener('scroll', recompute, true);
     };
-  }, [isOpen, calculateWidth, offsetY]);
+  }, [isOpen, calculateWidth, offsetY, align, clamp]);
 
   // Compute dropdown position when opening
   useEffect(() => {
     if (!isOpen) return;
     if (!triggerRef.current) return;
     const r = triggerRef.current.getBoundingClientRect();
-    const width = calculateWidth 
-      ? calculateWidth(r) 
+    const width = calculateWidth
+      ? calculateWidth(r)
       : Math.max(220, Math.min(320, r.width + 32));
-    setMenuPos({ left: r.left, top: r.bottom + offsetY, width });
-  }, [isOpen, calculateWidth, offsetY]);
+    let left = r.left;
+    if (align === 'center') left = r.left + (r.width / 2) - (width / 2);
+    else if (align === 'right') left = r.right - width;
+    if (clamp) {
+      const margin = 8;
+      if (left + width > window.innerWidth - margin) left = window.innerWidth - margin - width;
+      if (left < margin) left = margin;
+    }
+    setMenuPos({ left, top: r.bottom + offsetY, width });
+  }, [isOpen, calculateWidth, offsetY, align, clamp]);
   
   return (
     <>
@@ -112,14 +136,15 @@ export function FloatingDropdown({
       </div>
       
       {/* Floating menu */}
-      {isOpen && menuPos && (
+      {isOpen && menuPos && createPortal(
         <div
           ref={menuRef}
           className={`fixed z-[9999] max-h-64 overflow-y-auto bg-[rgba(20,20,30,0.98)] backdrop-blur-md border border-white/10 rounded-lg shadow-xl shadow-black/50 ${menuClassName}`}
           style={{ left: menuPos.left, top: menuPos.top, width: menuPos.width }}
         >
           {children}
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );

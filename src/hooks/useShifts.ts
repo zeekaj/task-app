@@ -10,7 +10,7 @@ interface UseShiftsOptions {
   status?: ShiftStatus[];
 }
 
-export function useShifts(uid: string, options: UseShiftsOptions = {}) {
+export function useShifts(organizationId: string, options: UseShiftsOptions = {}) {
   const [shifts, setShifts] = useState<WithId<Shift>[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -25,7 +25,7 @@ export function useShifts(uid: string, options: UseShiftsOptions = {}) {
         const fb = await getFirebase();
 
         // Start with base collection and order by date only (to avoid composite index requirement)
-        let q = query(fb.col(uid, "shifts"), orderBy("date", "asc"));
+        let q = query(fb.orgCol(organizationId, "shifts"), orderBy("date", "asc"));
 
         // Apply filters
         if (options.startDate) {
@@ -87,12 +87,12 @@ export function useShifts(uid: string, options: UseShiftsOptions = {}) {
         unsubscribe();
       }
     };
-  }, [uid, options.startDate, options.endDate, options.memberId, options.projectId, JSON.stringify(options.status)]);
+  }, [organizationId, options.startDate, options.endDate, options.memberId, options.projectId, JSON.stringify(options.status)]);
 
   return { shifts, loading, error };
 }
 
-export function useShiftTemplates(uid: string) {
+export function useShiftTemplates(organizationId: string) {
   const [templates, setTemplates] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<Error | null>(null);
@@ -107,7 +107,7 @@ export function useShiftTemplates(uid: string) {
         const fb = await getFirebase();
 
         const q = query(
-          fb.col(uid, "shiftTemplates"),
+          fb.orgCol(organizationId, "shiftTemplates"),
           where("active", "==", true),
           orderBy("name", "asc")
         );
@@ -142,7 +142,7 @@ export function useShiftTemplates(uid: string) {
         unsubscribe();
       }
     };
-  }, [uid]);
+  }, [organizationId]);
 
   return { templates, loading, error };
 }

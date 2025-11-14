@@ -18,7 +18,7 @@ export function useClients(orgId: string): [WithId<Client>[] | null] {
       try {
         const { onSnapshot, query, where } = await import('firebase/firestore');
         const fb = await getFirebase();
-        const ref = fb.col(orgId, 'clients');
+        const ref = fb.orgCol(orgId, 'clients');
         const q = query(ref, where('active', '==', true));
 
         unsubscribe = onSnapshot(

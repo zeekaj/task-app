@@ -27,14 +27,14 @@ const getPriorityLabel = (priority: number): string => {
   return "Urgent";
 };
 
-// Helper to get background gradient for priority badge
+// Helper to get background gradient for priority badge (brand-aligned)
 const getPriorityBgGradient = (priority: number): string => {
   if (priority === 0) return "bg-gray-700";
-  if (priority < 25) return "bg-gradient-to-r from-gray-400 via-gray-500 to-gray-600";
-  if (priority < 50) return "bg-gradient-to-r from-brand-violet via-blue-400 to-brand-cyan";
-  if (priority < 75) return "bg-gradient-to-r from-brand-cyan via-green-400 to-brand-success";
-  if (priority < 90) return "bg-gradient-to-r from-brand-success via-yellow-400 to-brand-warning";
-  return "bg-gradient-to-r from-brand-warning via-orange-500 to-red-500";
+  if (priority < 25) return "bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600";
+  if (priority < 50) return "bg-gradient-to-r from-[#00D0FF] via-blue-400 to-indigo-500";
+  if (priority < 75) return "bg-gradient-to-r from-indigo-500 via-indigo-400 to-[#A38BFF]";
+  if (priority < 90) return "bg-gradient-to-r from-[#A38BFF] via-indigo-400 to-[#A38BFF]";
+  return "bg-gradient-to-r from-red-400 via-red-500 to-red-600";
 };
 
 interface TaskItemProps {
@@ -51,14 +51,13 @@ interface TaskItemProps {
   onDelete: () => void;
   onUnarchive: () => void;
   onStatusChange: (newStatus: Task["status"]) => void;
-  onUndo: () => Promise<boolean>;
   onProjectClick?: (project: WithId<Project>) => void;
   dragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
   crossListDragHandleProps?: React.HTMLAttributes<HTMLSpanElement>;
   searchQuery?: string;
 }
 
-export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], allProjects = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onUndo, onProjectClick, searchQuery = '' }) => {
+export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allTasks = [], allProjects = [], onStartEdit, onManageBlockers, onStartBlock, onArchive, onDelete, onUnarchive, onStatusChange, onProjectClick, searchQuery = '' }) => {
   const hookAllBlockers = useAllBlockers(uid);
   const safeAllBlockers = allBlockers ?? hookAllBlockers;
   const teamMembers = useTeamMembers(uid);
@@ -159,6 +158,16 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
     setTempPriority(task.priority);
   }, [task.priority]);
 
+  // Update temp due date when task dueDate changes
+  React.useEffect(() => {
+    setTempDueDate(task.dueDate || "");
+  }, [task.dueDate]);
+
+  // Update temp assignee when task assignee changes
+  React.useEffect(() => {
+    setTempAssignee(typeof task.assignee === "string" ? task.assignee : task.assignee?.name || "");
+  }, [task.assignee]);
+
   // Helper to handle priority slider mouse leave with delay
   const handlePriorityMouseLeave = () => {
     if (priorityHideTimeoutRef.current) {
@@ -197,7 +206,11 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
   const createdAtTs = (task as any).createdAt ? String((task as any).createdAt?.seconds ?? (task as any).createdAt?.toDate?.().getTime() ?? '') : '';
   const updatedAtTs = (task as any).updatedAt ? String((task as any).updatedAt?.seconds ?? (task as any).updatedAt?.toDate?.().getTime() ?? '') : '';
   const dateInfo = useMemo(() => {
-    const dueDateObj = task.dueDate ? new Date(task.dueDate) : null;
+    // Parse date string as local date to avoid timezone issues
+    const dueDateObj = task.dueDate ? (() => {
+      const [year, month, day] = task.dueDate.split('-').map(Number);
+      return new Date(year, month - 1, day);
+    })() : null;
     const createdAtObj = (task as any).createdAt?.toDate ? (task as any).createdAt.toDate() : null;
     const updatedAtObj = (task as any).updatedAt?.toDate ? (task as any).updatedAt.toDate() : null;
     
@@ -275,6 +288,8 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
   const [editingInline, setEditingInline] = useState(false);
   const [inlineTitle, setInlineTitle] = useState(task.title);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const rowTitle = !statusInfo.isArchived && !editingInline ? 'Click to open full editor' : undefined;
 
   // Commit inline edit
   const commitInlineEdit = async () => {
@@ -380,7 +395,8 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
 
   return (
       <div
-        className={`flex items-stretch border rounded-lg shadow-sm transition-shadow backdrop-blur-sm ${statusClasses} text-brand-text max-w-full overflow-hidden`}
+        className={`flex items-stretch border rounded-lg shadow-sm transition-shadow backdrop-blur-sm ${statusClasses} text-brand-text max-w-full overflow-hidden hover:cursor-pointer`}
+        title={rowTitle}
         onClick={e => {
           if (statusInfo.isArchived || editingInline) return;
           const target = e.target as Element;
@@ -573,7 +589,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
               {editingInline ? (
                 <input
                   ref={inputRef}
-                  className="truncate border dark:border-gray-700 border-gray-300 rounded px-2 py-1 text-base dark:bg-background dark:text-gray-100"
+                  className="truncate border border-gray-700/20 rounded px-2 py-1 text-base bg-transparent text-brand-text dark:text-gray-100 placeholder:text-brand-text/50 focus:outline-none focus:ring-1 focus:ring-brand-cyan"
                   value={typeof inlineTitle === "string" ? inlineTitle : String(inlineTitle)}
                   onChange={e => setInlineTitle(e.target.value)}
                   onBlur={commitInlineEdit}
@@ -623,48 +639,25 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                         title={typeof task.description === 'string' ? task.description : 'Has description'}
                         className="ml-2 flex items-center"
                       >
-                        <Icon path="M3 5h14v2H3zM3 9h14v2H3zM3 13h10v2H3z" className="w-4 h-4 text-gray-400" />
+                        <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10" />
+                        </svg>
                       </span>
                     )}
                     {/* Notes/comments indicator */}
                     {task.comments && task.comments.length > 0 && (
                       <span title="Has comments/notes" className="ml-1 flex items-center">
-                        <Icon path="M21 6.5a2.5 2.5 0 00-2.5-2.5h-13A2.5 2.5 0 003 6.5v7A2.5 2.5 0 005.5 16H6v3l4.5-3h6A2.5 2.5 0 0021 13.5v-7z" className="w-4 h-4 text-amber-400" />
-                      </span>
-                    )}
-                    {/* Subtask progress icon */}
-                    {subtaskInfo.subtaskCount > 0 && (
-                      <span className="inline-flex items-center gap-1 text-xs text-gray-500 ml-1" title="Subtasks">
-                        <svg width="16" height="16" fill="none" viewBox="0 0 20 20"><rect x="2" y="5" width="16" height="10" rx="2" fill="#e5e7eb"/><rect x="4" y="7" width="12" height="6" rx="1" fill="#fff"/><path d="M7 10.5l2 2 4-4" stroke="#22c55e" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        {subtaskInfo.subtaskDone}/{subtaskInfo.subtaskCount}
-                      </span>
-                    )}
-                    {/* Dependencies icon */}
-                    {Array.isArray(task.dependencies) && task.dependencies.length > 0 && (
-                      <span className="inline-flex items-center gap-1 text-xs text-blue-500 ml-1" title={`Depends on: ${task.dependencies.map(depId => {
-                        const depTask = allTasks.find(t => t.id === depId);
-                        return depTask ? depTask.title : depId;
-                      }).join(", ")}`}>
-                        <svg width="16" height="16" fill="none" viewBox="0 0 20 20"><path d="M7 10h6M7 10l2-2m-2 2l2 2" stroke="#3b82f6" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/><circle cx="5" cy="10" r="2" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.2"/><circle cx="15" cy="10" r="2" fill="#dbeafe" stroke="#3b82f6" strokeWidth="1.2"/></svg>
-                        {task.dependencies.length}
-                      </span>
-                    )}
-                    {/* Attachments icon */}
-                    {Array.isArray(task.attachments) && task.attachments.length > 0 && (
-                      <span className="inline-flex items-center gap-1 text-xs text-purple-500 ml-1" title={`${task.attachments.length} attachment${task.attachments.length !== 1 ? 's' : ''}: ${task.attachments.map(a => a.name).join(", ")}`}>
-                        <svg width="16" height="16" fill="currentColor" viewBox="0 0 20 20">
-                          <path fillRule="evenodd" d="M8 4a3 3 0 00-3 3v4a5 5 0 0010 0V7a1 1 0 112 0v4a7 7 0 11-14 0V7a5 5 0 0110 0v4a3 3 0 11-6 0V7a1 1 0 012 0v4a1 1 0 102 0V7a3 3 0 00-3-3z" clipRule="evenodd"/>
+                        <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                         </svg>
-                        {task.attachments.length}
                       </span>
                     )}
                   </span>
-                  {/* Search match snippet */}
-                  {getMatchSnippet && (
-                    <div className="mt-1 text-xs text-gray-600 dark:text-gray-400 italic truncate">
-                      <span className="font-semibold text-blue-600 dark:text-blue-400">{getMatchSnippet.source}:</span>{' '}
-                      {highlightText(getMatchSnippet.text)}
-                    </div>
+                  {/* Show description below title if showDescriptionInCard is true */}
+                  {task.showDescriptionInCard && task.description && (
+                    <p className="text-xs text-gray-400 mt-1 truncate" title={task.description}>
+                      {task.description}
+                    </p>
                   )}
                 </>
               )}
@@ -675,12 +668,6 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
             <div className="flex-shrink-0 flex items-center gap-x-2 py-0.5 px-1 text-xs text-brand-text min-w-0 overflow-hidden">
               {/* Created, Due, Assigned info (left of status dropdown) */}
               <div className="hidden sm:flex items-center justify-center gap-x-1 mr-1 min-w-[240px] lg:min-w-[280px]">
-                {/* Created */}
-                <span className="flex items-center justify-center w-[70px] text-brand-text" title="Created date">
-                  <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m4 4V3m-7 4h14M5 7v10a2 2 0 002 2h6a2 2 0 002-2V7" /></svg>
-                  {dateInfo.createdAtObj ? dateInfo.latestDateString : '--'}
-                </span>
-                <span className="text-brand-text/50">|</span>
                 {/* Due */}
                 {editingDueDate ? (
                   <div className="flex items-center justify-center w-[70px]">
@@ -732,7 +719,12 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                   }}
                 >
                   <svg className="w-3 h-3 mr-1 text-blue-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20"><circle cx="10" cy="7" r="4" stroke="currentColor" strokeWidth="2" /><path strokeLinecap="round" strokeLinejoin="round" d="M4 17v-1a4 4 0 014-4h4a4 4 0 014 4v1" /></svg>
-                  {task.assignee ? (typeof task.assignee === "object" ? (task.assignee.name || task.assignee.id) : task.assignee) : '--'}
+                  {(() => {
+                    let assigneeId = typeof task.assignee === "object" ? task.assignee?.id : task.assignee;
+                    if (!assigneeId) return '--';
+                    const member = teamMembers?.find(m => m.id === assigneeId || m.userId === assigneeId || m.name === assigneeId);
+                    return member?.name || '--';
+                  })()}
                 </span>
                 
                 {/* Assignee Dropdown - rendered via portal to escape overflow:hidden */}
@@ -822,116 +814,109 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                 document.body
               )}
               
-              {/* Priority badge with hover slider */}
+              {/* Priority badge with hover slider (expands left, pushes siblings) */}
               {!statusInfo.isArchived && (
-                <div 
-                  className="relative hidden sm:block overflow-visible" 
+                <div
+                  className="hidden sm:flex flex-row-reverse items-center overflow-visible"
                   data-priority-slider={task.id}
                   onMouseLeave={handlePriorityMouseLeave}
                   onMouseEnter={handlePriorityMouseEnter}
                 >
-                  {/* Expandable slider overlay - expands from center */}
-                  {showPrioritySlider && (
-                    <div
-                      ref={prioritySliderRef}
-                      className="absolute top-0 left-1/2 -translate-x-1/2 z-50 rounded-lg px-3 py-2 min-w-[200px]"
-                      style={{
-                        animation: 'expandSlider 0.2s ease-out forwards',
-                        transformOrigin: 'center center',
-                        background: 'linear-gradient(to right, #9ca3af 0%, #60a5fa 25%, #34d399 50%, #fbbf24 75%, #f97316 90%, #ef4444 100%)',
-                        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3), inset 0 1px 2px rgba(255, 255, 255, 0.3)'
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-bold text-white drop-shadow-md text-shadow-sm min-w-[2ch] text-center">
-                          {tempPriority}
-                        </span>
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          value={tempPriority}
-                          onChange={(e) => {
-                            const newValue = Number(e.target.value);
-                            setTempPriority(newValue);
-                          }}
-                          onMouseUp={async () => {
+                  {/* Slider - placed in flow (row-reverse) so badge stays at far right and slider expands leftwards, pushing content */}
+                  <div
+                    ref={prioritySliderRef}
+                    className={`transition-all duration-300 ease-out overflow-hidden flex items-center ${showPrioritySlider ? 'w-[220px] pr-3' : 'w-0 pr-0'}`}
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      // visually align slider content to the right so expansion grows left
+                      justifyContent: 'flex-end',
+                      // Reintroduce the brand gradient and a subtle inset/outer shadow
+                      background: 'linear-gradient(to right, #64748b 0%, #60a5fa 20%, #00D0FF 40%, #6366f1 60%, #A38BFF 80%, #ef4444 100%)',
+                      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.28), inset 0 1px 2px rgba(255, 255, 255, 0.12)',
+                      borderRadius: '0.5rem'
+                    }}
+                  >
+                    <div className="flex items-center gap-3 pl-1 pr-2">
+                      <input
+                        type="number"
+                        min={0}
+                        max={100}
+                        value={tempPriority}
+                        onChange={(e) => {
+                          const newValue = Number(e.target.value || 0);
+                          setTempPriority(Math.max(0, Math.min(100, isNaN(newValue) ? 0 : newValue)));
+                        }}
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
                             await handlePriorityUpdate(tempPriority);
-                          }}
-                          onTouchEnd={async () => {
-                            await handlePriorityUpdate(tempPriority);
-                          }}
-                          className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer bg-white/30"
-                        />
-                        <span className="text-xs font-semibold text-white drop-shadow-md text-shadow-sm whitespace-nowrap">
-                          {getPriorityLabel(tempPriority)}
-                        </span>
-                      </div>
+                            // keep slider open so user sees change
+                          }
+                          if (e.key === 'Escape') {
+                            // revert to actual task value
+                            setTempPriority(task.priority);
+                            (e.target as HTMLElement).blur();
+                          }
+                        }}
+                        onBlur={async () => {
+                          await handlePriorityUpdate(tempPriority);
+                          // allow mouseleave to close if applicable
+                        }}
+                        className="w-12 text-center text-sm font-bold text-white bg-transparent border border-white/10 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-brand-cyan"
+                        aria-label={`Priority for ${typeof task.title === 'string' ? task.title : 'task'}`}
+                        onClick={(e) => e.stopPropagation()}
+                        onFocus={() => setShowPrioritySlider(true)}
+                      />
+                      <input
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={tempPriority}
+                        onChange={(e) => {
+                          const newValue = Number(e.target.value);
+                          setTempPriority(newValue);
+                        }}
+                        onMouseUp={async () => {
+                          await handlePriorityUpdate(tempPriority);
+                        }}
+                        onTouchEnd={async () => {
+                          await handlePriorityUpdate(tempPriority);
+                        }}
+                        className="flex-1 h-1.5 rounded-lg appearance-none cursor-pointer bg-white/30"
+                      />
+                      <span className="text-xs font-semibold text-white drop-shadow-md text-shadow-sm whitespace-nowrap">
+                        {getPriorityLabel(tempPriority)}
+                      </span>
                     </div>
-                  )}
-                  
+                  </div>
+
                   {/* Priority badge - fades when slider shows */}
                   <span
-                    onClick={(e) => { 
-                      e.stopPropagation(); 
-                      setShowPrioritySlider(!showPrioritySlider); 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowPrioritySlider(!showPrioritySlider);
                     }}
                     title={`Priority: ${task.priority} (${getPriorityLabel(task.priority)}) - Hover to adjust`}
-                    className={`flex items-center gap-1 text-xs font-semibold rounded-lg px-2 py-1 cursor-pointer shadow-md border border-zinc-400 transition-opacity ${getPriorityBgGradient(task.priority)} ${showPrioritySlider ? 'opacity-0' : 'opacity-100'}`}
+                    className={`flex items-center justify-center text-xs font-semibold rounded-lg w-10 h-6 cursor-pointer shadow-md border border-zinc-400 transition-opacity ${getPriorityBgGradient(task.priority)} ${showPrioritySlider ? 'opacity-0' : 'opacity-100'}`}
                     style={{ boxShadow: '0 2px 6px rgba(120,120,120,0.15), inset 0 1px 2px #fff' }}
                   >
-                    <span className="text-white drop-shadow-md text-shadow-sm">{task.priority}</span>
+                    <span className="w-full text-center text-white drop-shadow-md text-shadow-sm">{task.priority}</span>
                   </span>
                 </div>
               )}
-              {/* Edit button */}
-              {!statusInfo.isArchived && (
-                <button
-                  type="button"
-                  className="hidden md:block px-2 py-1 text-xs border rounded dark:bg-surface bg-gray-100 dark:hover:bg-accent hover:bg-blue-100 dark:text-gray-100 text-gray-900"
-                  onClick={e => { e.stopPropagation(); onStartEdit(); }}
-                  title="Open full edit window"
-                >
-                  Edit
-                </button>
-              )}
-              {/* Move to Project button - only for general tasks */}
-              {!statusInfo.isArchived && !task.projectId && allProjects.length > 0 && (
-                <button
-                  ref={projectButtonRef}
-                  type="button"
-                  className="hidden md:block px-2 py-1 text-xs border rounded dark:bg-indigo-600/20 bg-indigo-100 dark:hover:bg-indigo-600/30 hover:bg-indigo-200 dark:text-indigo-300 text-indigo-700 border-indigo-500/30"
-                  onClick={e => { e.stopPropagation(); setShowProjectSelector(!showProjectSelector); }}
-                  title="Move task to a project"
-                >
-                  Move to Project
-                </button>
-              )}
+              {/* Edit button removed - opening full edit modal is available via clicking the task row */}
+              {/* Move to Project button removed per UX request */}
               {/* Promote, archive, delete, unarchive buttons */}
               {!statusInfo.isArchived ? (
                 <>
-                  <button
-                    onClick={async (e) => { 
-                      e.stopPropagation(); 
-                      const success = await onUndo();
-                      if (!success) {
-                        console.log('No changes to undo');
-                      }
-                    }}
-                    className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-blue-400 hover:text-blue-500"
-                    title="Undo Last Change"
-                  >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M3 10h10a5 5 0 0 1 0 10H9M3 10l3-3m-3 3l3 3" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  </button>
                   <button
                     onClick={e => { e.stopPropagation(); onArchive(); }}
                     className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-gray-100 hover:text-gray-900"
                     title="Archive Task"
                   >
-                    <Icon path="M5 5h14v2H5zM7 9h10v10H7z" />
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7h18M8 7v-2a2 2 0 012-2h4a2 2 0 012 2v2M19 7l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7" />
+                    </svg>
                   </button>
                   <div className="relative inline-block">
                     <button
@@ -939,7 +924,9 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                       className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-red-400 hover:text-red-500"
                       title="Delete Task"
                     >
-                      <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m5-4h4m-7 4h10" />
+                      </svg>
                     </button>
                   </div>
                 </>
@@ -950,7 +937,9 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                     className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-green-400 hover:text-green-600"
                     title="Unarchive Task"
                   >
-                    <Icon path="M5 5h14v2H5zm2 4h10v10H7z" />
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V7M3 7l9-4 9 4" />
+                    </svg>
                   </button>
                   <div className="relative inline-block">
                     <button
@@ -958,7 +947,9 @@ export const TaskItem: React.FC<TaskItemProps> = ({ uid, task, allBlockers, allT
                       className="p-1 dark:text-gray-400 text-gray-400 dark:hover:text-red-400 hover:text-red-500"
                       title="Delete Task"
                     >
-                      <Icon path="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" />
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 7m5-4h4m-7 4h10" />
+                      </svg>
                     </button>
                   </div>
                 </>

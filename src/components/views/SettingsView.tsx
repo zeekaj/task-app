@@ -6,13 +6,18 @@ import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { ClientsView } from './ClientsView';
 import { VenuesView } from './VenuesView';
+import { TeamView } from './TeamView';
+import { useUserContext } from '../../hooks/useUserContext';
 
 interface SettingsViewProps {
   uid: string;
 }
 
 export function SettingsView({ uid }: SettingsViewProps) {
-  const [activeTab, setActiveTab] = useState('clients');
+  const { role } = useUserContext();
+  const isAdmin = role === 'owner' || role === 'admin';
+  const isTechnician = role === 'technician';
+  const [activeTab, setActiveTab] = useState(isAdmin ? 'team' : 'clients');
   const [jobTitles, setJobTitles] = useState<{ id: string; name: string; active: boolean }[]>([]);
   const [newJobTitle, setNewJobTitle] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -23,7 +28,7 @@ export function SettingsView({ uid }: SettingsViewProps) {
     }
   }, [activeTab, uid]);
 
-  const tabs = [
+  const baseTabs = [
     {
       id: 'clients',
       label: 'Clients',
@@ -40,6 +45,18 @@ export function SettingsView({ uid }: SettingsViewProps) {
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+        </svg>
+      )
+    }
+  ];
+
+  const adminTabs = [
+    {
+      id: 'team',
+      label: 'Team Management',
+      icon: (
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
         </svg>
       )
     },
@@ -90,6 +107,20 @@ export function SettingsView({ uid }: SettingsViewProps) {
     }
   ];
 
+  const restrictedForTechnicians = new Set(['roles', 'jobTitles', 'skills', 'priorities', 'statuses']);
+  const tabs = [
+    ...(isAdmin ? [adminTabs[0]] : []), // team management
+    ...baseTabs,
+    ...(isAdmin ? adminTabs.slice(1) : []),
+  ].filter(tab => !(isTechnician && restrictedForTechnicians.has(tab.id)));
+
+  // If role changes or tab becomes restricted, ensure we land on an allowed tab
+  useEffect(() => {
+    if (isTechnician && restrictedForTechnicians.has(activeTab)) {
+      setActiveTab('clients');
+    }
+  }, [isTechnician, activeTab]);
+
   // Role legend (informational)
   const sampleRoles = [
     { name: 'Owner', color: 'purple' as const, note: 'Full control' },
@@ -125,6 +156,12 @@ export function SettingsView({ uid }: SettingsViewProps) {
   ];
 
   const renderContent = () => {
+    if (isTechnician && restrictedForTechnicians.has(activeTab)) {
+      return <ClientsView uid={uid} />;
+    }
+    if (activeTab === 'team' && isAdmin) {
+      return <TeamView uid={uid} />;
+    }
     if (activeTab === 'clients') {
       return <ClientsView uid={uid} />;
     }
@@ -307,9 +344,9 @@ export function SettingsView({ uid }: SettingsViewProps) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-white">App Customization</h1>
+          <h1 className="text-3xl font-bold text-white">{activeTab === 'team' ? 'Team Management' : 'App Customization'}</h1>
         </div>
-  <p className="text-gray-400">{"Configure roles, skills, priorities, and statuses to match your team's workflow."}</p>
+        <p className="text-gray-400">{activeTab === 'team' ? 'Manage your team members and their skills.' : "Configure roles, skills, priorities, and statuses to match your team's workflow."}</p>
       </div>
 
       {/* Tabs */}

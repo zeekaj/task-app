@@ -1,17 +1,22 @@
 // src/components/views/ProjectsView.tsx
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import Icon from '../Icon';
 import { Card } from '../ui/Card';
 import { StatusBadge, Badge } from '../ui/Badge';
 import { PillTabs } from '../ui/PillTabs';
-import { useProjects } from '../../hooks/useProjects';
 import { useTasks } from '../../hooks/useTasks';
 import { useAllBlockers } from '../../hooks/useBlockers';
 import { useClients } from '../../hooks/useClients';
 import { useVenues } from '../../hooks/useVenues';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
+import { useUserContext } from '../../hooks/useUserContext';
+import { useRoleBasedProjects } from '../../hooks/useRoleBasedProjects';
+import { canCreateProject } from '../../utils/permissions';
 import { computeProjectStatus, canManuallyChangeStatus } from '../../utils/projectStatus';
 import { Modal } from '../shared/Modal';
+import DateFilter from '../shared/DateFilter';
+import type { DateRange } from '../../utils/dateRanges';
 import { Autocomplete } from '../shared/Autocomplete';
 import { createProject, updateProject, archiveProject, deleteProject } from '../../services/projects';
 import { createClient } from '../../services/clients';
@@ -30,7 +35,24 @@ type ViewMode = 'cards' | 'list' | 'kanban';
 type ProjectWithStatus = WithId<Project> & { effectiveStatus: ProjectStatus };
 
 export function ProjectsView({ uid }: ProjectsViewProps) {
-  const projects = useProjects(uid);
+  // Get user context for role-based permissions
+  const { role } = useUserContext();
+  
+  // Toggle for admins to switch between "My Projects" and "All Projects"
+  const [viewingAllProjects, setViewingAllProjects] = useState(() => {
+    const saved = localStorage.getItem('viewingAllProjects');
+    return saved === 'true'; // Default to false (My Projects)
+  });
+  
+  // Save viewing preference
+  useEffect(() => {
+    localStorage.setItem('viewingAllProjects', String(viewingAllProjects));
+  }, [viewingAllProjects]);
+  
+  // Always show all projects on the Projects page regardless of viewer role
+  // (skip role-based filtering so every user sees all projects)
+  const projects = useRoleBasedProjects(uid, undefined, true);
+  
   const allTasks = useTasks(uid);
   const allBlockers = useAllBlockers(uid);
   const members = useTeamMembers(uid);
@@ -43,7 +65,24 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
     const saved = localStorage.getItem('projectsViewMode');
     return (saved as ViewMode) || 'cards';
   });
-  const [filterStatus, setFilterStatus] = useState<ProjectStatus | 'all'>('all');
+  const [filterStatus, setFilterStatus] = useState<Set<ProjectStatus | 'all'>>(() => {
+    try {
+      const saved = localStorage.getItem('projects_filterStatus');
+      if (!saved) return new Set(['all']);
+      return new Set(JSON.parse(saved));
+    } catch (err) {
+      return new Set(['all']);
+    }
+  });
+  const [dateRange, setDateRange] = useState<DateRange | null>(() => {
+    try {
+      const raw = localStorage.getItem('projects_dateRange');
+      if (!raw) return null;
+      return JSON.parse(raw) as DateRange;
+    } catch (err) {
+      return null;
+    }
+  });
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState<WithId<Project> | null>(null);
   const [title, setTitle] = useState('');
@@ -62,6 +101,11 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
   useEffect(() => {
     localStorage.setItem('projectsViewMode', viewMode);
   }, [viewMode]);
+
+  // Save filter status to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('projects_filterStatus', JSON.stringify([...filterStatus]));
+  }, [filterStatus]);
 
   useEffect(() => {
     if (projects) {
@@ -105,10 +149,45 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
     effectiveStatus: computeProjectStatus(p),
   })) || [];
 
-  // Filter projects - exclude completed by default unless explicitly filtering for completed
-  const filteredProjects = filterStatus === 'all' 
+  // Filter projects based on selected statuses
+  const baseFiltered = filterStatus.has('all')
     ? projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus !== 'completed')
-    : projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === filterStatus);
+    : projectsWithStatus.filter((p: ProjectWithStatus) => filterStatus.has(p.effectiveStatus));
+
+  const projectInRange = (p: ProjectWithStatus, range: DateRange) => {
+    if (!range) return true;
+    const toTs = (v: any) => {
+      if (!v) return null;
+      if (v.toDate) return v.toDate();
+      if (typeof v === 'string') return new Date(v);
+      if (v instanceof Date) return v;
+      return null;
+    };
+    const s = new Date(range.start + 'T00:00:00');
+    const e = new Date(range.end + 'T23:59:59');
+    const candidates = [p.prepDate, p.eventBeginDate, p.returnDate, p.shipDate, p.loadInDate];
+    for (const c of candidates) {
+      const d = toTs(c);
+      if (!d) continue;
+      if (d >= s && d <= e) return true;
+    }
+    return false;
+  };
+
+  const filteredProjects = dateRange ? baseFiltered.filter(p => projectInRange(p, dateRange)) : baseFiltered;
+
+  // persist dateRange selection
+  useEffect(() => {
+    try {
+      if (dateRange) {
+        localStorage.setItem('projects_dateRange', JSON.stringify(dateRange));
+      } else {
+        localStorage.removeItem('projects_dateRange');
+      }
+    } catch (err) {
+      // ignore storage errors
+    }
+  }, [dateRange]);
 
   // Helper function to get task counts for a project
   const getTaskCounts = (projectId: string) => {
@@ -147,9 +226,11 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
             </div>
             <h3 className="text-lg font-medium text-white mb-2">No projects yet</h3>
             <p className="text-gray-400 mb-6">Create your first project to get started</p>
-            <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200">
+              {canCreateProject(role || 'viewer') && (
+                <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200">
               Create Project
             </button>
+              )}
           </div>
         </Card>
 
@@ -208,6 +289,34 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold text-white">Projects</h2>
         <div className="flex items-center gap-4">
+            {/* My Projects / All Projects toggle for admins */}
+            {(role === 'owner' || role === 'admin') && (
+              <div className="flex items-center gap-2 bg-[rgba(20,20,30,0.6)] backdrop-blur-sm border border-white/10 rounded-lg p-1">
+                <button
+                  type="button"
+                  onClick={() => setViewingAllProjects(false)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                    !viewingAllProjects
+                      ? 'bg-brand-cyan text-white shadow-lg shadow-brand-cyan/30'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  My Projects
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingAllProjects(true)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                    viewingAllProjects
+                      ? 'bg-brand-cyan text-white shadow-lg shadow-brand-cyan/30'
+                      : 'text-gray-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  All Projects
+                </button>
+              </div>
+            )}
+          
           {/* View mode toggle */}
           <div className="flex items-center gap-2 bg-[rgba(20,20,30,0.6)] backdrop-blur-sm border border-white/10 rounded-lg p-1">
             <button
@@ -250,31 +359,98 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
               </svg>
             </button>
           </div>
-          <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200" title="Create new project">
-            + New Project
-          </button>
+          {canCreateProject(role || 'viewer') && (
+            <button onClick={() => setCreateOpen(true)} className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-500 text-white rounded-lg font-medium hover:from-cyan-600 hover:to-blue-600 transition-all duration-200" title="Create new project">
+              + New Project
+            </button>
+          )}
         </div>
       </div>
 
       {/* Filter tabs */}
-      <PillTabs
-        tabs={[
-          { id: 'all', label: 'All', count: projectsWithStatus.length },
-          { id: 'not_started', label: 'Not Started', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'not_started').length },
-          { id: 'planning', label: 'Planning', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'planning').length },
-          { id: 'executing', label: 'Executing', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'executing').length },
-          { id: 'blocked', label: 'Blocked', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'blocked').length },
-          { id: 'post_event', label: 'Sign-Off', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'post_event').length },
-          { id: 'completed', label: 'Completed', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'completed').length },
-        ]}
-        activeTab={filterStatus}
-        onChange={(tab: string) => setFilterStatus(tab as ProjectStatus | 'all')}
-      />
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          {[
+            { id: 'all', label: 'All', count: projectsWithStatus.length },
+            { id: 'not_started', label: 'Not Started', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'not_started').length },
+            { id: 'planning', label: 'Planning', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'planning').length },
+            { id: 'executing', label: 'Executing', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'executing').length },
+            { id: 'blocked', label: 'Blocked', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'blocked').length },
+            { id: 'post_event', label: 'Sign-Off', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'post_event').length },
+            { id: 'completed', label: 'Completed', count: projectsWithStatus.filter((p: ProjectWithStatus) => p.effectiveStatus === 'completed').length },
+          ].map(tab => {
+            const isActive = filterStatus.has(tab.id as ProjectStatus | 'all');
+            const isAll = tab.id === 'all';
+            
+            return (
+              <button
+                key={tab.id}
+                onClick={() => {
+                  const newSet = new Set(filterStatus);
+                  if (isAll) {
+                    // Clicking "All" clears other selections and sets only "all"
+                    setFilterStatus(new Set(['all']));
+                  } else {
+                    // Clicking a specific status
+                    if (isActive) {
+                      // Deselect this status
+                      newSet.delete(tab.id as ProjectStatus | 'all');
+                      // If nothing left selected, default to "all"
+                      if (newSet.size === 0) {
+                        newSet.add('all');
+                      }
+                    } else {
+                      // Select this status and remove "all"
+                      newSet.delete('all');
+                      newSet.add(tab.id as ProjectStatus | 'all');
+                    }
+                    setFilterStatus(newSet);
+                  }
+                }}
+                className={`
+                  inline-flex items-center gap-2
+                  px-4 py-1.5 text-sm
+                  rounded-full
+                  border
+                  font-medium
+                  transition-all duration-200
+                  ${isActive
+                    ? 'bg-gradient-to-r from-cyan-500 to-blue-500 text-white border-transparent shadow-[0_0_20px_rgba(0,217,255,0.4)]'
+                    : 'bg-transparent text-gray-400 border-gray-700 hover:border-gray-600 hover:text-gray-300'
+                  }
+                `}
+              >
+                <span>{tab.label}</span>
+                {tab.count !== undefined && (
+                  <span className={`
+                    px-1.5 py-0.5 
+                    rounded-full 
+                    text-xs 
+                    font-semibold
+                    ${isActive ? 'bg-white/20' : 'bg-gray-700'}
+                  `}>
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        <DateFilter value={dateRange} onChange={setDateRange} label="Date" />
+      </div>
+
+      {/* Filters row (reserved for additional filters) */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          {/* Additional filters (status, assignee, etc.) can be added here */}
+        </div>
+        <div />
+      </div>
 
       {/* Content based on view mode */}
-  {viewMode === 'cards' && <CardsView uid={uid} projects={filteredProjects} blockers={allBlockers as any[]} clientNameById={clientNameById} venueNameById={venueNameById} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} onBlock={(id: string, title: string) => setBlockerModalProject({ id, title })} onManageBlockers={(id: string, title: string) => setBlockerManagerProject({ id, title })} />}
-  {viewMode === 'list' && <ListView uid={uid} projects={filteredProjects} blockers={allBlockers as any[]} clientNameById={clientNameById} venueNameById={venueNameById} getTaskCounts={getTaskCounts} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} onBlock={(id: string, title: string) => setBlockerModalProject({ id, title })} onManageBlockers={(id: string, title: string) => setBlockerManagerProject({ id, title })} />}
-  {viewMode === 'kanban' && <KanbanView projects={projectsWithStatus} onProjectClick={setSelectedProject} />}
+  {viewMode === 'cards' && <CardsView uid={uid} projects={filteredProjects} blockers={allBlockers as any[]} clientNameById={clientNameById} venueNameById={venueNameById} teamMembers={members} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} onBlock={(id: string, title: string) => setBlockerModalProject({ id, title })} onManageBlockers={(id: string, title: string) => setBlockerManagerProject({ id, title })} />}
+  {viewMode === 'list' && <ListView uid={uid} projects={filteredProjects} blockers={allBlockers as any[]} clientNameById={clientNameById} venueNameById={venueNameById} teamMembers={members} getTaskCounts={getTaskCounts} onProjectClick={setSelectedProject} onDelete={handleDeleteRequest} onBlock={(id: string, title: string) => setBlockerModalProject({ id, title })} onManageBlockers={(id: string, title: string) => setBlockerManagerProject({ id, title })} />}
+  {viewMode === 'kanban' && <KanbanView projects={projectsWithStatus} teamMembers={members} onProjectClick={setSelectedProject} getTaskCounts={getTaskCounts} />}
 
       <CreateProjectModal
         uid={uid}
@@ -328,14 +504,18 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
       />
 
       {/* Project Detail Modal */}
-      {selectedProject && (
-        <ProjectDetailView
-          uid={uid}
-          project={selectedProject}
-          onClose={() => setSelectedProject(null)}
-          onDeleted={() => setSelectedProject(null)}
-        />
-      )}
+      {selectedProject && (() => {
+        // Always use the latest project data from the projects array
+        const latestProject = projects.find(p => p.id === selectedProject.id) || selectedProject;
+        return (
+          <ProjectDetailView
+            uid={uid}
+            project={latestProject}
+            onClose={() => setSelectedProject(null)}
+            onDeleted={() => setSelectedProject(null)}
+          />
+        );
+      })()}
 
       {/* Blocker Modal for projects when setting status to Blocked */}
       {blockerModalProject && (
@@ -350,7 +530,8 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
       {blockerManagerProject && (
         <BlockerManagerModal
           uid={uid}
-          entity={{ id: blockerManagerProject.id, title: blockerManagerProject.title, type: 'project' }}
+          entity={{ id: blockerManagerProject.id, title: blockerManagerProject.title, type: 'project', showAll: true }}
+          allTasks={allTasks ? allTasks.filter(t => t.projectId === blockerManagerProject.id) : []}
           onClose={() => setBlockerManagerProject(null)}
         />
       )}
@@ -393,12 +574,13 @@ export function ProjectsView({ uid }: ProjectsViewProps) {
 }
 
 // Cards View
-function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onProjectClick, onDelete, onBlock, onManageBlockers }: { 
+function CardsView({ uid, projects, blockers, clientNameById, venueNameById, teamMembers, onProjectClick, onDelete, onBlock, onManageBlockers }: { 
   uid: string;
   projects: any[];
   blockers: WithId<Blocker>[];
   clientNameById: Record<string, string>;
   venueNameById: Record<string, string>;
+  teamMembers?: WithId<import('../../types').TeamMember>[] | null;
   onProjectClick: (project: any) => void;
   onDelete: (projectId: string, title: string) => void;
   onBlock: (projectId: string, projectTitle: string) => void;
@@ -407,6 +589,7 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
   const toast = useToast();
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
   const [statusMenuOpen, setStatusMenuOpen] = useState<string | null>(null);
+  const [statusMenuPos, setStatusMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [tooltipState, setTooltipState] = useState<{ visible: boolean; projectId: string | null; x: number; y: number; blockerInfo: any }>({ 
     visible: false, 
     projectId: null, 
@@ -476,7 +659,14 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
                       if (!canManuallyChangeStatus(project)) {
                         return;
                       }
-                      setStatusMenuOpen(statusMenuOpen === project.id ? null : project.id);
+                      if (statusMenuOpen === project.id) {
+                        setStatusMenuOpen(null);
+                        setStatusMenuPos(null);
+                      } else {
+                        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                        setStatusMenuOpen(project.id);
+                        setStatusMenuPos({ x: rect.left, y: rect.bottom + 6 });
+                      }
                     }}
                     className={`transition-opacity ${canManuallyChangeStatus(project) && project.effectiveStatus !== 'blocked' ? 'hover:opacity-80 cursor-pointer' : 'cursor-default'}`}
                   >
@@ -527,56 +717,74 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
                       <StatusBadge status={project.effectiveStatus} size="sm" />
                     )}
                   </button>
-                  {statusMenuOpen === project.id && project.effectiveStatus !== 'blocked' && canManuallyChangeStatus(project) && (
-                    <div className="absolute left-0 mt-1 w-auto bg-[rgba(20,20,30,0.95)] backdrop-blur-sm border border-white/10 rounded-lg shadow-lg z-20">
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            await updateProject(uid, project.id, { status: 'not_started' });
-                            toast.success('Status updated to Not Started');
+                  {statusMenuOpen && statusMenuPos && (() => {
+                    const p = projects.find(pj => pj.id === statusMenuOpen);
+                    if (!p || p.effectiveStatus === 'post_event' || p.effectiveStatus === 'blocked' || !canManuallyChangeStatus(p)) return null;
+                    return createPortal(
+                      <div
+                        style={{
+                          position: 'fixed',
+                          left: `${statusMenuPos.x}px`,
+                          top: `${statusMenuPos.y}px`,
+                          zIndex: 99999,
+                          minWidth: 160
+                        }}
+                        className="bg-[rgba(20,20,30,0.95)] backdrop-blur-sm border border-white/10 rounded-lg shadow-lg py-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              await updateProject(uid, p.id, { status: 'not_started' });
+                              toast.success('Status updated to Not Started');
+                              setStatusMenuOpen(null);
+                              setStatusMenuPos(null);
+                            } catch (err) {
+                              toast.error('Failed to update status');
+                            }
+                          }}
+                          className={`block px-2 py-1 text-sm hover:bg-white/10 first:rounded-t-md last:rounded-b-md ${
+                            p.effectiveStatus === 'not_started' ? 'bg-white/5' : ''
+                          }`}
+                        >
+                          <StatusBadge status="not_started" size="sm" />
+                        </button>
+                        <button
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            try {
+                              await updateProject(uid, p.id, { status: 'planning' });
+                              toast.success('Status updated to Planning');
+                              setStatusMenuOpen(null);
+                              setStatusMenuPos(null);
+                            } catch (err) {
+                              toast.error('Failed to update status');
+                            }
+                          }}
+                          className={`block px-2 py-1 text-sm hover:bg-white/10 ${
+                            p.effectiveStatus === 'planning' ? 'bg-white/5' : ''
+                          }`}
+                        >
+                          <StatusBadge status="planning" size="sm" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onBlock(p.id, p.title);
                             setStatusMenuOpen(null);
-                          } catch (err) {
-                            toast.error('Failed to update status');
-                          }
-                        }}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-t-lg whitespace-nowrap ${
-                          project.effectiveStatus === 'not_started' ? 'bg-white/5' : ''
-                        }`}
-                      >
-                        <StatusBadge status="not_started" size="sm" />
-                      </button>
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            await updateProject(uid, project.id, { status: 'planning' });
-                            toast.success('Status updated to Planning');
-                            setStatusMenuOpen(null);
-                          } catch (err) {
-                            toast.error('Failed to update status');
-                          }
-                        }}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 whitespace-nowrap ${
-                          project.effectiveStatus === 'planning' ? 'bg-white/5' : ''
-                        }`}
-                      >
-                        <StatusBadge status="planning" size="sm" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onBlock(project.id, project.title);
-                          setStatusMenuOpen(null);
-                        }}
-                        className={`w-full text-left px-4 py-2 text-sm hover:bg-white/10 rounded-b-lg whitespace-nowrap ${
-                          project.effectiveStatus === 'blocked' ? 'bg-white/5' : ''
-                        }`}
-                      >
-                        <StatusBadge status="blocked" size="sm" />
-                      </button>
-                    </div>
-                  )}
+                            setStatusMenuPos(null);
+                          }}
+                          className={`block px-2 py-1 text-sm hover:bg-white/10 ${
+                            p.effectiveStatus === 'blocked' ? 'bg-white/5' : ''
+                          }`}
+                        >
+                          <StatusBadge status="blocked" size="sm" />
+                        </button>
+                      </div>,
+                      document.body
+                    );
+                  })()}
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
@@ -626,25 +834,43 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
 
             {/* Line 3: PM + Team Avatars */}
             <div className="flex items-center gap-2">
-              {project.projectManager && (
-                <div className="flex items-center gap-1.5">
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                  </svg>
-                  <span className="text-xs text-cyan-400 truncate max-w-[140px]">{project.projectManager}</span>
-                </div>
-              )}
+              {(() => {
+                const resolveName = (ref: any) => {
+                  if (!ref) return null;
+                  if (typeof ref === 'object' && ref !== null) return (ref.name || null);
+                  const asStr = String(ref);
+                  const member = teamMembers?.find(m => m.id === asStr || m.userId === asStr || m.name === asStr);
+                  if (member?.name) return member.name;
+                  if (asStr.includes(' ')) return asStr; // likely a plain name
+                  return null;
+                };
+                const pmDisplay = resolveName(project.projectManager);
+                return pmDisplay ? (
+                  <div className="flex items-center gap-1.5">
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <span className="text-xs text-cyan-400 truncate max-w-[140px]">{pmDisplay}</span>
+                  </div>
+                ) : null;
+              })()}
               {project.assignees && project.assignees.length > 0 && (
                 <div className="flex -space-x-1.5">
-                  {project.assignees.slice(0, 4).map((memberName: string, idx: number) => (
-                    <div
-                      key={idx}
-                      className="w-5 h-5 text-[9px] rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white font-medium"
-                      title={memberName}
-                    >
-                      {memberName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                    </div>
-                  ))}
+                  {project.assignees.slice(0, 4).map((memberRef: any, idx: number) => {
+                    const asStr = String(memberRef || '');
+                    const member = teamMembers?.find(m => m.id === asStr || m.userId === asStr || m.name === asStr);
+                    const displayName = (typeof memberRef === 'object' && memberRef?.name) ? memberRef.name : (member?.name || (asStr.includes(' ') ? asStr : null));
+                    const initials = displayName ? displayName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) : '--';
+                    return (
+                      <div
+                        key={idx}
+                        className="w-5 h-5 text-[9px] rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white font-medium"
+                        title={displayName || asStr}
+                      >
+                        {initials}
+                      </div>
+                    );
+                  })}
                   {project.assignees.length > 4 && (
                     <div className="w-5 h-5 text-[9px] rounded-full bg-gray-700 border-2 border-gray-900 flex items-center justify-center text-white font-medium">
                       +{project.assignees.length - 4}
@@ -661,7 +887,7 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  <span>Prep: {formatDateOnly(project.prepDate)}</span>
+                  <span>Prep: {formatDateMMDDYY(project.prepDate)}</span>
                 </div>
               )}
               {project.returnDate && (
@@ -669,7 +895,7 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                   </svg>
-                  <span>Return: {formatDateOnly(project.returnDate)}</span>
+                  <span>Return: {formatDateMMDDYY(project.returnDate)}</span>
                 </div>
               )}
             </div>
@@ -741,12 +967,13 @@ function CardsView({ uid, projects, blockers, clientNameById, venueNameById, onP
 
 // List View
 // List View
-function ListView({ uid, projects, blockers, clientNameById, venueNameById, getTaskCounts, onProjectClick, onDelete, onBlock, onManageBlockers }: {
+function ListView({ uid, projects, blockers, clientNameById, venueNameById, teamMembers, getTaskCounts, onProjectClick, onDelete, onBlock, onManageBlockers }: {
   uid: string;
   projects: any[];
   blockers: WithId<Blocker>[];
   clientNameById: Record<string, string>;
   venueNameById: Record<string, string>;
+  teamMembers?: WithId<import('../../types').TeamMember>[] | null;
   getTaskCounts: (projectId: string) => { total: number; completed: number };
   onProjectClick: (project: any) => void;
   onDelete: (projectId: string, title: string) => void;
@@ -764,6 +991,113 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, getT
     y: 0, 
     blockerInfo: null 
   });
+
+  // Sorting state for table columns (persisted in localStorage)
+  const initialSortKey = typeof window !== 'undefined' ? localStorage.getItem('projects_list_sortKey') || 'title' : 'title';
+  const initialSortDir = typeof window !== 'undefined' ? (localStorage.getItem('projects_list_sortDir') as 'asc' | 'desc') || 'asc' : 'asc';
+  const [sortKey, setSortKey] = useState<string>(initialSortKey);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialSortDir);
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  // persist sort choices
+  useEffect(() => {
+    try {
+      localStorage.setItem('projects_list_sortKey', sortKey);
+      localStorage.setItem('projects_list_sortDir', sortDir);
+    } catch (err) {
+      // ignore
+    }
+  }, [sortKey, sortDir]);
+
+  // Accessibility: announce sort changes to screen readers
+  const [sortMessage, setSortMessage] = useState('');
+  const prettyKey: Record<string, string> = {
+    title: 'Project',
+    status: 'Status',
+    tasks: 'Tasks',
+    r2: 'R2 number',
+    prep: 'Ship date',
+    return: 'Return date',
+    client: 'Client',
+    venue: 'Venue',
+    pm: 'PM',
+    team: 'Team size'
+  };
+
+  useEffect(() => {
+    const human = prettyKey[sortKey] || sortKey;
+    setSortMessage(`Sorted by ${human} ${sortDir === 'asc' ? 'ascending' : 'descending'}`);
+  }, [sortKey, sortDir]);
+
+  const compareStrings = (a: any, b: any) => {
+    const aa = (a || '').toString().toLowerCase();
+    const bb = (b || '').toString().toLowerCase();
+    if (aa < bb) return -1;
+    if (aa > bb) return 1;
+    return 0;
+  };
+
+  const sortedProjects = (() => {
+    if (!projects) return [] as any[];
+    const arr = [...projects];
+    arr.sort((a: any, b: any) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'title':
+          cmp = compareStrings(a.title, b.title);
+          break;
+        case 'status':
+          cmp = compareStrings(a.effectiveStatus, b.effectiveStatus);
+          break;
+        case 'tasks': {
+          const aCounts = getTaskCounts(a.id);
+          const bCounts = getTaskCounts(b.id);
+          cmp = (aCounts.total || 0) - (bCounts.total || 0);
+          break;
+        }
+        case 'r2':
+          cmp = compareStrings(a.r2Number || '', b.r2Number || '');
+          break;
+        case 'prep': {
+          const aDate = a.prepDate && typeof a.prepDate === 'object' && 'toDate' in a.prepDate ? a.prepDate.toDate().getTime() : (a.prepDate ? new Date(a.prepDate).getTime() : 0);
+          const bDate = b.prepDate && typeof b.prepDate === 'object' && 'toDate' in b.prepDate ? b.prepDate.toDate().getTime() : (b.prepDate ? new Date(b.prepDate).getTime() : 0);
+          cmp = aDate - bDate;
+          break;
+        }
+        case 'return': {
+          const aDate = a.returnDate && typeof a.returnDate === 'object' && 'toDate' in a.returnDate ? a.returnDate.toDate().getTime() : (a.returnDate ? new Date(a.returnDate).getTime() : 0);
+          const bDate = b.returnDate && typeof b.returnDate === 'object' && 'toDate' in b.returnDate ? b.returnDate.toDate().getTime() : (b.returnDate ? new Date(b.returnDate).getTime() : 0);
+          cmp = aDate - bDate;
+          break;
+        }
+        case 'client':
+          cmp = compareStrings(clientNameById[a.clientId] || '', clientNameById[b.clientId] || '');
+          break;
+        case 'venue':
+          cmp = compareStrings(venueNameById[a.venueId] || '', venueNameById[b.venueId] || '');
+          break;
+        case 'pm':
+          cmp = compareStrings(a.projectManager || '', b.projectManager || '');
+          break;
+        case 'team':
+          cmp = ((a.assignees || []).length || 0) - ((b.assignees || []).length || 0);
+          break;
+        default:
+          cmp = 0;
+      }
+
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+    return arr;
+  })();
 
   const handleArchive = async (projectId: string, title: string) => {
     try {
@@ -801,24 +1135,95 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, getT
 
   return (
     <Card className="overflow-x-auto">
+      <div className="sr-only" aria-live="polite">{sortMessage}</div>
       <table className="w-full min-w-[980px]">
         <thead>
-          <tr className="border-b border-white/5">
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Project</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Status</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Tasks</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">R2#</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Ship</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Return</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Client</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Venue</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">PM</th>
-            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">Team</th>
+            <tr className="border-b border-white/5">
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+              <button onClick={() => toggleSort('title')} className="flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label={`Sort by Project ${sortKey === 'title' ? (sortDir === 'asc' ? 'ascending' : 'descending') : ''}`}>
+                <span>Project</span>
+                {sortKey === 'title' && (
+                  <Icon path={sortDir === 'asc' ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} className="w-3 h-3 text-gray-400" />
+                )}
+              </button>
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+              <button onClick={() => toggleSort('status')} className="flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label={`Sort by Status ${sortKey === 'status' ? (sortDir === 'asc' ? 'ascending' : 'descending') : ''}`}>
+                <span>Status</span>
+                {sortKey === 'status' && (
+                  <Icon path={sortDir === 'asc' ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} className="w-3 h-3 text-gray-400" />
+                )}
+              </button>
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+              <button onClick={() => toggleSort('tasks')} className="flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label={`Sort by Tasks ${sortKey === 'tasks' ? (sortDir === 'asc' ? 'ascending' : 'descending') : ''}`}>
+                <span>Tasks</span>
+                {sortKey === 'tasks' && (
+                  <Icon path={sortDir === 'asc' ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} className="w-3 h-3 text-gray-400" />
+                )}
+              </button>
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+              <button onClick={() => toggleSort('r2')} className="flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label={`Sort by R2 ${sortKey === 'r2' ? (sortDir === 'asc' ? 'ascending' : 'descending') : ''}`}>
+                <span>R2#</span>
+                {sortKey === 'r2' && (
+                  <Icon path={sortDir === 'asc' ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} className="w-3 h-3 text-gray-400" />
+                )}
+              </button>
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+              <button onClick={() => toggleSort('prep')} className="flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label={`Sort by Prep ${sortKey === 'prep' ? (sortDir === 'asc' ? 'ascending' : 'descending') : ''}`}>
+                <span>Ship</span>
+                {sortKey === 'prep' && (
+                  <Icon path={sortDir === 'asc' ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} className="w-3 h-3 text-gray-400" />
+                )}
+              </button>
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+              <button onClick={() => toggleSort('return')} className="flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label={`Sort by Return ${sortKey === 'return' ? (sortDir === 'asc' ? 'ascending' : 'descending') : ''}`}>
+                <span>Return</span>
+                {sortKey === 'return' && (
+                  <Icon path={sortDir === 'asc' ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} className="w-3 h-3 text-gray-400" />
+                )}
+              </button>
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+              <button onClick={() => toggleSort('client')} className="flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label={`Sort by Client ${sortKey === 'client' ? (sortDir === 'asc' ? 'ascending' : 'descending') : ''}`}>
+                <span>Client</span>
+                {sortKey === 'client' && (
+                  <Icon path={sortDir === 'asc' ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} className="w-3 h-3 text-gray-400" />
+                )}
+              </button>
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+              <button onClick={() => toggleSort('venue')} className="flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label={`Sort by Venue ${sortKey === 'venue' ? (sortDir === 'asc' ? 'ascending' : 'descending') : ''}`}>
+                <span>Venue</span>
+                {sortKey === 'venue' && (
+                  <Icon path={sortDir === 'asc' ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} className="w-3 h-3 text-gray-400" />
+                )}
+              </button>
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+              <button onClick={() => toggleSort('pm')} className="flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label={`Sort by PM ${sortKey === 'pm' ? (sortDir === 'asc' ? 'ascending' : 'descending') : ''}`}>
+                <span>PM</span>
+                {sortKey === 'pm' && (
+                  <Icon path={sortDir === 'asc' ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} className="w-3 h-3 text-gray-400" />
+                )}
+              </button>
+            </th>
+            <th className="text-left py-3 px-4 text-sm font-medium text-gray-400">
+              <button onClick={() => toggleSort('team')} className="flex items-center gap-2 focus:outline-none focus:ring-2 focus:ring-cyan-500 rounded" aria-label={`Sort by Team size ${sortKey === 'team' ? (sortDir === 'asc' ? 'ascending' : 'descending') : ''}`}>
+                <span>Team</span>
+                {sortKey === 'team' && (
+                  <Icon path={sortDir === 'asc' ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} className="w-3 h-3 text-gray-400" />
+                )}
+              </button>
+            </th>
             <th className="w-12"></th>
           </tr>
         </thead>
         <tbody>
-          {projects.map(project => (
+          {sortedProjects.map(project => (
             <tr 
               key={project.id} 
               className="border-b border-white/5 hover:bg-white/5 transition-colors cursor-pointer"
@@ -922,10 +1327,10 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, getT
                 {project.r2Number ? project.r2Number : <span className="text-gray-500">—</span>}
               </td>
               <td className="py-3 px-4 text-sm text-gray-300">
-                {project.prepDate ? formatDateOnly(project.prepDate) : <span className="text-gray-500">—</span>}
+                {project.prepDate ? formatDateMMDDYY(project.prepDate) : <span className="text-gray-500">—</span>}
               </td>
               <td className="py-3 px-4 text-sm text-gray-300">
-                {project.returnDate ? formatDateOnly(project.returnDate) : <span className="text-gray-500">—</span>}
+                {project.returnDate ? formatDateMMDDYY(project.returnDate) : <span className="text-gray-500">—</span>}
               </td>
               <td className="py-3 px-4 text-sm text-gray-400">
                 {project.clientId ? (clientNameById[project.clientId] || '—') : '—'}
@@ -934,20 +1339,38 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, getT
                 {project.venueId ? (venueNameById[project.venueId] || '—') : '—'}
               </td>
               <td className="py-3 px-4 text-sm text-cyan-400">
-                {project.projectManager ? project.projectManager : <span className="text-gray-500">—</span>}
+                {(() => {
+                  const resolveName = (ref: any) => {
+                    if (!ref) return null;
+                    if (typeof ref === 'object' && ref !== null) return (ref.name || null);
+                    const asStr = String(ref);
+                    const member = teamMembers?.find(m => m.id === asStr || m.userId === asStr || m.name === asStr);
+                    if (member?.name) return member.name;
+                    if (asStr.includes(' ')) return asStr;
+                    return null;
+                  };
+                  const pm = resolveName(project.projectManager);
+                  return pm ? pm : <span className="text-gray-500">—</span>;
+                })()}
               </td>
               <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
                 {project.assignees && project.assignees.length > 0 ? (
                   <div className="flex -space-x-2">
-                    {project.assignees.slice(0, 4).map((memberName: string, idx: number) => (
-                      <div
-                        key={idx}
-                        className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium"
-                        title={memberName}
-                      >
-                        {memberName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                      </div>
-                    ))}
+                    {project.assignees.slice(0, 4).map((memberRef: any, idx: number) => {
+                      const asStr = String(memberRef || '');
+                      const member = teamMembers?.find(m => m.id === asStr || m.userId === asStr || m.name === asStr);
+                      const displayName = (typeof memberRef === 'object' && memberRef?.name) ? memberRef.name : (member?.name || (asStr.includes(' ') ? asStr : null));
+                      const initials = displayName ? displayName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) : '--';
+                      return (
+                        <div
+                          key={idx}
+                          className="w-7 h-7 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium"
+                          title={displayName || asStr}
+                        >
+                          {initials}
+                        </div>
+                      );
+                    })}
                     {project.assignees.length > 4 && (
                       <div className="w-7 h-7 rounded-full bg-gray-700 border-2 border-gray-900 flex items-center justify-center text-white text-[10px] font-medium">
                         +{project.assignees.length - 4}
@@ -1114,9 +1537,11 @@ function ListView({ uid, projects, blockers, clientNameById, venueNameById, getT
 }
 
 // Kanban View
-function KanbanView({ projects, onProjectClick }: { 
+function KanbanView({ projects, teamMembers, onProjectClick, getTaskCounts }: { 
   projects: any[]; 
+  teamMembers?: WithId<import('../../types').TeamMember>[] | null;
   onProjectClick: (project: any) => void;
+  getTaskCounts?: (projectId: string) => { total: number; completed: number };
 }) {
   const columns: { id: ProjectStatus; label: string; color: string }[] = [
     { id: 'not_started', label: 'Not Started', color: 'from-gray-500/20 to-gray-600/20' },
@@ -1126,79 +1551,209 @@ function KanbanView({ projects, onProjectClick }: {
     { id: 'post_event', label: 'Sign-Off', color: 'from-orange-500/20 to-orange-600/20' },
     { id: 'completed', label: 'Completed', color: 'from-green-500/20 to-green-600/20' },
   ];
+  // Kanban sorting state (persisted) - sorts cards within each column
+  const initialSortKey = typeof window !== 'undefined' ? localStorage.getItem('projects_kanban_sortKey') || 'title' : 'title';
+  const initialSortDir = typeof window !== 'undefined' ? (localStorage.getItem('projects_kanban_sortDir') as 'asc' | 'desc') || 'asc' : 'asc';
+  const [sortKey, setSortKey] = useState<string>(initialSortKey);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialSortDir);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('projects_kanban_sortKey', sortKey);
+      localStorage.setItem('projects_kanban_sortDir', sortDir);
+    } catch (err) {
+      // ignore
+    }
+  }, [sortKey, sortDir]);
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) {
+      setSortDir(prev => prev === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const compareStrings = (a: any, b: any) => {
+    const aa = (a || '').toString().toLowerCase();
+    const bb = (b || '').toString().toLowerCase();
+    if (aa < bb) return -1;
+    if (aa > bb) return 1;
+    return 0;
+  };
+
+  const comparator = (a: any, b: any) => {
+    let cmp = 0;
+    switch (sortKey) {
+      case 'title':
+        cmp = compareStrings(a.title, b.title);
+        break;
+      case 'r2':
+        cmp = compareStrings(a.r2Number || '', b.r2Number || '');
+        break;
+      case 'prep': {
+        const aDate = a.prepDate && typeof a.prepDate === 'object' && 'toDate' in a.prepDate ? a.prepDate.toDate().getTime() : (a.prepDate ? new Date(a.prepDate).getTime() : 0);
+        const bDate = b.prepDate && typeof b.prepDate === 'object' && 'toDate' in b.prepDate ? b.prepDate.toDate().getTime() : (b.prepDate ? new Date(b.prepDate).getTime() : 0);
+        cmp = aDate - bDate;
+        break;
+      }
+      case 'return': {
+        const aDate = a.returnDate && typeof a.returnDate === 'object' && 'toDate' in a.returnDate ? a.returnDate.toDate().getTime() : (a.returnDate ? new Date(a.returnDate).getTime() : 0);
+        const bDate = b.returnDate && typeof b.returnDate === 'object' && 'toDate' in b.returnDate ? b.returnDate.toDate().getTime() : (b.returnDate ? new Date(b.returnDate).getTime() : 0);
+        cmp = aDate - bDate;
+        break;
+      }
+      case 'client':
+        cmp = compareStrings((a.clientId || '') as any, (b.clientId || '') as any);
+        break;
+      case 'venue':
+        cmp = compareStrings((a.venueId || '') as any, (b.venueId || '') as any);
+        break;
+      case 'pm':
+        cmp = compareStrings(a.projectManager || '', b.projectManager || '');
+        break;
+      case 'team':
+        cmp = ((a.assignees || []).length || 0) - ((b.assignees || []).length || 0);
+        break;
+      case 'tasks': {
+        const aCounts = getTaskCounts ? getTaskCounts(a.id) : { total: 0, completed: 0 };
+        const bCounts = getTaskCounts ? getTaskCounts(b.id) : { total: 0, completed: 0 };
+        cmp = (aCounts.total || 0) - (bCounts.total || 0);
+        break;
+      }
+      default:
+        cmp = 0;
+    }
+    return sortDir === 'asc' ? cmp : -cmp;
+  };
+
+  const prettyKey: Record<string, string> = {
+    title: 'Project',
+    r2: 'R2 number',
+    prep: 'Prep date',
+    return: 'Return date',
+    client: 'Client',
+    venue: 'Venue',
+    pm: 'PM',
+    team: 'Team size',
+    tasks: 'Tasks'
+  };
 
   return (
-    <div className="flex gap-3 overflow-x-auto pb-4 min-h-[calc(100vh-300px)]">
-      {columns.map(column => {
-        const columnProjects = projects.filter(p => p.effectiveStatus === column.id);
-        
-        return (
-          <div key={column.id} className="flex-shrink-0 w-[240px]">
-            <div className={`bg-gradient-to-r ${column.color} backdrop-blur-sm border border-white/10 rounded-lg p-2 mb-2`}>
-              <h3 className="font-semibold text-white text-sm flex items-center justify-between">
-                <span>{column.label}</span>
-                <span className="text-xs bg-white/10 px-1.5 py-0.5 rounded">{columnProjects.length}</span>
-              </h3>
-            </div>
-            <div className="space-y-2">
-              {columnProjects.map(project => (
-                <Card 
-                  key={project.id} 
-                  hover 
-                  className="p-2 space-y-1.5 cursor-pointer relative"
-                  onClick={() => onProjectClick(project)}
-                >
-                  {/* Submitted badge (top-right) - hide for completed projects */}
-                  {project.postEventReport?.status === 'submitted' && project.effectiveStatus !== 'completed' && (
-                    <span className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                      </svg>
-                      Submitted
-                    </span>
-                  )}
-                  <div className="flex items-center justify-between gap-2">
-                    <h4 className="font-medium text-white text-xs line-clamp-1 flex-1">
-                      {project.title}
-                    </h4>
-                    {project.r2Number && (
-                      <span className="font-medium text-white text-xs flex-shrink-0">{project.r2Number}</span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-gray-400">
-                    {project.returnDate ? <span>Ret: {formatDateOnly(project.returnDate)}</span> : (project.prepDate ? <span>Prep: {formatDateOnly(project.prepDate)}</span> : <span>—</span>)}
-                  </div>
-                  {project.projectManager && (
-                    <div className="text-[10px] text-cyan-400 truncate">
-                      PM: {project.projectManager}
-                    </div>
-                  )}
-                  {project.assignees && project.assignees.length > 0 && (
-                    <div className="flex items-center gap-1">
-                      <div className="flex -space-x-1.5">
-                        {project.assignees.slice(0, 3).map((memberName: string, idx: number) => (
-                          <div
-                            key={idx}
-                            className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white text-[9px] font-medium"
-                            title={memberName}
-                          >
-                            {memberName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
-                          </div>
-                        ))}
-                        {project.assignees.length > 3 && (
-                          <div className="w-5 h-5 rounded-full bg-gray-700 border-2 border-gray-900 flex items-center justify-center text-white text-[9px] font-medium">
-                            +{project.assignees.length - 3}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </Card>
-              ))}
-            </div>
+    <div>
+      <div className="flex items-center justify-between mb-3">
+        <div className="text-sm text-gray-400">Kanban</div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-gray-400">Sort:</label>
+          <div className="relative">
+            <select value={sortKey} onChange={(e) => toggleSort(e.target.value)} className="text-sm bg-white/5 border border-white/10 rounded px-2 py-1 text-white">
+              <option value="title">Project</option>
+              <option value="r2">R2#</option>
+              <option value="prep">Prep date</option>
+              <option value="return">Return date</option>
+              <option value="client">Client</option>
+              <option value="venue">Venue</option>
+              <option value="pm">PM</option>
+              <option value="team">Team size</option>
+              <option value="tasks">Tasks</option>
+            </select>
           </div>
-        );
-      })}
+          <button onClick={() => setSortDir(prev => prev === 'asc' ? 'desc' : 'asc')} className="p-1 bg-white/5 rounded" title={`Toggle sort ${sortDir === 'asc' ? 'ascending' : 'descending'}`}>
+            <Icon path={sortDir === 'asc' ? 'M6 15l6-6 6 6' : 'M6 9l6 6 6-6'} className="w-4 h-4 text-gray-300" />
+          </button>
+          <div className="sr-only" aria-live="polite">Sorted by {prettyKey[sortKey] || sortKey} {sortDir === 'asc' ? 'ascending' : 'descending'}</div>
+        </div>
+      </div>
+
+      <div className="flex gap-3 overflow-x-auto pb-4 min-h-[calc(100vh-300px)]">
+        {columns.map(column => {
+          const columnProjects = projects.filter(p => p.effectiveStatus === column.id).sort(comparator);
+          
+          return (
+            <div key={column.id} className="flex-shrink-0 w-[240px]">
+              <div className={`bg-gradient-to-r ${column.color} backdrop-blur-sm border border-white/10 rounded-lg p-2 mb-2`}>
+                <h3 className="font-semibold text-white text-sm flex items-center justify-between">
+                  <span>{column.label}</span>
+                  <span className="text-xs bg-white/10 px-1.5 py-0.5 rounded">{columnProjects.length}</span>
+                </h3>
+              </div>
+              <div className="space-y-2">
+                {columnProjects.map(project => (
+                  <Card 
+                    key={project.id} 
+                    hover 
+                    className="p-2 space-y-1.5 cursor-pointer relative"
+                    onClick={() => onProjectClick(project)}
+                  >
+                    {/* Submitted badge (top-right) - hide for completed projects */}
+                    {project.postEventReport?.status === 'submitted' && project.effectiveStatus !== 'completed' && (
+                      <span className="absolute top-1.5 right-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                        Submitted
+                      </span>
+                    )}
+                    <div className="flex items-center justify-between gap-2">
+                      <h4 className="font-medium text-white text-xs line-clamp-1 flex-1">
+                        {project.title}
+                      </h4>
+                      {project.r2Number && (
+                        <span className="font-medium text-white text-xs flex-shrink-0">{project.r2Number}</span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-gray-400">
+                        {project.returnDate ? <span>Ret: {formatDateMMDDYY(project.returnDate)}</span> : (project.prepDate ? <span>Prep: {formatDateMMDDYY(project.prepDate)}</span> : <span>—</span>)}
+                    </div>
+                    {(() => {
+                      const resolveName = (ref: any) => {
+                        if (!ref) return null;
+                        if (typeof ref === 'object' && ref !== null) return (ref.name || null);
+                        const asStr = String(ref);
+                        const member = teamMembers?.find(m => m.id === asStr || m.userId === asStr || m.name === asStr);
+                        if (member?.name) return member.name;
+                        if (asStr.includes(' ')) return asStr;
+                        return null;
+                      };
+                      const pm = resolveName(project.projectManager);
+                      return pm ? (
+                        <div className="text-[10px] text-cyan-400 truncate">PM: {pm}</div>
+                      ) : null;
+                    })()}
+                    {project.assignees && project.assignees.length > 0 && (
+                      <div className="flex items-center gap-1">
+                        <div className="flex -space-x-1.5">
+                          {project.assignees.slice(0, 3).map((memberRef: any, idx: number) => {
+                            const asStr = String(memberRef || '');
+                            const member = teamMembers?.find(m => m.id === asStr || m.userId === asStr || m.name === asStr);
+                            const displayName = (typeof memberRef === 'object' && memberRef?.name) ? memberRef.name : (member?.name || (asStr.includes(' ') ? asStr : null));
+                            const initials = displayName ? displayName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2) : '--';
+                            return (
+                              <div
+                                key={idx}
+                                className="w-5 h-5 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 border-2 border-gray-900 flex items-center justify-center text-white text-[9px] font-medium"
+                                title={displayName || asStr}
+                              >
+                                {initials}
+                              </div>
+                            );
+                          })}
+                          {project.assignees.length > 3 && (
+                            <div className="w-5 h-5 rounded-full bg-gray-700 border-2 border-gray-900 flex items-center justify-center text-white text-[9px] font-medium">
+                              +{project.assignees.length - 3}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </Card>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1222,6 +1777,26 @@ function formatDateOnly(date: any): string {
     day: 'numeric',
     year: 'numeric',
   });
+}
+
+// Card view specific formatter: MM/DD/YY (two-digit year)
+function formatDateMMDDYY(date: any): string {
+  if (!date) return '—';
+  let d: Date;
+  if (date.toDate) {
+    d = date.toDate();
+  } else if (typeof date === 'string') {
+    d = new Date(date);
+  } else if (date instanceof Date) {
+    d = date;
+  } else {
+    return '—';
+  }
+  if (Number.isNaN(d.getTime())) return '—';
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${mm}/${dd}/${yy}`;
 }
 
 function getStatusColor(status: ProjectStatus): string {
@@ -1301,12 +1876,57 @@ function CreateProjectModal({
   const [showVenueModal, setShowVenueModal] = useState(false);
   const [clientFormData, setClientFormData] = useState({ name: '', contactName: '', email: '', phone: '' });
   const [venueFormData, setVenueFormData] = useState({ name: '', address: '', city: '', state: '', zip: '', capacity: '' });
+  
+  // Refs for auto-focusing next empty field
+  const clientNameInputRef = useRef<HTMLInputElement>(null);
+  const clientContactNameInputRef = useRef<HTMLInputElement>(null);
+  const venueNameInputRef = useRef<HTMLInputElement>(null);
+  const venueAddressInputRef = useRef<HTMLInputElement>(null);
+
+  // Phone number formatting
+  const formatPhoneNumber = (value: string): string => {
+    const digits = value.replace(/\D/g, '');
+    if (digits.length === 0) return '';
+    if (digits.length <= 3) return `(${digits}`;
+    if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    if (digits.length <= 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
+  };
+
+  const handleClientPhoneChange = (value: string) => {
+    const formatted = formatPhoneNumber(value);
+    setClientFormData({ ...clientFormData, phone: formatted });
+  };
 
   useEffect(() => {
     if (open) {
       titleInputRef.current?.focus();
     }
   }, [open]);
+  
+  // Auto-focus next empty field when client modal opens
+  useEffect(() => {
+    if (showClientModal) {
+      // If name is prefilled, focus on contact name; otherwise focus on name
+      if (clientFormData.name.trim()) {
+        clientContactNameInputRef.current?.focus();
+      } else {
+        clientNameInputRef.current?.focus();
+      }
+    }
+  }, [showClientModal, clientFormData.name]);
+  
+  // Auto-focus next empty field when venue modal opens
+  useEffect(() => {
+    if (showVenueModal) {
+      // If name is prefilled, focus on address; otherwise focus on name
+      if (venueFormData.name.trim()) {
+        venueAddressInputRef.current?.focus();
+      } else {
+        venueNameInputRef.current?.focus();
+      }
+    }
+  }, [showVenueModal, venueFormData.name]);
 
   const handleCreateClient = async () => {
     try {
@@ -1359,7 +1979,12 @@ function CreateProjectModal({
                 sublabel: c.contactName || undefined,
               }))}
               onChange={(value) => onClientIdChange(value || '')}
-              onCreateNew={() => setShowClientModal(true)}
+              onCreateNew={(prefillName) => {
+                if (prefillName) {
+                  setClientFormData({ ...clientFormData, name: prefillName });
+                }
+                setShowClientModal(true);
+              }}
               placeholder="Search clients..."
               label="Client"
               createNewLabel="+ Add New Client"
@@ -1374,7 +1999,12 @@ function CreateProjectModal({
                 sublabel: v.city && v.state ? `${v.city}, ${v.state}` : undefined,
               }))}
               onChange={(value) => onVenueIdChange(value || '')}
-              onCreateNew={() => setShowVenueModal(true)}
+              onCreateNew={(prefillName) => {
+                if (prefillName) {
+                  setVenueFormData({ ...venueFormData, name: prefillName });
+                }
+                setShowVenueModal(true);
+              }}
               placeholder="Search venues..."
               label="Venue"
               createNewLabel="+ Add New Venue"
@@ -1430,6 +2060,7 @@ function CreateProjectModal({
         <div>
           <label className="block text-sm text-gray-400 mb-1">Client Name *</label>
           <input
+            ref={clientNameInputRef}
             value={clientFormData.name}
             onChange={(e) => setClientFormData({ ...clientFormData, name: e.target.value })}
             placeholder="Company name"
@@ -1439,6 +2070,7 @@ function CreateProjectModal({
         <div>
           <label className="block text-sm text-gray-400 mb-1">Contact Name</label>
           <input
+            ref={clientContactNameInputRef}
             value={clientFormData.contactName}
             onChange={(e) => setClientFormData({ ...clientFormData, contactName: e.target.value })}
             placeholder="Primary contact"
@@ -1460,7 +2092,7 @@ function CreateProjectModal({
           <input
             type="tel"
             value={clientFormData.phone}
-            onChange={(e) => setClientFormData({ ...clientFormData, phone: e.target.value })}
+            onChange={(e) => handleClientPhoneChange(e.target.value)}
             placeholder="(555) 123-4567"
             className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
           />
@@ -1489,6 +2121,7 @@ function CreateProjectModal({
         <div>
           <label className="block text-sm text-gray-400 mb-1">Venue Name *</label>
           <input
+            ref={venueNameInputRef}
             value={venueFormData.name}
             onChange={(e) => setVenueFormData({ ...venueFormData, name: e.target.value })}
             placeholder="Venue name"
@@ -1498,6 +2131,7 @@ function CreateProjectModal({
         <div>
           <label className="block text-sm text-gray-400 mb-1">Address</label>
           <input
+            ref={venueAddressInputRef}
             value={venueFormData.address}
             onChange={(e) => setVenueFormData({ ...venueFormData, address: e.target.value })}
             placeholder="Street address"

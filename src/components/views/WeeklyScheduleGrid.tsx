@@ -1,16 +1,20 @@
 // src/components/views/WeeklyScheduleGrid.tsx
 import { useMemo, useState } from 'react';
-import type { ScheduleEvent, Shift, WithId } from '../../types';
+import type { ScheduleEvent, Shift, WithId, Task, Project } from '../../types';
 import { FloatingDropdown } from '../shared/FloatingDropdown';
 
 interface WeeklyScheduleGridProps {
   weekStart: Date;
   events: WithId<ScheduleEvent>[];
   shifts: WithId<Shift>[];
+  tasks?: WithId<Task>[];
+  projects?: WithId<Project>[];
   teamMembers: any[];
   onShiftClick: (shift: WithId<Shift>) => void;
   onEventClick: (event: WithId<ScheduleEvent>) => void;
   onAddShift: (memberId: string, date: Date) => void;
+  onTaskClick?: (task: WithId<Task>) => void;
+  onProjectClick?: (project: WithId<Project>) => void;
 }
 
 interface DayColumn {
@@ -24,7 +28,7 @@ interface DayColumn {
 
 interface ScheduleItem {
   id: string;
-  type: 'shift' | 'event';
+  type: 'shift' | 'event' | 'task' | 'project';
   title: string;
   startTime: string;
   endTime: string;
@@ -32,6 +36,7 @@ interface ScheduleItem {
   color: string;
   textColor: string;
   data: any;
+  style?: React.CSSProperties;
 }
 
 // Convert 24-hour time to 12-hour AM/PM format
@@ -47,10 +52,14 @@ export function WeeklyScheduleGrid({
   weekStart,
   events,
   shifts,
+  tasks = [],
+  projects = [],
   teamMembers,
   onShiftClick,
   onEventClick,
   onAddShift,
+  onTaskClick,
+  onProjectClick,
 }: WeeklyScheduleGridProps) {
   const [temporaryFreelancers, setTemporaryFreelancers] = useState<string[]>([]);
   const [showFreelancerDropdown, setShowFreelancerDropdown] = useState(false);
@@ -133,6 +142,13 @@ export function WeeklyScheduleGrid({
         memberMap.set(dateKey, []);
       }
       
+      // Check if shift is published (offered or confirmed status)
+      const isPublished = shift.status === 'offered' || shift.status === 'confirmed';
+      
+      // Get project color if shift is linked to a project
+      const project = shift.projectId ? projects.find(p => p.id === shift.projectId) : null;
+      const projectColor = project?.color || '#14B8A6'; // default teal
+      
       memberMap.get(dateKey)!.push({
         id: shift.id!,
         type: 'shift',
@@ -140,9 +156,13 @@ export function WeeklyScheduleGrid({
         startTime: formatTime(shift.startTime),
         endTime: formatTime(shift.endTime),
         location: shift.location,
-        color: 'bg-teal-600',
+        color: isPublished ? '' : 'border-2 border-dashed',
         textColor: 'text-white',
         data: shift,
+        style: { 
+          backgroundColor: isPublished ? projectColor : `${projectColor}30`,
+          borderColor: isPublished ? 'transparent' : `${projectColor}80`
+        },
       });
     });
     
@@ -184,13 +204,110 @@ export function WeeklyScheduleGrid({
       });
     });
     
+    // Process tasks - show on due date
+    tasks.forEach(task => {
+      if (!task.dueDate || !task.assignee) return;
+      
+      const dateKey = task.dueDate; // Already in YYYY-MM-DD format
+      const memberId = typeof task.assignee === 'string' ? task.assignee : task.assignee.id;
+      
+      if (!map.has(memberId)) {
+        map.set(memberId, new Map());
+      }
+      const memberMap = map.get(memberId)!;
+      if (!memberMap.has(dateKey)) {
+        memberMap.set(dateKey, []);
+      }
+      
+      memberMap.get(dateKey)!.push({
+        id: task.id!,
+        type: 'task',
+        title: task.title,
+        startTime: 'Due',
+        endTime: '',
+        location: undefined,
+        color: 'bg-purple-600/80',
+        textColor: 'text-purple-100',
+        data: task,
+      });
+    });
+    
+    // Process projects - show across project date range
+    projects.forEach(project => {
+      const prepDate = project.prepDate ? new Date(project.prepDate) : null;
+      const returnDate = project.returnDate ? new Date(project.returnDate) : null;
+      
+      if (!prepDate && !returnDate) return;
+      
+      // Get all team members assigned to this project
+      const projectMembers: string[] = [];
+      if (project.projectManager) projectMembers.push(project.projectManager);
+      if (project.assignees) projectMembers.push(...project.assignees);
+      if (projectMembers.length === 0) return;
+      
+      // Show project across all dates in its range
+      const projectStart = prepDate || returnDate!;
+      const projectEnd = returnDate || prepDate!;
+      
+      // For each day in the project range that's visible in this week
+      days.forEach(day => {
+        const dayDate = new Date(day.date);
+        if (dayDate >= projectStart && dayDate <= projectEnd) {
+          const dateKey = day.dateKey;
+          
+          projectMembers.forEach(memberId => {
+            if (!map.has(memberId)) {
+              map.set(memberId, new Map());
+            }
+            const memberMap = map.get(memberId)!;
+            if (!memberMap.has(dateKey)) {
+              memberMap.set(dateKey, []);
+            }
+            
+            memberMap.get(dateKey)!.push({
+              id: project.id!,
+              type: 'project',
+              title: project.title,
+              startTime: dayDate.getTime() === projectStart.getTime() ? 'Prep' : 
+                         dayDate.getTime() === projectEnd.getTime() ? 'Return' : 'Active',
+              endTime: '',
+              location: undefined,
+              color: 'bg-blue-600/80',
+              textColor: 'text-blue-100',
+              data: project,
+            });
+          });
+        }
+      });
+    });
+    
     // Sort items by start time within each cell
     map.forEach(memberMap => {
       memberMap.forEach(items => {
         items.sort((a, b) => {
-          // Simple string comparison works for formatted times
-          const aTime = a.startTime.replace(/[^0-9]/g, '');
-          const bTime = b.startTime.replace(/[^0-9]/g, '');
+          // Extract the original 24-hour time for proper sorting
+          const getTime24 = (item: ScheduleItem) => {
+            // Get the original shift/event data to access the 24-hour time
+            if (item.type === 'shift' && item.data.startTime) {
+              return item.data.startTime; // This is in HH:MM format (24-hour)
+            }
+            // For events or if no 24-hour time, fall back to parsing the formatted time
+            const timeStr = item.startTime;
+            const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
+            if (!match) return '00:00';
+            
+            let hour = parseInt(match[1]);
+            const minute = match[2];
+            const period = match[3].toUpperCase();
+            
+            if (period === 'PM' && hour !== 12) hour += 12;
+            if (period === 'AM' && hour === 12) hour = 0;
+            
+            return `${String(hour).padStart(2, '0')}:${minute}`;
+          };
+          
+          const aTime = getTime24(a);
+          const bTime = getTime24(b);
           return aTime.localeCompare(bTime);
         });
       });
@@ -311,19 +428,26 @@ export function WeeklyScheduleGrid({
                           <div
                             key={item.id}
                             className={`${item.color} ${item.textColor} rounded px-2 py-1.5 cursor-pointer hover:opacity-90 transition-opacity shadow-sm`}
+                            style={item.style}
                             onClick={() => {
                               if (item.type === 'shift') {
                                 onShiftClick(item.data);
-                              } else {
+                              } else if (item.type === 'event') {
                                 onEventClick(item.data);
+                              } else if (item.type === 'task' && onTaskClick) {
+                                onTaskClick(item.data);
+                              } else if (item.type === 'project' && onProjectClick) {
+                                onProjectClick(item.data);
                               }
                             }}
                           >
-                            <div className="text-xs font-semibold truncate">
+                            <div className="text-xs font-semibold truncate flex items-center gap-1">
+                              {item.type === 'task' && '📋'}
+                              {item.type === 'project' && '📁'}
                               {item.title}
                             </div>
                             <div className="text-[11px] opacity-90 mt-0.5">
-                              {item.startTime} - {item.endTime}
+                              {item.startTime}{item.endTime && ` - ${item.endTime}`}
                             </div>
                             {item.location && (
                               <div className="text-[10px] opacity-75 truncate mt-0.5">

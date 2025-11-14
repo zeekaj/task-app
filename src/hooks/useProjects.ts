@@ -17,12 +17,12 @@ export type ProjectsQueryOptions = {
   orderByCreatedDesc?: boolean; // default true
 };
 
-export function useProjects(uid?: string, options?: ProjectsQueryOptions) {
+export function useProjects(organizationId?: string, options?: ProjectsQueryOptions) {
   const [projects, setProjects] = useState<WithId<Project>[]>([]);
   const optionsKey = `${options?.limit ?? ''}|${options?.orderByCreatedDesc ?? ''}|${Array.isArray(options?.status) ? options!.status.join(',') : ''}`;
 
   useEffect(() => {
-    if (!uid) {
+    if (!organizationId) {
       setProjects([]);
       return;
     }
@@ -33,7 +33,7 @@ export function useProjects(uid?: string, options?: ProjectsQueryOptions) {
       if (options?.orderByCreatedDesc ?? true) constraints.push(orderBy("createdAt", "desc"));
       if (typeof options?.limit === "number") constraints.push(limit(options!.limit));
       const fb = await getFirebase();
-      let qRef: any = fb.colFor(uid, 'projects');
+      let qRef: any = fb.orgCol(organizationId, 'projects');
       if (Array.isArray(options?.status) && options!.status.length > 0) {
         const chunk = options!.status.slice(0, 10);
         qRef = query(qRef, where("status", "in", chunk));
@@ -46,7 +46,7 @@ export function useProjects(uid?: string, options?: ProjectsQueryOptions) {
 
       return () => unsub();
     })();
-  }, [uid, optionsKey, options]);
+  }, [organizationId, optionsKey, options]);
 
   return projects;
 }

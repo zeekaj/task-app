@@ -1,10 +1,13 @@
 // src/components/ShiftEditModal.tsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Modal } from './shared/Modal';
+import { Autocomplete } from './shared/Autocomplete';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useMaybeProjects } from '../hooks/useMaybeProjects';
+import { useVenues } from '../hooks/useVenues';
 import type { Shift, ShiftStatus, JobTitle } from '../types';
 import { createShift, updateShift } from '../services/shifts';
+import { createVenue } from '../services/venues';
 
 interface ShiftEditModalProps {
   uid: string;
@@ -22,8 +25,12 @@ const SHIFT_STATUSES: ShiftStatus[] = ["draft", "offered", "confirmed", "decline
 export function ShiftEditModal({ uid, shift, defaultProjectId, defaultDate, isOpen, onClose, onSuccess }: ShiftEditModalProps) {
   const teamMembers = useTeamMembers(uid);
   const projects = useMaybeProjects(uid);
+  const [venues] = useVenues(uid);
+  const venueAddressInputRef = useRef<HTMLInputElement>(null);
   
   const [saving, setSaving] = useState(false);
+  const [showVenueModal, setShowVenueModal] = useState(false);
+  const [venueFormData, setVenueFormData] = useState({ name: '', address: '', city: '', state: '', zip: '', capacity: '' });
   const [error, setError] = useState<string | null>(null);
   
   // Form state
@@ -32,7 +39,7 @@ export function ShiftEditModal({ uid, shift, defaultProjectId, defaultDate, isOp
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('17:00');
-  const [location, setLocation] = useState('');
+  const [venueId, setVenueId] = useState('');
   const [assignedMemberId, setAssignedMemberId] = useState('');
   const [jobTitle, setJobTitle] = useState<JobTitle | ''>('');
   const [estimatedHours, setEstimatedHours] = useState('');
@@ -49,7 +56,7 @@ export function ShiftEditModal({ uid, shift, defaultProjectId, defaultDate, isOp
       setDate(shift.date || '');
       setStartTime(shift.startTime || '09:00');
       setEndTime(shift.endTime || '17:00');
-      setLocation(shift.location || '');
+      setVenueId(shift.venueId || '');
       setAssignedMemberId(shift.assignedMemberId || '');
       setJobTitle(shift.jobTitle || '');
       setEstimatedHours(shift.estimatedHours?.toString() || '');
@@ -64,7 +71,7 @@ export function ShiftEditModal({ uid, shift, defaultProjectId, defaultDate, isOp
       setDate(defaultDate || new Date().toISOString().split('T')[0]);
       setStartTime('09:00');
       setEndTime('17:00');
-      setLocation('');
+      setVenueId('');
       setAssignedMemberId('');
       setJobTitle('');
       setEstimatedHours('8');
@@ -75,6 +82,34 @@ export function ShiftEditModal({ uid, shift, defaultProjectId, defaultDate, isOp
     }
     setError(null);
   }, [shift, defaultProjectId, defaultDate, isOpen]);
+
+  const handleOpenVenueModal = (prefillName?: string) => {
+    if (prefillName) {
+      setVenueFormData({ name: prefillName, address: '', city: '', state: '', zip: '', capacity: '' });
+    }
+    setShowVenueModal(true);
+  };
+
+  // Auto-focus address field when venue modal opens with prefilled name
+  useEffect(() => {
+    if (showVenueModal && venueFormData.name && venueAddressInputRef.current) {
+      // Small delay to ensure modal is fully rendered
+      setTimeout(() => {
+        venueAddressInputRef.current?.focus();
+      }, 100);
+    }
+  }, [showVenueModal, venueFormData.name]);
+
+  const handleCreateVenue = async () => {
+    try {
+      const newVenueId = await createVenue(uid, { ...venueFormData, active: true, country: 'USA' });
+      setVenueId(newVenueId);
+      setShowVenueModal(false);
+      setVenueFormData({ name: '', address: '', city: '', state: '', zip: '', capacity: '' });
+    } catch (error) {
+      console.error('Failed to create venue:', error);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,7 +138,8 @@ export function ShiftEditModal({ uid, shift, defaultProjectId, defaultDate, isOp
         date,
         startTime,
         endTime,
-        location: location || undefined,
+        venueId: venueId || undefined,
+        location: venueId ? undefined : undefined, // Legacy field, use venueId instead
         assignedMemberId: assignedMemberId || undefined,
         jobTitle: jobTitle || undefined,
         estimatedHours: estimatedHours ? parseFloat(estimatedHours) : undefined,
@@ -129,6 +165,7 @@ export function ShiftEditModal({ uid, shift, defaultProjectId, defaultDate, isOp
   };
 
   return (
+    <>
     <Modal open={isOpen} onClose={onClose} title={shift ? 'Edit Shift' : 'Create Shift'}>
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
@@ -219,17 +256,20 @@ export function ShiftEditModal({ uid, shift, defaultProjectId, defaultDate, isOp
           />
         </div>
         
-        {/* Location */}
+        {/* Venue */}
         <div>
-          <label className="block text-sm font-medium text-gray-300 mb-1">
-            Location
-          </label>
-          <input
-            type="text"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-            className="w-full px-3 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-cyan-500"
-            placeholder="Venue or site address"
+          <Autocomplete
+            value={venueId || null}
+            options={(venues || []).map(v => ({
+              id: v.id as string,
+              label: v.name,
+              sublabel: v.city && v.state ? `${v.city}, ${v.state}` : undefined,
+            }))}
+            onChange={(value) => setVenueId(value || '')}
+            onCreateNew={handleOpenVenueModal}
+            placeholder="Search venues..."
+            label="Venue"
+            createNewLabel="+ Add New Venue"
           />
         </div>
         
@@ -350,5 +390,86 @@ export function ShiftEditModal({ uid, shift, defaultProjectId, defaultDate, isOp
         </div>
       </form>
     </Modal>
+
+    {/* Venue Creation Modal */}
+    <Modal open={showVenueModal} onClose={() => setShowVenueModal(false)} title="Add New Venue" widthClass="max-w-md">
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Venue Name *</label>
+          <input
+            value={venueFormData.name}
+            onChange={(e) => setVenueFormData({ ...venueFormData, name: e.target.value })}
+            placeholder="Venue name"
+            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+          />
+        </div>
+        <div>
+          <label className="block text-sm text-gray-400 mb-1">Address</label>
+          <input
+            ref={venueAddressInputRef}
+            value={venueFormData.address}
+            onChange={(e) => setVenueFormData({ ...venueFormData, address: e.target.value })}
+            placeholder="Street address"
+            className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">City</label>
+            <input
+              value={venueFormData.city}
+              onChange={(e) => setVenueFormData({ ...venueFormData, city: e.target.value })}
+              placeholder="City"
+              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">State</label>
+            <input
+              value={venueFormData.state}
+              onChange={(e) => setVenueFormData({ ...venueFormData, state: e.target.value })}
+              placeholder="ST"
+              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+            />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">ZIP</label>
+            <input
+              value={venueFormData.zip}
+              onChange={(e) => setVenueFormData({ ...venueFormData, zip: e.target.value })}
+              placeholder="12345"
+              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Capacity</label>
+            <input
+              value={venueFormData.capacity}
+              onChange={(e) => setVenueFormData({ ...venueFormData, capacity: e.target.value })}
+              placeholder="500"
+              className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 pt-4">
+          <button
+            onClick={() => setShowVenueModal(false)}
+            className="px-4 py-2 text-sm font-medium text-gray-300 bg-white/5 border border-white/10 rounded-lg hover:bg-white/10"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleCreateVenue}
+            disabled={!venueFormData.name.trim()}
+            className="px-4 py-2 text-sm font-medium text-white rounded-lg transition-colors bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Add Venue
+          </button>
+        </div>
+      </div>
+    </Modal>
+  </>
   );
 }

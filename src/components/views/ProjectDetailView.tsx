@@ -9,13 +9,14 @@ import { updateProject, deleteProject, archiveProject } from '../../services/pro
 import { logActivity } from '../../services/activityHistory';
 import { deleteNotificationsForEntity } from '../../services/notifications';
 import { createTask } from '../../services/tasks';
-import { useTasks } from '../../hooks/useTasks';
+import { useRoleBasedTasks } from '../../hooks/useRoleBasedTasks';
 import { useAllBlockers } from '../../hooks/useBlockers';
-import { useProjects } from '../../hooks/useProjects';
+import { useRoleBasedProjects } from '../../hooks/useRoleBasedProjects';
 import { useTeamMembers } from '../../hooks/useTeamMembers';
 import { useClients } from '../../hooks/useClients';
 import { useVenues } from '../../hooks/useVenues';
 import { useOrganizationId } from '../../hooks/useOrganization';
+import { useUserContext } from '../../hooks/useUserContext';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { computeProjectStatus } from '../../utils/projectStatus';
 import type { Project, ProjectStatus, WithId } from '../../types';
@@ -33,6 +34,7 @@ import { VenueModal } from '../VenueModal';
 import { Autocomplete } from '../shared/Autocomplete';
 import { createClient } from '../../services/clients';
 import { createVenue } from '../../services/venues';
+import { ColorPicker } from '../ui/ColorPicker';
 
 interface ProjectDetailViewProps {
   uid: string;
@@ -43,6 +45,7 @@ interface ProjectDetailViewProps {
 
 export function ProjectDetailView({ uid, project: initialProject, onClose, onDeleted }: ProjectDetailViewProps) {
   const { orgId } = useOrganizationId();
+  const { teamMemberId } = useUserContext();
   const [project, setProject] = useState(initialProject);
   const [activeTab, setActiveTab] = useState('overview');
   const [editingField, setEditingField] = useState<string | null>(null);
@@ -84,10 +87,12 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     'returnDate',
   ];
   const inputRefs = useRef<(HTMLInputElement | HTMLSelectElement | null)[]>([]);
+  // Refs for just the milestone (date) fields
+  const milestoneRefs = useRef<(HTMLInputElement | null)[]>([]);
   const [localToast, setLocalToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-  const tasks = useTasks(uid);
+  const tasks = useRoleBasedTasks(uid);
   const allBlockers = useAllBlockers(uid);
-  const allProjects = useProjects(uid);
+  const allProjects = useRoleBasedProjects(uid);
   const teamMembers = useTeamMembers(uid);
   const currentUserMember = teamMembers?.find((m: any) => m.userId === uid);
   const isOwner = currentUserMember?.role === 'owner';
@@ -101,6 +106,11 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
   const [editingVenue, setEditingVenue] = useState<any>(null);
   const [prefillClientName, setPrefillClientName] = useState<string>('');
   const [prefillVenueName, setPrefillVenueName] = useState<string>('');
+
+  // Sync project state when the prop changes (e.g., from real-time updates)
+  useEffect(() => {
+    setProject(initialProject);
+  }, [initialProject]);
 
   // Close status dropdown on click outside
   useClickOutside({
@@ -136,7 +146,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     if (!title) return;
     try {
       setCreatingTask(true);
-      await createTask(uid, title, project.id);
+      await createTask(uid, title, project.id, {}, teamMemberId || undefined);
       setNewTaskTitle('');
       showToast('Task added', 'success');
     } catch (err: any) {
@@ -181,12 +191,24 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
         break;
       case 'assigned':
         list.sort((a, b) => {
-          const aAssignee = typeof a.assignee === 'object' && a.assignee !== null
-            ? (a.assignee as any).name || (a.assignee as any).id || JSON.stringify(a.assignee)
-            : a.assignee || '';
-          const bAssignee = typeof b.assignee === 'object' && b.assignee !== null
-            ? (b.assignee as any).name || (b.assignee as any).id || JSON.stringify(b.assignee)
-            : b.assignee || '';
+          const resolveName = (assignee: any) => {
+            if (!assignee) return '';
+            // If assignee stored as object
+            if (typeof assignee === 'object' && assignee !== null) {
+              if ((assignee as any).name) return String((assignee as any).name);
+              if ((assignee as any).id) {
+                const member = teamMembers?.find(m => m.id === (assignee as any).id || m.userId === (assignee as any).id || m.name === (assignee as any).id);
+                return member?.name || '';
+              }
+              return '';
+            }
+            // assignee may be a string (id or name)
+            const asStr = String(assignee);
+            const member = teamMembers?.find(m => m.id === asStr || m.userId === asStr || m.name === asStr);
+            return member?.name || '';
+          };
+          const aAssignee = resolveName(a.assignee);
+          const bAssignee = resolveName(b.assignee);
           return String(aAssignee).localeCompare(String(bAssignee));
         });
         break;
@@ -226,6 +248,14 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     setProject(initialProject);
   }, [initialProject]);
 
+  // Sync project state when allProjects updates (e.g., blocker added)
+  useEffect(() => {
+    const updatedProject = allProjects?.find((p: any) => p.id === project.id);
+    if (updatedProject) {
+      setProject(updatedProject);
+    }
+  }, [allProjects, project.id]);
+
   // Timeline milestone order
   const milestoneOrder = [
     'prepDate',
@@ -237,6 +267,17 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     'pickupDate',
     'returnDate',
   ];
+
+  // Focus milestone input when editingField changes to a milestone field
+  useEffect(() => {
+    if (editingField && milestoneOrder.includes(editingField)) {
+      const idx = milestoneOrder.indexOf(editingField);
+      const input = milestoneRefs.current[idx];
+      if (input) {
+        setTimeout(() => input.focus(), 0);
+      }
+    }
+  }, [editingField]);
 
   // Helper to get comparable date value
   const getDateValue = (date: any) => {
@@ -258,13 +299,13 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     // Check previous milestone
     for (let i = idx - 1; i >= 0; i--) {
       const prevField = milestoneOrder[i];
-  const prevValue = getDateValue((project as any)[prevField]);
+      const prevValue = getDateValue((project as any)[prevField]);
       if (prevValue && newValue && prevValue > newValue) return false;
     }
     // Check next milestone
     for (let i = idx + 1; i < milestoneOrder.length; i++) {
       const nextField = milestoneOrder[i];
-  const nextValue = getDateValue((project as any)[nextField]);
+      const nextValue = getDateValue((project as any)[nextField]);
       if (nextValue && newValue && newValue > nextValue) return false;
     }
     return true;
@@ -284,7 +325,11 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
       setProject(prev => ({ ...prev, r2Number: value, orderId: value } as any));
       setPendingChanges(prev => ({ ...prev, r2Number: value, orderId: value } as any));
     } else {
-      setProject(prev => ({ ...prev, [field]: value }));
+      // For date fields coming from fromDateInput (ISO strings), convert to Date for local state
+      const processedValue = (milestoneOrder.includes(field) && typeof value === 'string') 
+        ? new Date(value) 
+        : value;
+      setProject(prev => ({ ...prev, [field]: processedValue }));
       setPendingChanges(prev => ({ ...prev, [field]: value }));
     }
     setHasUnsavedChanges(true);
@@ -299,8 +344,10 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
 
   // Save all pending changes when closing
   const handleClose = async () => {
+    console.log('handleClose:', { hasUnsavedChanges, pendingChanges });
     if (hasUnsavedChanges && Object.keys(pendingChanges).length > 0) {
       try {
+        console.log('Saving to Firestore:', pendingChanges);
         await updateProject(uid, project.id, pendingChanges as any);
         showToast('Changes saved', 'success');
         // Small delay to show toast before closing
@@ -323,7 +370,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
         setHasUnsavedChanges(false);
       }
       await updateProject(uid, project.id, { status: newStatus });
-      setProject({ ...project, status: newStatus });
+      setProject(prev => ({ ...prev, status: newStatus }));
       showToast('Status updated', 'success');
     } catch (err) {
       showToast('Failed to update status', 'error');
@@ -530,37 +577,57 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
     }
   };
   
+  // Return date in MM/DD/YY (two-digit year). Handles Firestore Timestamps, strings, and Date objects.
   const formatDate = (date: any): string => {
     if (!date) return '-';
-    let d: Date;
-    if (date.toDate) d = date.toDate();
+    let d: Date | null = null;
+    if ((date as any)?.toDate) d = (date as any).toDate();
     else if (typeof date === 'string') d = new Date(date);
     else if (date instanceof Date) d = date;
-    else return '-';
-    return d.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric', 
-      year: 'numeric', 
-      hour: 'numeric',
-      minute: '2-digit',
-      timeZone: 'UTC' 
-    });
+    if (!d || Number.isNaN(d.getTime())) return '-';
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(-2);
+    // Show time if it's not exactly midnight local time
+    const hours = d.getHours();
+    const minutes = d.getMinutes();
+    if (hours === 0 && minutes === 0) {
+      return `${mm}/${dd}/${yy}`;
+    }
+    const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+    return `${mm}/${dd}/${yy} ${time}`;
   };
 
   const toDateInput = (date: any): string => {
     let d: Date | null = null;
     if (!date) return '';
+    
     if (typeof date === 'object' && 'toDate' in date) d = (date as any).toDate();
     else if (date instanceof Date) d = date;
     else if (typeof date === 'string') d = new Date(date);
     if (!d || Number.isNaN(d.getTime())) return '';
-    // Return datetime-local format: YYYY-MM-DDTHH:MM
-    const year = d.getUTCFullYear();
-    const month = String(d.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(d.getUTCDate()).padStart(2, '0');
-    const hours = String(d.getUTCHours()).padStart(2, '0');
-    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
-    return `${year}-${month}-${day}T${hours}:${minutes}`;
+    // Return datetime-local format: YYYY-MM-DDTHH:MM in user's local timezone
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const result = `${year}-${month}-${day}T${hours}:${minutes}`;
+    console.log('toDateInput:', { date, d, year, month, day, hours, minutes, result });
+    return result;
+  };
+
+  // Convert datetime-local input value to UTC ISO string with proper timezone handling
+  const fromDateInput = (value: string): string | null => {
+    if (!value) return null;
+    // Parse datetime-local string as local time explicitly
+    // Format: "YYYY-MM-DDTHH:MM"
+    const [datePart, timePart] = value.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hours, minutes] = timePart.split(':').map(Number);
+    // Create date in local timezone
+    const date = new Date(year, month - 1, day, hours, minutes);
+    return date.toISOString();
   };
 
   return (
@@ -623,6 +690,11 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         const firstReason = activeProjectBlockers.length ? (typeof activeProjectBlockers[0]?.reason === 'object' ? JSON.stringify(activeProjectBlockers[0]?.reason) : (activeProjectBlockers[0]?.reason || 'Blocked')) : 'Blocked';
                         const extraCount = activeProjectBlockers.length > 1 ? activeProjectBlockers.length - 1 : 0;
                         const firstBlocker = activeProjectBlockers[0];
+                        // Determine if there are also task blockers
+                        const taskBlockers = Array.isArray(allBlockers)
+                          ? allBlockers.filter((b: any) => b?.entityType === 'task' && projectTasks.some(t => t.id === b.entityId) && b?.status === 'active')
+                          : [];
+                        const hasTaskBlockers = taskBlockers.length > 0;
                         return (
                           <div
                             onMouseEnter={(e) => {
@@ -631,7 +703,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                                 visible: true,
                                 x: rect.left + rect.width / 2,
                                 y: rect.top,
-                                blockerInfo: { firstReason, firstBlocker, extraCount }
+                                blockerInfo: { firstReason, firstBlocker, extraCount, hasTaskBlockers, taskBlockers }
                               });
                             }}
                             onMouseLeave={() => setTooltipState({ visible: false, x: 0, y: 0, blockerInfo: null })}
@@ -727,26 +799,35 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                 )
               )}
                {project.projectManager && (
-                 <div className="flex items-center gap-2 ml-2 px-3 py-1 bg-white/5 rounded-lg border border-white/10">
-                   <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                   </svg>
-                   <span className="text-sm text-cyan-400">{project.projectManager}</span>
-                 </div>
+                 (() => {
+                   const pmMember = teamMembers?.find(m => m.id === project.projectManager || m.userId === project.projectManager || m.name === project.projectManager);
+                   const pmDisplay = pmMember?.name || (typeof project.projectManager === 'string' && project.projectManager.includes(' ') ? project.projectManager : null);
+                   return (
+                     <div className="flex items-center gap-2 ml-2 px-3 py-1 bg-white/5 rounded-lg border border-white/10">
+                       <svg className="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                       </svg>
+                       <span className="text-sm text-cyan-400">{pmDisplay || 'Not assigned'}</span>
+                     </div>
+                   );
+                 })()
                )}
                {/* Team member avatars */}
                {project.assignees && project.assignees.length > 0 && (
                  <div className="flex items-center gap-1 ml-2">
                    <span className="text-xs text-gray-500 mr-1">Team:</span>
-                   {project.assignees.slice(0, 4).map((name: string, idx: number) => {
-                     const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+                   {project.assignees.slice(0, 4).map((assigneeRef: string, idx: number) => {
+                     // Resolve assigneeRef (could be name, id, or object stored as string) to member name when possible
+                     const member = teamMembers?.find(m => m.id === assigneeRef || m.userId === assigneeRef || m.name === assigneeRef);
+                     const displayName = member?.name || '';
+                     const initials = displayName ? displayName.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) : '';
                      return (
                        <div
                          key={idx}
                          className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center text-white text-xs font-semibold border-2 border-gray-900"
-                         title={name}
+                         title={displayName || 'Unassigned'}
                        >
-                         {initials}
+                         {initials || '—'}
                        </div>
                      );
                    })}
@@ -873,7 +954,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         Owner Approved - Ready to Invoice
                       </div>
                       <p className="text-xs text-gray-300">
-                        Approved by {project.postEventReport.ownerReviewedByName} on {new Date((project.postEventReport.ownerReviewedAt as any)?.toDate?.() || project.postEventReport.ownerReviewedAt!).toLocaleDateString()}
+                        Approved by {project.postEventReport.ownerReviewedByName} on {formatDate((project.postEventReport.ownerReviewedAt as any)?.toDate?.() || project.postEventReport.ownerReviewedAt)}
                       </p>
                     </div>
                   )}
@@ -888,7 +969,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         Awaiting Owner Review
                       </div>
                       <p className="text-xs text-amber-200">
-                        Submitted by {project.postEventReport.signedByName} on {new Date((project.postEventReport.signedAt as any).toDate?.() || project.postEventReport.signedAt).toLocaleDateString()}
+                        Submitted by {project.postEventReport.signedByName} on {formatDate((project.postEventReport.signedAt as any)?.toDate?.() || project.postEventReport.signedAt)}
                       </p>
                     </div>
                   ) : project.postEventReport && project.postEventReport.status === 'submitted' ? (
@@ -900,7 +981,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                         Post-Event Report Completed
                       </div>
                       <p className="text-xs text-gray-300">
-                        Signed by {project.postEventReport.signedByName} on {new Date((project.postEventReport.signedAt as any).toDate?.() || project.postEventReport.signedAt).toLocaleDateString()}
+                        Signed by {project.postEventReport.signedByName} on {formatDate((project.postEventReport.signedAt as any)?.toDate?.() || project.postEventReport.signedAt)}
                       </p>
                     </div>
                   ) : project.postEventReport ? (
@@ -1031,6 +1112,23 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
               <Card>
                 <h3 className="text-sm font-medium text-gray-400 mb-4">Project Details</h3>
                 <div className="space-y-3">
+                  {/* Project Color */}
+                  <div>
+                    <ColorPicker
+                      value={project.color || '#3B82F6'}
+                      onChange={async (color) => {
+                        setProject(prev => ({ ...prev, color }));
+                        try {
+                          await updateProject(uid, project.id, { color });
+                        } catch (err) {
+                          console.error('Failed to update color:', err);
+                          showToast('Failed to update color', 'error');
+                        }
+                      }}
+                      label="Project Color"
+                    />
+                  </div>
+                  
                   {/* Tab order: R2 Number, Project Manager, Prep, Ship, Load-In, Event Begin, Event End, Strike, Pickup */}
                   <div className="grid grid-cols-3 gap-4">
                     <div>
@@ -1111,23 +1209,40 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       {editingField === 'prepDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
-                          ref={el => inputRefs.current[2] = el}
+                          ref={el => {
+                            inputRefs.current[2] = el;
+                            milestoneRefs.current[0] = el;
+                          }}
                           autoFocus
                           defaultValue={toDateInput(project.prepDate)}
-                          onBlur={(e) => handleUpdate('prepDate', e.target.value || null)}
+                          onBlur={(e) => handleUpdate('prepDate', fromDateInput(e.target.value))}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                            const idx = 0;
+                            const input = e.target as HTMLInputElement;
+                            const isFilled = !!input.value;
+                            if (e.key === 'Tab' && !e.shiftKey) {
                               e.preventDefault();
-                              const idx = 2;
-                              const nextField = fieldOrder[idx + 1];
-                              handleUpdate('prepDate', (e.target as HTMLInputElement).value || null, nextField);
+                              const nextField = milestoneOrder[idx + 1];
+                              if (nextField) {
+                                if (isFilled) handleUpdate('prepDate', fromDateInput(input.value), nextField);
+                                else setEditingField(nextField);
+                              } else {
+                                if (isFilled) handleUpdate('prepDate', fromDateInput(input.value));
+                                else setEditingField(null);
+                              }
                             } else if (e.key === 'Tab' && e.shiftKey) {
                               e.preventDefault();
-                              const idx = 2;
-                              const prevField = fieldOrder[idx - 1];
-                              handleUpdate('prepDate', (e.target as HTMLInputElement).value || null, prevField);
+                              const prevField = milestoneOrder[idx - 1];
+                              if (prevField) {
+                                if (isFilled) handleUpdate('prepDate', fromDateInput(input.value), prevField);
+                                else setEditingField(prevField);
+                              }
+                            } else if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdate('prepDate', fromDateInput(input.value));
+                            } else if (e.key === 'Escape') {
+                              setEditingField(null);
                             }
-                            if (e.key === 'Escape') setEditingField(null);
                           }}
                           className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none"
                         />
@@ -1145,23 +1260,40 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       {editingField === 'shipDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
-                          ref={el => inputRefs.current[3] = el}
+                          ref={el => {
+                            inputRefs.current[3] = el;
+                            milestoneRefs.current[1] = el;
+                          }}
                           autoFocus
                           defaultValue={toDateInput(project.shipDate)}
-                          onBlur={(e) => handleUpdate('shipDate', e.target.value || null)}
+                          onBlur={(e) => handleUpdate('shipDate', fromDateInput(e.target.value))}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                            const idx = 1;
+                            const input = e.target as HTMLInputElement;
+                            const isFilled = !!input.value;
+                            if (e.key === 'Tab' && !e.shiftKey) {
                               e.preventDefault();
-                              const idx = 3;
-                              const nextField = fieldOrder[idx + 1];
-                              handleUpdate('shipDate', (e.target as HTMLInputElement).value || null, nextField);
+                              const nextField = milestoneOrder[idx + 1];
+                              if (nextField) {
+                                if (isFilled) handleUpdate('shipDate', fromDateInput(input.value), nextField);
+                                else setEditingField(nextField);
+                              } else {
+                                if (isFilled) handleUpdate('shipDate', fromDateInput(input.value));
+                                else setEditingField(null);
+                              }
                             } else if (e.key === 'Tab' && e.shiftKey) {
                               e.preventDefault();
-                              const idx = 3;
-                              const prevField = fieldOrder[idx - 1];
-                              handleUpdate('shipDate', (e.target as HTMLInputElement).value || null, prevField);
+                              const prevField = milestoneOrder[idx - 1];
+                              if (prevField) {
+                                if (isFilled) handleUpdate('shipDate', fromDateInput(input.value), prevField);
+                                else setEditingField(prevField);
+                              }
+                            } else if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdate('shipDate', fromDateInput(input.value));
+                            } else if (e.key === 'Escape') {
+                              setEditingField(null);
                             }
-                            if (e.key === 'Escape') setEditingField(null);
                           }}
                           className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none"
                         />
@@ -1179,23 +1311,40 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       {editingField === 'loadInDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
-                          ref={el => inputRefs.current[4] = el}
+                          ref={el => {
+                            inputRefs.current[4] = el;
+                            milestoneRefs.current[2] = el;
+                          }}
                           autoFocus
                           defaultValue={toDateInput(project.loadInDate)}
-                          onBlur={(e) => handleUpdate('loadInDate', e.target.value || null)}
+                          onBlur={(e) => handleUpdate('loadInDate', fromDateInput(e.target.value))}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                            const idx = 2;
+                            const input = e.target as HTMLInputElement;
+                            const isFilled = !!input.value;
+                            if (e.key === 'Tab' && !e.shiftKey) {
                               e.preventDefault();
-                              const idx = 4;
-                              const nextField = fieldOrder[idx + 1];
-                              handleUpdate('loadInDate', (e.target as HTMLInputElement).value || null, nextField);
+                              const nextField = milestoneOrder[idx + 1];
+                              if (nextField) {
+                                if (isFilled) handleUpdate('loadInDate', fromDateInput(input.value), nextField);
+                                else setEditingField(nextField);
+                              } else {
+                                if (isFilled) handleUpdate('loadInDate', fromDateInput(input.value));
+                                else setEditingField(null);
+                              }
                             } else if (e.key === 'Tab' && e.shiftKey) {
                               e.preventDefault();
-                              const idx = 4;
-                              const prevField = fieldOrder[idx - 1];
-                              handleUpdate('loadInDate', (e.target as HTMLInputElement).value || null, prevField);
+                              const prevField = milestoneOrder[idx - 1];
+                              if (prevField) {
+                                if (isFilled) handleUpdate('loadInDate', fromDateInput(input.value), prevField);
+                                else setEditingField(prevField);
+                              }
+                            } else if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdate('loadInDate', fromDateInput(input.value));
+                            } else if (e.key === 'Escape') {
+                              setEditingField(null);
                             }
-                            if (e.key === 'Escape') setEditingField(null);
                           }}
                           className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none"
                         />
@@ -1213,23 +1362,40 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       {editingField === 'eventBeginDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
-                          ref={el => inputRefs.current[5] = el}
+                          ref={el => {
+                            inputRefs.current[5] = el;
+                            milestoneRefs.current[3] = el;
+                          }}
                           autoFocus
                           defaultValue={toDateInput(project.eventBeginDate)}
-                          onBlur={(e) => handleUpdate('eventBeginDate', e.target.value || null)}
+                          onBlur={(e) => handleUpdate('eventBeginDate', fromDateInput(e.target.value))}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                            const idx = 3;
+                            const input = e.target as HTMLInputElement;
+                            const isFilled = !!input.value;
+                            if (e.key === 'Tab' && !e.shiftKey) {
                               e.preventDefault();
-                              const idx = 5;
-                              const nextField = fieldOrder[idx + 1];
-                              handleUpdate('eventBeginDate', (e.target as HTMLInputElement).value || null, nextField);
+                              const nextField = milestoneOrder[idx + 1];
+                              if (nextField) {
+                                if (isFilled) handleUpdate('eventBeginDate', fromDateInput(input.value), nextField);
+                                else setEditingField(nextField);
+                              } else {
+                                if (isFilled) handleUpdate('eventBeginDate', fromDateInput(input.value));
+                                else setEditingField(null);
+                              }
                             } else if (e.key === 'Tab' && e.shiftKey) {
                               e.preventDefault();
-                              const idx = 5;
-                              const prevField = fieldOrder[idx - 1];
-                              handleUpdate('eventBeginDate', (e.target as HTMLInputElement).value || null, prevField);
+                              const prevField = milestoneOrder[idx - 1];
+                              if (prevField) {
+                                if (isFilled) handleUpdate('eventBeginDate', fromDateInput(input.value), prevField);
+                                else setEditingField(prevField);
+                              }
+                            } else if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdate('eventBeginDate', fromDateInput(input.value));
+                            } else if (e.key === 'Escape') {
+                              setEditingField(null);
                             }
-                            if (e.key === 'Escape') setEditingField(null);
                           }}
                           className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none"
                         />
@@ -1247,23 +1413,40 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       {editingField === 'eventEndDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
-                          ref={el => inputRefs.current[6] = el}
+                          ref={el => {
+                            inputRefs.current[6] = el;
+                            milestoneRefs.current[4] = el;
+                          }}
                           autoFocus
                           defaultValue={toDateInput(project.eventEndDate)}
-                          onBlur={(e) => handleUpdate('eventEndDate', e.target.value || null)}
+                          onBlur={(e) => handleUpdate('eventEndDate', fromDateInput(e.target.value))}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                            const idx = 4;
+                            const input = e.target as HTMLInputElement;
+                            const isFilled = !!input.value;
+                            if (e.key === 'Tab' && !e.shiftKey) {
                               e.preventDefault();
-                              const idx = 6;
-                              const nextField = fieldOrder[idx + 1];
-                              handleUpdate('eventEndDate', (e.target as HTMLInputElement).value || null, nextField);
+                              const nextField = milestoneOrder[idx + 1];
+                              if (nextField) {
+                                if (isFilled) handleUpdate('eventEndDate', fromDateInput(input.value), nextField);
+                                else setEditingField(nextField);
+                              } else {
+                                if (isFilled) handleUpdate('eventEndDate', fromDateInput(input.value));
+                                else setEditingField(null);
+                              }
                             } else if (e.key === 'Tab' && e.shiftKey) {
                               e.preventDefault();
-                              const idx = 6;
-                              const prevField = fieldOrder[idx - 1];
-                              handleUpdate('eventEndDate', (e.target as HTMLInputElement).value || null, prevField);
+                              const prevField = milestoneOrder[idx - 1];
+                              if (prevField) {
+                                if (isFilled) handleUpdate('eventEndDate', fromDateInput(input.value), prevField);
+                                else setEditingField(prevField);
+                              }
+                            } else if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdate('eventEndDate', fromDateInput(input.value));
+                            } else if (e.key === 'Escape') {
+                              setEditingField(null);
                             }
-                            if (e.key === 'Escape') setEditingField(null);
                           }}
                           className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none"
                         />
@@ -1281,23 +1464,40 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       {editingField === 'strikeDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
-                          ref={el => inputRefs.current[7] = el}
+                          ref={el => {
+                            inputRefs.current[7] = el;
+                            milestoneRefs.current[5] = el;
+                          }}
                           autoFocus
                           defaultValue={toDateInput(project.strikeDate)}
-                          onBlur={(e) => handleUpdate('strikeDate', e.target.value || null)}
+                          onBlur={(e) => handleUpdate('strikeDate', fromDateInput(e.target.value))}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                            const idx = 5;
+                            const input = e.target as HTMLInputElement;
+                            const isFilled = !!input.value;
+                            if (e.key === 'Tab' && !e.shiftKey) {
                               e.preventDefault();
-                              const idx = 7;
-                              const nextField = fieldOrder[idx + 1];
-                              handleUpdate('strikeDate', (e.target as HTMLInputElement).value || null, nextField);
+                              const nextField = milestoneOrder[idx + 1];
+                              if (nextField) {
+                                if (isFilled) handleUpdate('strikeDate', fromDateInput(input.value), nextField);
+                                else setEditingField(nextField);
+                              } else {
+                                if (isFilled) handleUpdate('strikeDate', fromDateInput(input.value));
+                                else setEditingField(null);
+                              }
                             } else if (e.key === 'Tab' && e.shiftKey) {
                               e.preventDefault();
-                              const idx = 7;
-                              const prevField = fieldOrder[idx - 1];
-                              handleUpdate('strikeDate', (e.target as HTMLInputElement).value || null, prevField);
+                              const prevField = milestoneOrder[idx - 1];
+                              if (prevField) {
+                                if (isFilled) handleUpdate('strikeDate', fromDateInput(input.value), prevField);
+                                else setEditingField(prevField);
+                              }
+                            } else if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdate('strikeDate', fromDateInput(input.value));
+                            } else if (e.key === 'Escape') {
+                              setEditingField(null);
                             }
-                            if (e.key === 'Escape') setEditingField(null);
                           }}
                           className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none"
                         />
@@ -1315,23 +1515,40 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       {editingField === 'pickupDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
-                          ref={el => inputRefs.current[8] = el}
+                          ref={el => {
+                            inputRefs.current[8] = el;
+                            milestoneRefs.current[6] = el;
+                          }}
                           autoFocus
                           defaultValue={toDateInput(project.pickupDate)}
-                          onBlur={(e) => handleUpdate('pickupDate', e.target.value || null)}
+                          onBlur={(e) => handleUpdate('pickupDate', fromDateInput(e.target.value))}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                            const idx = 6;
+                            const input = e.target as HTMLInputElement;
+                            const isFilled = !!input.value;
+                            if (e.key === 'Tab' && !e.shiftKey) {
                               e.preventDefault();
-                              const idx = 8;
-                              const nextField = fieldOrder[idx + 1];
-                              handleUpdate('pickupDate', (e.target as HTMLInputElement).value || null, nextField);
+                              const nextField = milestoneOrder[idx + 1];
+                              if (nextField) {
+                                if (isFilled) handleUpdate('pickupDate', fromDateInput(input.value), nextField);
+                                else setEditingField(nextField);
+                              } else {
+                                if (isFilled) handleUpdate('pickupDate', fromDateInput(input.value));
+                                else setEditingField(null);
+                              }
                             } else if (e.key === 'Tab' && e.shiftKey) {
                               e.preventDefault();
-                              const idx = 8;
-                              const prevField = fieldOrder[idx - 1];
-                              handleUpdate('pickupDate', (e.target as HTMLInputElement).value || null, prevField);
+                              const prevField = milestoneOrder[idx - 1];
+                              if (prevField) {
+                                if (isFilled) handleUpdate('pickupDate', fromDateInput(input.value), prevField);
+                                else setEditingField(prevField);
+                              }
+                            } else if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdate('pickupDate', fromDateInput(input.value));
+                            } else if (e.key === 'Escape') {
+                              setEditingField(null);
                             }
-                            if (e.key === 'Escape') setEditingField(null);
                           }}
                           className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none"
                         />
@@ -1349,24 +1566,41 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       {editingField === 'returnDate' && !isCompleted ? (
                         <input
                           type="datetime-local"
-                          ref={el => inputRefs.current[9] = el}
+                          ref={el => {
+                            inputRefs.current[9] = el;
+                            milestoneRefs.current[7] = el;
+                          }}
                           autoFocus
                           defaultValue={toDateInput(project.returnDate)}
-                          onBlur={(e) => handleUpdate('returnDate', e.target.value || null)}
+                          onBlur={(e) => handleUpdate('returnDate', fromDateInput(e.target.value))}
                           onKeyDown={(e) => {
-                            if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+                            const idx = 7;
+                            const input = e.target as HTMLInputElement;
+                            const isFilled = !!input.value;
+                            if (e.key === 'Tab' && !e.shiftKey) {
                               e.preventDefault();
-                              const idx = 9;
-                              const nextField = fieldOrder[idx + 1];
-                              handleUpdate('returnDate', (e.target as HTMLInputElement).value || null, nextField);
-                              if (!nextField) (e.target as HTMLInputElement).blur();
+                              const nextField = milestoneOrder[idx + 1];
+                              if (nextField) {
+                                if (isFilled) handleUpdate('returnDate', fromDateInput(input.value), nextField);
+                                else setEditingField(nextField);
+                              } else {
+                                if (isFilled) handleUpdate('returnDate', fromDateInput(input.value));
+                                else setEditingField(null);
+                                input.blur();
+                              }
                             } else if (e.key === 'Tab' && e.shiftKey) {
                               e.preventDefault();
-                              const idx = 9;
-                              const prevField = fieldOrder[idx - 1];
-                              handleUpdate('returnDate', (e.target as HTMLInputElement).value || null, prevField);
+                              const prevField = milestoneOrder[idx - 1];
+                              if (prevField) {
+                                if (isFilled) handleUpdate('returnDate', fromDateInput(input.value), prevField);
+                                else setEditingField(prevField);
+                              }
+                            } else if (e.key === 'Enter') {
+                              e.preventDefault();
+                              handleUpdate('returnDate', fromDateInput(input.value));
+                            } else if (e.key === 'Escape') {
+                              setEditingField(null);
                             }
-                            if (e.key === 'Escape') setEditingField(null);
                           }}
                           className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none"
                         />
@@ -1677,10 +1911,6 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                                 const { updateTask } = await import('../../services/tasks');
                                 await updateTask(uid, t.id, { status: newStatus });
                               }}
-                              onUndo={async () => {
-                                const { undoLastChange } = await import('../../services/undo');
-                                return await undoLastChange(uid, 'task', t.id);
-                              }}
                             />
                           )}
                         </li>
@@ -1756,10 +1986,6 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                                 const { updateTask } = await import('../../services/tasks');
                                 await updateTask(uid, t.id, { status: newStatus });
                               }}
-                              onUndo={async () => {
-                                const { undoLastChange } = await import('../../services/undo');
-                                return await undoLastChange(uid, 'task', t.id);
-                              }}
                             />
                           )}
                         </li>
@@ -1792,18 +2018,6 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       <div key={milestone.key} className="flex items-center gap-4">
                         <div className="w-32 text-right text-sm text-gray-400">
                           {formatDate(milestone.date)}
-                          {(() => {
-                            // Show time if available
-                            let d = null;
-                            if (milestone.date && typeof milestone.date === 'object' && 'toDate' in milestone.date) d = milestone.date.toDate();
-                            else if (milestone.date instanceof Date) d = milestone.date;
-                            else if (typeof milestone.date === 'string') d = new Date(milestone.date);
-                            if (d && !Number.isNaN(d.getTime())) {
-                              const t = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                              if (t !== '12:00 AM') return <span className="ml-2 text-xs text-gray-500">{t}</span>;
-                            }
-                            return null;
-                          })()}
                         </div>
                         <div className={`flex-shrink-0 w-3 h-3 rounded-full ${milestone.color}`} />
                         <div className="flex-1">
@@ -1848,10 +2062,12 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                   <select
                     value=""
                     onChange={(e) => {
-                      if (e.target.value) {
+                      const selected = e.target.value;
+                      if (selected) {
                         const currentAssignees = project.assignees || [];
-                        if (!currentAssignees.includes(e.target.value)) {
-                          handleUpdate('assignees', [...currentAssignees, e.target.value]);
+                        // Prevent adding if already an assignee or is the project manager
+                        if (!currentAssignees.includes(selected) && selected !== project.projectManager) {
+                          handleUpdate('assignees', [...currentAssignees, selected]);
                         }
                         setShowTeamMemberDropdown(false);
                       }
@@ -1859,7 +2075,7 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                     className="w-full px-3 py-2 rounded-lg bg-white/5 border border-cyan-500 text-white focus:outline-none text-sm [&>option]:bg-gray-900"
                   >
                     <option value="">Select team member...</option>
-                    {teamMembers?.filter(m => m.active && !(project.assignees || []).includes(m.name)).map((member) => (
+                    {teamMembers?.filter(m => m.active && !(project.assignees || []).includes(m.name) && m.name !== project.projectManager).map((member) => (
                       <option key={member.id} value={member.name}>
                         {member.name} {member.title ? `(${member.title})` : ''}
                       </option>
@@ -1879,8 +2095,16 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
                       </svg>
                     </div>
                     <div className="flex-1">
-                      <div className="text-white font-medium">{project.projectManager}</div>
-                      <div className="text-xs text-cyan-400">Project Manager</div>
+                      {(() => {
+                        const pmMember = teamMembers?.find(m => m.id === project.projectManager || m.userId === project.projectManager || m.name === project.projectManager);
+                        const pmDisplay = pmMember?.name || (typeof project.projectManager === 'string' && project.projectManager.includes(' ') ? project.projectManager : null);
+                        return (
+                          <>
+                            <div className="text-white font-medium">{pmDisplay || 'Not assigned'}</div>
+                            <div className="text-xs text-cyan-400">Project Manager</div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -1951,8 +2175,8 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
               uid={uid}
               entityType="project"
               entityId={project.id}
-              venues={venues}
-              clients={clients}
+              venues={venues || undefined}
+              clients={clients || undefined}
             />
           </Card>
         )}
@@ -2081,10 +2305,10 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
             zIndex: 99999,
             pointerEvents: 'none'
           }}
-          className="px-3 py-2 bg-gray-900/95 border border-red-500/30 rounded-lg shadow-xl w-64"
+          className="px-3 py-2 bg-gray-900/95 border border-red-500/30 rounded-lg shadow-xl w-72"
         >
           <div className="text-xs text-red-400 font-semibold mb-1">
-            Blocked: {tooltipState.blockerInfo.firstReason}
+            Project Blocked: {tooltipState.blockerInfo.firstReason}
           </div>
           {tooltipState.blockerInfo.firstBlocker?.waitingOn && (
             <div className="text-xs text-gray-300 mb-1">
@@ -2094,15 +2318,26 @@ export function ProjectDetailView({ uid, project: initialProject, onClose, onDel
           {tooltipState.blockerInfo.firstBlocker?.expectedDate && (
             <div className="text-xs text-gray-300 mb-1">
               <span className="text-gray-400">Expected:</span>{' '}
-              {typeof tooltipState.blockerInfo.firstBlocker.expectedDate === 'object' && 'toDate' in tooltipState.blockerInfo.firstBlocker.expectedDate
-                ? tooltipState.blockerInfo.firstBlocker.expectedDate.toDate().toLocaleDateString()
-                : new Date(tooltipState.blockerInfo.firstBlocker.expectedDate).toLocaleDateString()}
+              {formatDate(tooltipState.blockerInfo.firstBlocker.expectedDate)}
             </div>
           )}
           {tooltipState.blockerInfo.extraCount > 0 && (
             <div className="text-xs text-gray-400 mt-1">
-              +{tooltipState.blockerInfo.extraCount} more blocker{tooltipState.blockerInfo.extraCount > 1 ? 's' : ''}
+              +{tooltipState.blockerInfo.extraCount} more project blocker{tooltipState.blockerInfo.extraCount > 1 ? 's' : ''}
             </div>
+          )}
+          {tooltipState.blockerInfo.hasTaskBlockers && (
+            <div className="text-xs text-yellow-300 mt-2 font-semibold">Task Blockers also present</div>
+          )}
+          {tooltipState.blockerInfo.hasTaskBlockers && tooltipState.blockerInfo.taskBlockers && tooltipState.blockerInfo.taskBlockers.length > 0 && (
+            <ul className="mt-1 space-y-1">
+              {tooltipState.blockerInfo.taskBlockers.slice(0, 2).map((tb: any, idx: number) => (
+                <li key={tb.id || idx} className="text-xs text-yellow-200 truncate">• {tb.reason}</li>
+              ))}
+              {tooltipState.blockerInfo.taskBlockers.length > 2 && (
+                <li className="text-xs text-yellow-400">+{tooltipState.blockerInfo.taskBlockers.length - 2} more task blocker{tooltipState.blockerInfo.taskBlockers.length - 2 > 1 ? 's' : ''}</li>
+              )}
+            </ul>
           )}
         </div>,
         document.body

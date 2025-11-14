@@ -23,15 +23,15 @@ function removeUndefinedValues(obj: any): any {
  * Keeps the latest 100 activities and deletes older ones
  * Only runs occasionally (randomly 5% of the time) to avoid performance issues
  */
-async function cleanupOldActivities(uid: string): Promise<void> {
+async function cleanupOldActivities(organizationId: string): Promise<void> {
   try {
     // Only run cleanup 5% of the time to avoid performance issues
     if (Math.random() > 0.05) {
       return;
     }
     
-    const fb = await getFirebase();
-    const activitiesRef = fb.col(uid, 'activities');
+  const fb = await getFirebase();
+  const activitiesRef = fb.orgCol(organizationId, 'activities');
     
     // Get all activities ordered by createdAt descending
     const q = query(activitiesRef, orderBy('createdAt', 'desc'));
@@ -60,7 +60,7 @@ async function cleanupOldActivities(uid: string): Promise<void> {
  * Log an activity/audit trail entry
  */
 export async function logActivity(
-  uid: string,
+  organizationId: string,
   entityType: ActivityEntityType,
   entityId: string,
   entityTitle: string,
@@ -72,17 +72,37 @@ export async function logActivity(
   }
 ): Promise<void> {
   try {
-    // Try to get the user's display name from Firebase Auth
+    const fb = await getFirebase();
+    const userId = fb.auth?.currentUser?.uid || 'unknown';
+    
+    // Try to get the user's display name from options, team member record, or Firebase Auth
     let userName = options?.userName;
-    if (!userName) {
+    if (!userName && userId !== 'unknown') {
       try {
-        const fb = await getFirebase();
-        if (fb.auth && fb.auth.currentUser) {
+        // Try to get name from team member record first
+        const { query, where, getDocs, limit, collection } = await import('firebase/firestore');
+        const teamMembersRef = collection(fb.db, 'teamMembers');
+        const q = query(teamMembersRef, where('userId', '==', userId), where('organizationId', '==', organizationId), limit(1));
+        const snapshot = await getDocs(q);
+        
+        if (!snapshot.empty) {
+          const teamMemberData = snapshot.docs[0].data();
+          userName = teamMemberData.name || teamMemberData.email || 'Unknown User';
+        } else if (fb.auth && fb.auth.currentUser) {
+          // Fall back to Firebase Auth user info
           userName = fb.auth.currentUser.displayName || fb.auth.currentUser.email || "Unknown User";
         }
       } catch (e) {
-        // ignore
+        console.warn('Error fetching team member name for activity log:', e);
+        // Fall back to Firebase Auth if team member lookup fails
+        if (fb.auth && fb.auth.currentUser) {
+          userName = fb.auth.currentUser.displayName || fb.auth.currentUser.email || "Unknown User";
+        }
       }
+    }
+    
+    if (!userName) {
+      userName = "Unknown User";
     }
     
     // Use client timestamp for immediate query visibility
@@ -91,7 +111,8 @@ export async function logActivity(
     console.log('Creating activity with timestamp:', {
       date: now.toISOString(),
       seconds: timestamp.seconds,
-      nanoseconds: timestamp.nanoseconds
+      nanoseconds: timestamp.nanoseconds,
+      userName
     });
     
     const activityData: Omit<Activity, 'id'> = {
@@ -99,7 +120,7 @@ export async function logActivity(
       entityId,
       entityTitle,
       action,
-      userId: uid,
+      userId,
       createdAt: timestamp, // Client timestamp for immediate query visibility
       ...(options?.changes && { changes: options.changes }),
       ...(options?.description && { description: options.description }),
@@ -109,13 +130,12 @@ export async function logActivity(
     // Clean any undefined values before storing to Firebase
     const cleanedActivityData = removeUndefinedValues(activityData);
 
-    const fb = await getFirebase();
-    const activitiesRef = fb.col(uid, `activities`);
+  const activitiesRef = fb.orgCol(organizationId, `activities`);
     await addDoc(activitiesRef, cleanedActivityData);
     console.log('Activity document written to Firestore with client timestamp:', { entityId, entityTitle, action });
     
     // Clean up old activities in the background (keep only last 100)
-    cleanupOldActivities(uid).catch(err => {
+    cleanupOldActivities(organizationId).catch(err => {
       console.warn('Failed to cleanup old activities:', err);
     });
   } catch (error: any) {
@@ -129,14 +149,14 @@ export async function logActivity(
  * Get activity history for a specific entity
  */
 export async function getEntityActivityHistory(
-  uid: string,
+  organizationId: string,
   entityType: ActivityEntityType,
   entityId: string,
   limitCount: number = 50
 ): Promise<Activity[]> {
   try {
     const fb = await getFirebase();
-    const activitiesRef = fb.col(uid, `activities`);
+    const activitiesRef = fb.orgCol(organizationId, `activities`);
 
     const q = query(
       activitiesRef,
@@ -178,12 +198,12 @@ export async function getEntityActivityHistory(
  * Get recent activity across all entities
  */
 export async function getRecentActivity(
-  uid: string,
+  organizationId: string,
   limitCount: number = 100
 ): Promise<Activity[]> {
   try {
     const fb = await getFirebase();
-    const activitiesRef = fb.col(uid, `activities`);
+    const activitiesRef = fb.orgCol(organizationId, `activities`);
     const q = query(
       activitiesRef,
       orderBy("createdAt", "desc"),

@@ -2,11 +2,11 @@ import { useEffect, useState } from 'react';
 import type { WithId, Task } from '../types';
 
 // A hook that defers subscribing to tasks until `enabled` is true.
-export function useMaybeTasks(uid?: string | null, enabled?: boolean) {
+export function useMaybeTasks(organizationId?: string | null, enabled?: boolean) {
   const [tasks, setTasks] = useState<WithId<Task>[]>([]);
 
   useEffect(() => {
-    if (!enabled || !uid) {
+    if (!enabled || !organizationId) {
       setTasks([]);
       return;
     }
@@ -19,7 +19,7 @@ export function useMaybeTasks(uid?: string | null, enabled?: boolean) {
       // useTasks is a hook, we can't call it inside effect; instead import firestore functions directly
       const fb = await (await import('../firebase')).getFirebase();
       const { onSnapshot, query, orderBy } = await import('firebase/firestore');
-      const ref = fb.col(uid, 'tasks');
+      const ref = fb.orgCol(organizationId, 'tasks');
       const q = query(ref, orderBy('order'));
       unsub = onSnapshot(q, (snap: any) => {
         if (!mounted) return;
@@ -31,7 +31,7 @@ export function useMaybeTasks(uid?: string | null, enabled?: boolean) {
       mounted = false;
       if (unsub) unsub();
     };
-  }, [uid, enabled]);
+  }, [organizationId, enabled]);
 
   return tasks;
 }

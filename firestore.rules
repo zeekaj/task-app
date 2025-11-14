@@ -14,6 +14,19 @@ service cloud.firestore {
     }
     function isOrgOwner(orgId) { return isOrgMember(orgId) && memberDoc(orgId).data.role == 'owner'; }
     function isOrgAdmin(orgId) { return isOrgMember(orgId) && (memberDoc(orgId).data.role == 'admin' || memberDoc(orgId).data.role == 'owner'); }
+    function isOrgTechnician(orgId) { return isOrgMember(orgId) && memberDoc(orgId).data.role == 'technician'; }
+    function isOrgFreelance(orgId) { return isOrgMember(orgId) && memberDoc(orgId).data.role == 'freelance'; }
+    function isOrgViewer(orgId) { return isOrgMember(orgId) && memberDoc(orgId).data.role == 'viewer'; }
+    
+    // Helper: can user edit based on role
+    function canEdit(orgId) {
+      return isOrgAdmin(orgId) || isOrgTechnician(orgId);
+    }
+    
+    // Helper: can user delete based on role
+    function canDelete(orgId) {
+      return isOrgAdmin(orgId);
+    }
 
     // Global team members collection
     match /teamMembers/{id} {
@@ -70,6 +83,166 @@ service cloud.firestore {
     // uid is the organization owner UID. Allow owner and active org members.
     match /users/{uid}/{document=**} {
       allow read, write: if isSignedIn() && (request.auth.uid == uid || isOrgMember(uid));
+    }
+
+    // Organization-scoped data collections under organizations/{orgId}/...
+    // Role-based access: Owner/Admin/Technician can see all, Freelance sees only assigned
+    match /organizations/{orgId}/tasks/{taskId} {
+      // Read: All members can read, but we filter in app for freelance
+      // Owner/Admin/Technician/Viewer can read all
+      // Freelance can only read tasks assigned to them
+      allow read: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId) ||
+        isOrgViewer(orgId) ||
+        (isOrgFreelance(orgId) && resource.data.assignee == request.auth.uid)
+      );
+      
+      // Write: Owner/Admin/Technician can create/update any task
+      // Freelance can only update tasks assigned to them
+      allow create: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId)
+      );
+      
+      allow update: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId) ||
+        (isOrgFreelance(orgId) && resource.data.assignee == request.auth.uid)
+      );
+      
+      // Delete: Only Owner/Admin
+      allow delete: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId)
+      );
+    }
+    
+    match /organizations/{orgId}/projects/{projectId} {
+      // Read: All members can read, filtered in app for freelance
+      allow read: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId) ||
+        isOrgViewer(orgId) ||
+        (isOrgFreelance(orgId) && (
+          resource.data.projectManager == request.auth.uid ||
+          resource.data.owner == request.auth.uid ||
+          request.auth.uid in resource.data.get('assignees', [])
+        ))
+      );
+      
+      // Write: Owner/Admin/Technician can create/update any project
+      allow create: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId)
+      );
+      
+      allow update: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId) ||
+        resource.data.projectManager == request.auth.uid ||
+        resource.data.owner == request.auth.uid
+      );
+      
+      // Delete: Only Owner/Admin
+      allow delete: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId)
+      );
+    }
+    
+    match /organizations/{orgId}/blockers/{blockerId} {
+      // All members can read blockers
+      allow read: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+      
+      // Only Owner/Admin/Technician can create/update/delete blockers
+      allow write: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId)
+      );
+    }
+    
+    match /organizations/{orgId}/activityHistory/{activityId} {
+      // All members can read activity history
+      allow read: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+      
+      // All members can write (log their activities)
+      allow write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
+    // Activity log (current collection)
+    match /organizations/{orgId}/activities/{activityId} {
+      // All members can read activity
+      allow read: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+      
+      // All members can write (log their activities)
+      allow write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+    }
+    
+    match /organizations/{orgId}/clients/{clientId} {
+      // All members can read clients
+      allow read: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+      
+      // Owner/Admin/Technician can create/update/delete clients
+      allow write: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId)
+      );
+    }
+    
+    match /organizations/{orgId}/venues/{venueId} {
+      // All members can read venues
+      allow read: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+      
+      // Owner/Admin/Technician can create/update/delete venues
+      allow write: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId)
+      );
+    }
+    
+    match /organizations/{orgId}/shifts/{shiftId} {
+      // All members can read shifts
+      allow read: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+      
+      // Owner/Admin/Technician can create/update/delete shifts
+      allow write: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId)
+      );
+    }
+
+    match /organizations/{orgId}/shiftTemplates/{templateId} {
+      // All members can read shift templates
+      allow read: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+      
+      // Owner/Admin/Technician can create/update/delete templates
+      allow write: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId)
+      );
+    }
+
+    match /organizations/{orgId}/scheduleEvents/{eventId} {
+      // All members can read schedule events
+      allow read: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+      
+      // Owner/Admin/Technician can create/update/delete events
+      allow write: if isSignedIn() && (
+        request.auth.uid == orgId ||
+        isOrgAdmin(orgId) ||
+        isOrgTechnician(orgId)
+      );
     }
   }
 }

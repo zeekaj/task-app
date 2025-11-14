@@ -106,8 +106,8 @@ type CollectionReference = ReturnType<CollectionFn>;
 // Lightweight generic wrapper type so callers can annotate element type T
 type CollectionRefOf<T = any> = CollectionReference & { __docType?: T };
 
-let firestoreInitPromise: Promise<{ app: any; db: Firestore; col: <T = any>(uid: string, name: string) => CollectionRefOf<T>; colFor: <T = any>(uid: string, name: string) => CollectionRefOf<T> }> | null = null;
-let firestoreCached: { app: any; db: Firestore; col: <T = any>(uid: string, name: string) => CollectionRefOf<T>; colFor: <T = any>(uid: string, name: string) => CollectionRefOf<T> } | null = null;
+let firestoreInitPromise: Promise<{ app: any; db: Firestore; col: <T = any>(uid: string, name: string) => CollectionRefOf<T>; colFor: <T = any>(uid: string, name: string) => CollectionRefOf<T>; orgCol: <T = any>(orgId: string, name: string) => CollectionRefOf<T> }> | null = null;
+let firestoreCached: { app: any; db: Firestore; col: <T = any>(uid: string, name: string) => CollectionRefOf<T>; colFor: <T = any>(uid: string, name: string) => CollectionRefOf<T>; orgCol: <T = any>(orgId: string, name: string) => CollectionRefOf<T> } | null = null;
 
 export async function getFirestoreClient() {
   if (firestoreCached) return firestoreCached;
@@ -121,8 +121,9 @@ export async function getFirestoreClient() {
       const db: Firestore = getFirestore(app);
       const col = (uid: string, name: string) => collection(db, `users/${uid}/${name}`) as CollectionReference;
       const colFor = <T = any>(uid: string, name: string) => collection(db, `users/${uid}/${name}`) as unknown as CollectionRefOf<T>;
+      const orgCol = <T = any>(orgId: string, name: string) => collection(db, `organizations/${orgId}/${name}`) as unknown as CollectionRefOf<T>;
 
-  const result = { app, db, col, colFor } as { app: any; db: Firestore; col: <T = any>(uid: string, name: string) => CollectionRefOf<T>; colFor: <T = any>(uid: string, name: string) => CollectionRefOf<T> };
+  const result = { app, db, col, colFor, orgCol } as { app: any; db: Firestore; col: <T = any>(uid: string, name: string) => CollectionRefOf<T>; colFor: <T = any>(uid: string, name: string) => CollectionRefOf<T>; orgCol: <T = any>(orgId: string, name: string) => CollectionRefOf<T> };
   firestoreCached = result;
   return result;
     })();
@@ -141,6 +142,7 @@ export async function getFirebase() {
     // typed col<T>
     col: f!.col,
     colFor: f!.colFor,
+    orgCol: f!.orgCol,
     signIn: a.signIn,
     signOut: a.signOut,
   };

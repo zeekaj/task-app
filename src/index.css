@@ -11,6 +11,11 @@ html, body, #root {
 	height: 100%;
 	background-color: #000000;
 	background-image: none;
+	/* CSS custom properties for native picker theming */
+	--date-picker-background: #1f2937;
+	--date-picker-text-color: #e5e7eb;
+	--date-picker-selected-background: rgba(6, 182, 212, 0.3);
+	--date-picker-selected-text-color: #22d3ee;
 }
 
 /* Priority slider custom styles */
@@ -35,9 +40,9 @@ input[type="range"]::-webkit-slider-thumb {
 	height: 1rem;
 	border-radius: 50%;
 	background: white;
-	border: 2px solid #4b5563;
+	border: 2px solid rgba(0, 208, 255, 0.5); /* brand-cyan with transparency */
 	cursor: grab;
-	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), 0 0 0 2px rgba(0, 208, 255, 0.08);
 	margin-top: -0.25rem; /* Centers the thumb on the track */
 }
 
@@ -47,8 +52,8 @@ input[type="range"]::-webkit-slider-thumb:active {
 
 input[type="range"]::-webkit-slider-thumb:hover {
 	transform: scale(1.15);
-	box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
-	border-color: #1f2937;
+	box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4), 0 0 0 2px rgba(0, 208, 255, 0.18);
+	border-color: #00D0FF; /* brand-cyan */
 }
 
 /* Firefox */
@@ -62,9 +67,9 @@ input[type="range"]::-moz-range-thumb {
 	height: 1rem;
 	border-radius: 50%;
 	background: white;
-	border: 2px solid #4b5563;
+	border: 2px solid rgba(0, 208, 255, 0.5);
 	cursor: grab;
-	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), 0 0 0 2px rgba(0, 208, 255, 0.08);
 }
 
 input[type="range"]::-moz-range-thumb:active {
@@ -73,8 +78,8 @@ input[type="range"]::-moz-range-thumb:active {
 
 input[type="range"]::-moz-range-thumb:hover {
 	transform: scale(1.15);
-	box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
-	border-color: #1f2937;
+	box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4), 0 0 0 2px rgba(0, 208, 255, 0.18);
+	border-color: #00D0FF;
 }
 
 /* Priority slider expand animation - expands horizontally from center */
@@ -87,6 +92,68 @@ input[type="range"]::-moz-range-thumb:hover {
 		opacity: 1;
 		transform: translateX(-50%) scaleX(1);
 	}
+}
+
+/* Dark mode date/time picker styling */
+/* Custom scrollbar for time picker */
+.custom-scrollbar::-webkit-scrollbar {
+	width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+	background: rgba(255, 255, 255, 0.05);
+	border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+	background: rgba(6, 182, 212, 0.3);
+	border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+	background: rgba(6, 182, 212, 0.5);
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+	filter: invert(1);
+	cursor: pointer;
+}
+
+/* Webkit date/time picker dropdown backgrounds */
+input[type="date"]::-webkit-datetime-edit,
+input[type="time"]::-webkit-datetime-edit {
+	color: rgb(229, 231, 235);
+}
+
+input[type="date"]::-webkit-datetime-edit-fields-wrapper,
+input[type="time"]::-webkit-datetime-edit-fields-wrapper {
+	background: transparent;
+}
+
+input[type="date"]::-webkit-datetime-edit-text,
+input[type="time"]::-webkit-datetime-edit-text {
+	color: rgb(156, 163, 175);
+}
+
+input[type="date"]::-webkit-datetime-edit-month-field,
+input[type="date"]::-webkit-datetime-edit-day-field,
+input[type="date"]::-webkit-datetime-edit-year-field,
+input[type="time"]::-webkit-datetime-edit-hour-field,
+input[type="time"]::-webkit-datetime-edit-minute-field,
+input[type="time"]::-webkit-datetime-edit-ampm-field {
+	color: rgb(229, 231, 235);
+	background: transparent;
+}
+
+input[type="date"]::-webkit-datetime-edit-month-field:focus,
+input[type="date"]::-webkit-datetime-edit-day-field:focus,
+input[type="date"]::-webkit-datetime-edit-year-field:focus,
+input[type="time"]::-webkit-datetime-edit-hour-field:focus,
+input[type="time"]::-webkit-datetime-edit-minute-field:focus,
+input[type="time"]::-webkit-datetime-edit-ampm-field:focus {
+	background: rgba(6, 182, 212, 0.2);
+	color: rgb(34, 211, 238);
 }
 
 /* Reusable text shadow utility */

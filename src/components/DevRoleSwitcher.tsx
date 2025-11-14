@@ -9,7 +9,7 @@
  * - The app will behave as if you're logged in as that user
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTeamMembers } from '../hooks/useTeamMembers';
 import { useOrganizationId } from '../hooks/useOrganization';
 import type { TeamMember, WithId, TeamMemberRole } from '../types';
@@ -17,16 +17,19 @@ import type { TeamMember, WithId, TeamMemberRole } from '../types';
 interface DevRoleSwitcherProps {
   currentUserId: string;
   currentMember: (TeamMember & { id: string }) | null;
+  impersonated?: WithId<TeamMember> | null;
   onSwitchUser: (member: WithId<TeamMember>) => void;
   onResetToReal: () => void;
 }
 
 // Check if we're in development mode
 const isDev = import.meta.env?.MODE === 'development' || import.meta.env?.DEV === true;
+const STORAGE_KEY = 'devRoleSwitcher.impersonatedId';
 
 export function DevRoleSwitcher({ 
   currentUserId, 
   currentMember, 
+  impersonated,
   onSwitchUser, 
   onResetToReal 
 }: DevRoleSwitcherProps) {
@@ -35,13 +38,11 @@ export function DevRoleSwitcher({
   const [impersonatedMember, setImpersonatedMember] = useState<WithId<TeamMember> | null>(null);
   const teamMembers = useTeamMembers(orgId || '');
 
-  // Don't render in production
-  if (!isDev) return null;
-
   // Keyboard shortcut: Ctrl+Shift+D or Cmd+Shift+D
   useEffect(() => {
+    if (!isDev) return; // Ensure effect does nothing in production
     const handleKeydown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'D' || e.key === 'd')) {
         e.preventDefault();
         setIsOpen(prev => !prev);
       }
@@ -55,6 +56,61 @@ export function DevRoleSwitcher({
     return () => window.removeEventListener('keydown', handleKeydown);
   }, [isOpen]);
 
+  // Initial restore (only once) when list first becomes available
+  const hasRestoredRef = useRef(false);
+  useEffect(() => {
+    if (!isDev) return;
+    if (hasRestoredRef.current) return;
+    if (!teamMembers || teamMembers.length === 0) return;
+    try {
+      const savedId = localStorage.getItem(STORAGE_KEY);
+      if (savedId) {
+        const found = teamMembers.find(m => m.id === savedId);
+        if (found) {
+          setImpersonatedMember(found);
+          onSwitchUser(found);
+        } else {
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      }
+    } catch {
+      // ignore storage errors in dev
+    } finally {
+      hasRestoredRef.current = true;
+    }
+  }, [teamMembers, onSwitchUser, isDev]);
+
+  // Persist impersonation selection
+  useEffect(() => {
+    if (!isDev) return;
+    try {
+      if (impersonatedMember?.id) {
+        localStorage.setItem(STORAGE_KEY, impersonatedMember.id);
+        // Dispatch custom event for same-window listeners
+        window.dispatchEvent(new Event('devRoleSwitcher:change'));
+      } else {
+        localStorage.removeItem(STORAGE_KEY);
+        // Dispatch custom event for same-window listeners
+        window.dispatchEvent(new Event('devRoleSwitcher:change'));
+      }
+    } catch {
+      // ignore storage errors in dev
+    }
+  }, [impersonatedMember]);
+
+  // Sync internal banner state with App-level impersonation (guard against loops)
+  useEffect(() => {
+    if (!isDev) return;
+    if (impersonated && impersonated.id !== impersonatedMember?.id) {
+      setImpersonatedMember(impersonated);
+    } else if (!impersonated && impersonatedMember) {
+      setImpersonatedMember(null);
+    }
+  }, [impersonated, impersonatedMember, isDev]);
+
+  // Don't render UI in production (after hooks are called to satisfy rules-of-hooks)
+  if (!isDev) return null;
+
   const handleSwitchToMember = (member: WithId<TeamMember>) => {
     setImpersonatedMember(member);
     onSwitchUser(member);
@@ -64,11 +120,15 @@ export function DevRoleSwitcher({
   const handleResetToReal = () => {
     setImpersonatedMember(null);
     onResetToReal();
+    try { localStorage.removeItem(STORAGE_KEY); } catch {
+      // ignore storage errors in dev
+    }
     setIsOpen(false);
   };
 
-  const getRoleBadgeColor = (role: TeamMemberRole): string => {
-    switch (role) {
+  const getRoleBadgeColor = (role: TeamMemberRole | string): string => {
+    const normalizedRole = role === 'member' ? 'technician' : role;
+    switch (normalizedRole) {
       case 'owner': return 'bg-purple-500/20 text-purple-300 border-purple-500/30';
       case 'admin': return 'bg-blue-500/20 text-blue-300 border-blue-500/30';
       case 'technician': return 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30';
@@ -76,6 +136,18 @@ export function DevRoleSwitcher({
       case 'viewer': return 'bg-gray-500/20 text-gray-300 border-gray-500/30';
       default: return 'bg-gray-500/20 text-gray-300 border-gray-500/30';
     }
+  };
+
+  const getRoleLabel = (role: TeamMemberRole | string): string => {
+    const map: Record<string, string> = {
+      owner: 'Owner',
+      admin: 'Admin',
+      technician: 'Technician',
+      member: 'Technician', // Legacy role - display as Technician
+      freelance: 'Freelance',
+      viewer: 'Viewer',
+    };
+    return map[role] || role;
   };
 
   const getInitials = (name: string): string => {
@@ -93,7 +165,7 @@ export function DevRoleSwitcher({
     <>
       {/* Floating dev mode indicator */}
       {impersonatedMember && (
-        <div className="fixed top-4 right-4 z-[9999] bg-yellow-500/10 backdrop-blur-sm border-2 border-yellow-500/50 rounded-lg px-4 py-2 shadow-lg shadow-yellow-500/20">
+        <div className="fixed bottom-4 left-4 z-[9999] bg-yellow-500/10 backdrop-blur-sm border-2 border-yellow-500/50 rounded-lg px-4 py-2 shadow-lg shadow-yellow-500/20">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-yellow-400 rounded-full animate-pulse" />
@@ -107,7 +179,7 @@ export function DevRoleSwitcher({
               <div className="flex flex-col">
                 <span className="text-white text-sm font-medium">{impersonatedMember.name}</span>
                 <span className={`text-xs px-2 py-0.5 rounded border ${getRoleBadgeColor(impersonatedMember.role)} inline-block w-fit`}>
-                  {impersonatedMember.role}
+                  {getRoleLabel(impersonatedMember.role)}
                 </span>
               </div>
             </div>
@@ -235,7 +307,7 @@ export function DevRoleSwitcher({
                               </div>
                               <div className="flex items-center gap-2 mt-1">
                                 <span className={`text-xs px-2 py-0.5 rounded border ${getRoleBadgeColor(member.role)}`}>
-                                  {member.role}
+                                  {getRoleLabel(member.role)}
                                 </span>
                                 {member.email && (
                                   <span className="text-gray-400 text-xs">{member.email}</span>

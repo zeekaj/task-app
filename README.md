@@ -18,10 +18,21 @@ A collaborative task and project management application for production and event
   - Dashboard: Overview of activity and metrics
 - **Advanced Filtering**: Filter by status, priority, due date, assignee with saved preferences per view
 - **Activity History**: Complete audit trail of all changes
-- **Search**: Full-text search across tasks and projects
-- **Undo**: Revert the last change to any task or project
+ - **Search**: Full-text search across tasks and projects
 
 ## Recent Changes (November 2025)
+
+### Blockers & Task Status Fixes (November 5, 2025)
+- Blocker modals: consistent dark glass-morphism styling, proper z-index with portal rendering
+- Add Blocker: Enter key submission with loading/disable states
+- Blocked icon behavior: clicking opens Blocker Manager instead of status dropdown
+- Project detail status badge now updates when items are blocked/unblocked
+- Moving blocked tasks between projects re-evaluates both old and new projects
+- Task Edit Form: fixed persistence by using organizationId instead of uid after migration
+- New: cleared blocker attribution — UI shows "Cleared on {date} by {Member Name}"
+- See EOD notes for details: `docs/EOD_2025-11-05.md`
+- Active work: Priority 2 — Role-Based Visibility & Organization Structure (PR #2)
+  - https://github.com/zeekaj/task-app/pull/2
 
 ### Projects View Enhancements (November 3, 2025)
 - **Real-Time Data Updates**: Converted client and venue data to use Firestore real-time listeners
@@ -108,7 +119,7 @@ A collaborative task and project management application for production and event
 ### Feature Improvements
 - **Blocker Modal in Blocked View**: Clicking blocked badge now opens blocker management modal
 - **Dynamic Blocker Modal Titles**: Modal now shows "Task Blockers" vs "Project Blockers" based on entity type
-- **Undo Button**: Added undo button to TaskItem for reverting recent changes
+- **Undo Button**: Removed from TaskItem (feature retired)
 - **Description Change Tracking**: Activity log now properly tracks description field changes (including empty strings)
 - **Unsaved Changes Warning**: Task edit form now warns before discarding unsaved changes
 - **Search in Project View**: Added search bar to filter tasks within a project
@@ -117,7 +128,7 @@ A collaborative task and project management application for production and event
 
 ### Project Edit Modal Enhancements (October 30, 2025)
 - Tasks tab now uses the same TaskItem/TaskEditForm components as the main Tasks view
-  - Full parity: status menu, assignee dropdown with Portal, priority slider, blockers, inline title edit, undo
+  - Full parity: status menu, assignee dropdown with Portal, priority slider, blockers, inline title edit
   - Quick Add Task at the top remains
 - Added Arrange controls (no filters in modal)
   - Sort by Created, Status, Title, Due Date, Priority, or Assignee

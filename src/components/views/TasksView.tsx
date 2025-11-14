@@ -7,7 +7,8 @@ import { logError } from "../../utils/logger";
 import type { WithId, Task, Blocker, TaskFilters, Project, TaskAssignee, DueFilter, StatusFilter } from "../../types";
 import { TaskItem } from "../TaskItem";
 import { TaskEditForm } from "../TaskEditForm";
-import { createTask } from "../../services/tasks";
+import { Modal } from "../shared/Modal";
+import AddTaskModal from "../AddTaskModal";
 import { BlockerModal } from "../BlockerModal";
 import { BlockerManagerModal } from "../BlockerManagerModal";
 import { FilterBar, defaultFilters } from "../FilterBar";
@@ -19,8 +20,11 @@ import { ProjectDetailView } from './ProjectDetailView';
 // Main TasksView component
 
 import { useAllBlockers } from "../../hooks/useBlockers";
-import { useTasks } from "../../hooks/useTasks";
 import { useProjects } from "../../hooks/useProjects";
+import { useUserContext } from "../../hooks/useUserContext";
+import { useRoleBasedTasks } from "../../hooks/useRoleBasedTasks";
+import { useTeamMembers } from "../../hooks/useTeamMembers";
+import { canCreateTask } from "../../utils/permissions";
 
 interface TasksViewProps {
   uid: string;
@@ -30,9 +34,30 @@ interface TasksViewProps {
 }
 
 function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, allBlockers: propAllBlockers }: TasksViewProps) {
+  // Get user context for role-based permissions
+  const { role, teamMemberId, organizationId } = useUserContext();
+  
+  // Get team members for creator grouping
+  const teamMembers = useTeamMembers(organizationId || uid);
+  
+  // Toggle for admins to switch between "My Tasks" and "All Tasks"
+  const [viewingAllTasks, setViewingAllTasks] = useState(() => {
+    const saved = localStorage.getItem('viewingAllTasks');
+    return saved === 'true'; // Default to false (My Tasks)
+  });
+  
+  // Save viewing preference
+  React.useEffect(() => {
+    localStorage.setItem('viewingAllTasks', String(viewingAllTasks));
+  }, [viewingAllTasks]);
+  
   const hookAllBlockers = useAllBlockers(uid);
   const safeAllBlockers = propAllBlockers ?? hookAllBlockers;
-  const hookTasks = useTasks(uid);
+  
+  // Use role-based tasks hook: skip filter when admin/owner views "All Tasks"
+  const shouldSkipRoleFilter = (role === 'owner' || role === 'admin') && viewingAllTasks;
+  const hookTasks = useRoleBasedTasks(uid, undefined, shouldSkipRoleFilter);
+  
   const hookProjects = useProjects(uid);
   const allTasks = propAllTasks ?? hookTasks;
   const allProjects = propAllProjects ?? hookProjects;
@@ -59,6 +84,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
   const [arrangeBy, setArrangeBy] = useState("age");
   const [reverseOrder, setReverseOrder] = useState(false);
   const [quickAdd, setQuickAdd] = useState("");
+  const [showAddTaskModal, setShowAddTaskModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   // Removed streamlined UI toggle; always using classic FilterBar
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
@@ -300,6 +326,8 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
 
   const hiddenTaskCount = hiddenTasksInfo.count;
 
+  const editingTask = editingTaskId ? (allTasks.find((x: WithId<Task>) => x.id === editingTaskId) ?? filteredTasks.find((x: WithId<Task>) => x.id === editingTaskId)) : null;
+
   // Save task type filter to localStorage when it changes
   React.useEffect(() => {
     localStorage.setItem('taskTypeFilter', taskTypeFilter);
@@ -387,18 +415,69 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
   // Memoized grouped and sorted tasks to prevent recalculation on every render
   const groupedTasks = useMemo(() => {
     function groupTasks(tasks: WithId<Task>[], groupBy: string): Record<string, WithId<Task>[]> {
-      if (!groupBy || groupBy === "none") return { "": sortTasks(tasks) };
+      if (!groupBy || groupBy === "none") {
+        // If admin/owner is viewing "All Tasks", group by creator
+        if ((role === 'owner' || role === 'admin') && viewingAllTasks) {
+          const groups: Record<string, WithId<Task>[]> = {};
+          
+          for (const task of tasks) {
+            // Find the creator's name from team members
+            const creator = teamMembers?.find(m => m.id === task.createdBy);
+            const creatorName = creator?.name || 'Unknown';
+            const groupKey = `👤 ${creatorName}`;
+            
+            if (!groups[groupKey]) {
+              groups[groupKey] = [];
+            }
+            groups[groupKey].push(task);
+          }
+          
+          // Sort tasks within each group
+          Object.keys(groups).forEach(key => {
+            groups[key] = sortTasks(groups[key]);
+          });
+          
+          // If no tasks, return empty group
+          if (Object.keys(groups).length === 0) {
+            return { "": [] };
+          }
+          
+          return groups;
+        }
+        
+        // If viewing "all" tasks and not grouping by anything else, group by task type
+        if (taskTypeFilter === 'all') {
+          const generalTasks = tasks.filter(t => !t.projectId);
+          const projectTasks = tasks.filter(t => t.projectId);
+          const result: Record<string, WithId<Task>[]> = {};
+          if (generalTasks.length > 0) {
+            result["General Tasks"] = sortTasks(generalTasks);
+          }
+          if (projectTasks.length > 0) {
+            result["Project Tasks"] = sortTasks(projectTasks);
+          }
+          if (generalTasks.length === 0 && projectTasks.length === 0) {
+            result[""] = [];
+          }
+          return result;
+        }
+        return { "": sortTasks(tasks) };
+      }
       const groups: Record<string, WithId<Task>[]> = {};
       for (const t of tasks) {
         let key = "";
         if (groupBy === "status") key = t.status || "(none)";
         else if (groupBy === "priority") key = String(t.priority ?? "(none)");
         else if (groupBy === "due") key = t.dueDate ? t.dueDate.slice(0, 10) : "(none)";
-        else if (groupBy === "assigned") key = t.assignee
-          ? (typeof t.assignee === "object"
-              ? (t.assignee as TaskAssignee).name || (t.assignee as TaskAssignee).id
-              : t.assignee)
-          : "(none)";
+        else if (groupBy === "assigned") {
+          let assigneeId = typeof t.assignee === "object" ? t.assignee?.id : t.assignee;
+          let assigneeName = "(none)";
+          if (assigneeId) {
+            const member = teamMembers?.find(m => m.id === assigneeId || m.name === assigneeId);
+            assigneeName = member?.name || assigneeId;
+          }
+          key = assigneeName;
+        }
         else if (groupBy === "project") {
           if (t.projectId && allProjects?.length) {
             const project = allProjects.find(p => p.id === t.projectId);
@@ -419,7 +498,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
     }
     
     return groupTasks(filteredTasks, filters.groupBy || "none");
-  }, [filteredTasks, filters.groupBy, sortTasks, allProjects]);
+  }, [filteredTasks, filters.groupBy, sortTasks, allProjects, taskTypeFilter, role, viewingAllTasks, teamMembers]);
 
   // Remove effect that updates dragList from backend unless a drag is in progress
 
@@ -429,7 +508,7 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
     e.preventDefault();
     if (!quickAdd.trim()) return;
     try {
-      await createTask(uid, quickAdd.trim(), null);
+      await createTask(uid, quickAdd.trim(), null, {}, teamMemberId || undefined);
       setQuickAdd("");
     } catch (error) {
       console.error("Error creating task:", error);
@@ -442,16 +521,56 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
   <div className="space-y-6">
       <div className="flex items-end justify-between">
   <h1 className="text-3xl font-bold text-brand-text">Tasks</h1>
+          {/* My Tasks / All Tasks toggle for admins */}
+          {(role === 'owner' || role === 'admin') && (
+            <div className="flex items-center gap-2 bg-[rgba(20,20,30,0.6)] backdrop-blur-sm border border-white/10 rounded-lg p-1">
+              <button
+                type="button"
+                onClick={() => setViewingAllTasks(false)}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                  !viewingAllTasks
+                    ? 'bg-brand-cyan text-white shadow-lg shadow-brand-cyan/30'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                My Tasks
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewingAllTasks(true)}
+                className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${
+                  viewingAllTasks
+                    ? 'bg-brand-cyan text-white shadow-lg shadow-brand-cyan/30'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}
+              >
+                All Tasks
+              </button>
+            </div>
+          )}
       </div>
 
-      <form onSubmit={handleQuickAdd} className="mt-3">
-        <input
-          className="w-full bg-[rgba(20,20,30,0.6)] backdrop-blur-sm border border-white/10 rounded-lg px-4 py-3 text-base text-brand-text placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan/50 transition-all"
-          placeholder="✨ Add a new task..."
-          value={quickAdd}
-          onChange={(e) => setQuickAdd(e.target.value)}
-        />
-      </form>
+        {/* Quick Add - hide for viewers and freelancers */}
+        {canCreateTask(role || 'viewer') && (
+          <div className="mt-3">
+            <form onSubmit={handleQuickAdd} className="flex items-center gap-2">
+              <input
+                className="flex-1 bg-[rgba(20,20,30,0.6)] backdrop-blur-sm border border-white/10 rounded-lg px-4 py-3 text-base text-brand-text placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-brand-cyan/50 focus:border-brand-cyan/50 transition-all"
+                placeholder="✨ Quick add task..."
+                value={quickAdd}
+                onChange={(e) => setQuickAdd(e.target.value)}
+              />
+              <button
+                type="button"
+                onClick={() => setShowAddTaskModal(true)}
+                className="px-4 py-3 bg-brand-cyan text-white rounded-lg text-sm font-medium hover:bg-brand-cyan-light transition-colors"
+                title="Add Task"
+              >
+                Add Task
+              </button>
+            </form>
+          </div>
+        )}
 
       {/* Filters Bar (match Project View) */}
       <div className="mt-4">
@@ -493,7 +612,12 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                     : 'text-gray-400 hover:text-white hover:bg-white/5'
                 }`}
               >
-                📋 General
+                <span className="inline-flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10" />
+                  </svg>
+                  <span>General</span>
+                </span>
               </button>
               <button
                 type="button"
@@ -504,7 +628,12 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
                     : 'text-gray-400 hover:text-white hover:bg-white/5'
                 }`}
               >
-                📁 Project Tasks
+                <span className="inline-flex items-center gap-2">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                  <span>Project Tasks</span>
+                </span>
               </button>
             </div>
 
@@ -613,113 +742,92 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
             <div key={group} className="mb-6">
               {group && (
                 <div className="font-bold text-lg mb-2 capitalize">
-                  {filters.groupBy === "priority"
-                    ? (() => {
-                        const labels: Record<string, string> = {
-                          "0": "Any",
-                          "1": "Low",
-                          "2": "Medium",
-                          "3": "High",
-                          "4": "Urgent",
-                        };
-                        return labels[group] || group;
-                      })()
-                    : filters.groupBy === "due"
-                    ? group
-                    : filters.groupBy === "assigned"
-                    ? group
-                    : filters.groupBy === "status"
-                    ? (() => {
-                        const statusLabels: Record<string, string> = {
-                          "not_started": "Not Started",
-                          "in_progress": "In Progress",
-                          "blocked": "Blocked",
-                          "done": "Done",
-                          "archived": "Archived",
-                        };
-                        return statusLabels[group] || group.charAt(0).toUpperCase() + group.slice(1);
-                      })()
-                    : group.charAt(0).toUpperCase() + group.slice(1)}
+                  {(() => {
+                    if (filters.groupBy === "priority") {
+                      const labels: Record<string, string> = {
+                        "0": "Any",
+                        "1": "Low",
+                        "2": "Medium",
+                        "3": "High",
+                        "4": "Urgent",
+                      };
+                      return labels[group] || group;
+                    }
+                    if (filters.groupBy === "due" || filters.groupBy === "assigned") {
+                      return group;
+                    }
+                    if (filters.groupBy === "status") {
+                      const statusLabels: Record<string, string> = {
+                        "not_started": "Not Started",
+                        "in_progress": "In Progress",
+                        "blocked": "Blocked",
+                        "done": "Done",
+                        "archived": "Archived",
+                      };
+                      return statusLabels[group] || group.charAt(0).toUpperCase() + group.slice(1);
+                    }
+                    // Default: show special icons for known group types
+                    if (group === 'General Tasks') {
+                      return (
+                        <span className="inline-flex items-center gap-3">
+                          <svg className="w-5 h-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h10" />
+                          </svg>
+                          <span>General Tasks</span>
+                        </span>
+                      );
+                    }
+                    if (group === 'Project Tasks') {
+                      return (
+                        <span className="inline-flex items-center gap-3">
+                          <svg className="w-5 h-5 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                          </svg>
+                          <span>Project Tasks</span>
+                        </span>
+                      );
+                    }
+                    return group.charAt(0).toUpperCase() + group.slice(1);
+                  })()}
                 </div>
               )}
               <ul className="space-y-2 relative">
                 {grouped[group].map((t: WithId<Task>) => (
                   <li key={t.id} className="relative">
-                    {editingTaskId === t.id ? (
-                      <div className="mt-2">
-                        <TaskEditForm
-                          uid={uid}
-                          task={t}
-                          allProjects={allProjects}
-                          searchQuery={searchQuery}
-                          onSave={() => setEditingTaskId(null)}
-                          onCancel={() => setEditingTaskId(null)}
-                          // ...existing code...
-                          onDelete={async () => {
-                            const action = async () => {
-                              const { removeTask } = await import("../../services/tasks");
-                              await removeTask(uid, t.id);
-                              setEditingTaskId(null);
-                            };
-                            setConfirmMessage("Delete this task?");
-                            setConfirmAction(() => action);
-                            setConfirmOpen(true);
-                          }}
-                          onArchive={async () => {
-                            const { archiveTask } = await import("../../services/tasks");
-                            await archiveTask(uid, t.id);
-                          }}
-                          onUnarchive={async () => {
-                            const { unarchiveTask } = await import("../../services/tasks");
-                            await unarchiveTask(uid, t.id);
-                          }}
-                          onStatusChange={async (newStatus) => {
-                            const { updateTask } = await import("../../services/tasks");
-                            await updateTask(uid, t.id, { status: newStatus });
-                            // Modal will remain open after status change
-                          }}
-                        />
-                      </div>
-                    ) : (
-                      <TaskItem
-                        uid={uid}
-                        task={t}
-                        allBlockers={safeAllBlockers}
-                        allTasks={filteredTasks}
-                        allProjects={allProjects}
-                        searchQuery={searchQuery}
-                        onStartEdit={() => setEditingTaskId(t.id)}
-                        // ...existing code...
-                        onManageBlockers={() => setBlockerManagerTask({ id: t.id, title: t.title, type: "task" })}
-                        onStartBlock={() => setBlockerModalTask({ id: t.id, title: t.title, type: "task" })}
-                        onProjectClick={(project) => setSelectedProject(project)}
-                        onArchive={async () => {
-                          const { archiveTask } = await import("../../services/tasks");
-                          await archiveTask(uid, t.id);
-                        }}
-                        onDelete={async () => {
-                          const action = async () => {
-                            const { removeTask } = await import("../../services/tasks");
-                            await removeTask(uid, t.id);
-                          };
-                          setConfirmMessage("Delete this task?");
-                          setConfirmAction(() => action);
-                          setConfirmOpen(true);
-                        }}
-                        onUnarchive={async () => {
-                          const { unarchiveTask } = await import("../../services/tasks");
-                          await unarchiveTask(uid, t.id);
-                        }}
-                        onStatusChange={async (newStatus) => {
-                          const { updateTask } = await import("../../services/tasks");
-                          await updateTask(uid, t.id, { status: newStatus });
-                        }}
-                        onUndo={async () => {
-                          const { undoLastChange } = await import("../../services/undo");
-                          return await undoLastChange(uid, "task", t.id);
-                        }}
-                      />
-                    )}
+                    <TaskItem
+                      uid={uid}
+                      task={t}
+                      allBlockers={safeAllBlockers}
+                      allTasks={filteredTasks}
+                      allProjects={allProjects}
+                      searchQuery={searchQuery}
+                      onStartEdit={() => setEditingTaskId(t.id)}
+                      // ...existing code...
+                      onManageBlockers={() => setBlockerManagerTask({ id: t.id, title: t.title, type: "task" })}
+                      onStartBlock={() => setBlockerModalTask({ id: t.id, title: t.title, type: "task" })}
+                      onProjectClick={(project) => setSelectedProject(project)}
+                      onArchive={async () => {
+                        const { archiveTask } = await import("../../services/tasks");
+                        await archiveTask(uid, t.id);
+                      }}
+                      onDelete={async () => {
+                        const action = async () => {
+                          const { removeTask } = await import("../../services/tasks");
+                          await removeTask(uid, t.id);
+                        };
+                        setConfirmMessage("Delete this task?");
+                        setConfirmAction(() => action);
+                        setConfirmOpen(true);
+                      }}
+                      onUnarchive={async () => {
+                        const { unarchiveTask } = await import("../../services/tasks");
+                        await unarchiveTask(uid, t.id);
+                      }}
+                      onStatusChange={async (newStatus) => {
+                        const { updateTask } = await import("../../services/tasks");
+                        await updateTask(uid, t.id, { status: newStatus });
+                      }}
+                    />
                   </li>
                 ))}
               </ul>
@@ -743,6 +851,57 @@ function TasksView({ uid, allTasks: propAllTasks, allProjects: propAllProjects, 
           onClose={() => setBlockerManagerTask(null)}
         />
       )}
+
+      {/* Task Edit Modal (pop-out) */}
+      {editingTaskId && editingTask && (
+        <Modal
+          open={true}
+          onClose={() => setEditingTaskId(null)}
+          widthClass="max-w-4xl"
+          noFrame={true}
+        >
+          <TaskEditForm
+            uid={uid}
+            task={editingTask}
+            allProjects={allProjects}
+            searchQuery={searchQuery}
+            onSave={() => setEditingTaskId(null)}
+            onCancel={() => setEditingTaskId(null)}
+            onDelete={async () => {
+              const action = async () => {
+                const { removeTask } = await import("../../services/tasks");
+                await removeTask(uid, editingTask.id);
+                setEditingTaskId(null);
+              };
+              setConfirmMessage("Delete this task?");
+              setConfirmAction(() => action);
+              setConfirmOpen(true);
+            }}
+            onArchive={async () => {
+              const { archiveTask } = await import("../../services/tasks");
+              await archiveTask(uid, editingTask.id);
+            }}
+            onUnarchive={async () => {
+              const { unarchiveTask } = await import("../../services/tasks");
+              await unarchiveTask(uid, editingTask.id);
+            }}
+            onStatusChange={async (newStatus) => {
+              const { updateTask } = await import("../../services/tasks");
+              await updateTask(uid, editingTask.id, { status: newStatus });
+            }}
+          />
+        </Modal>
+      )}
+      {/* Add Task Modal */}
+      <AddTaskModal
+        open={showAddTaskModal}
+        uid={uid}
+        onClose={() => setShowAddTaskModal(false)}
+        allProjects={allProjects}
+        teamMemberId={teamMemberId}
+        teamMembers={teamMembers}
+        onCreated={(id) => setEditingTaskId(id)}
+      />
       {/* Portal badge to avoid clipping by ancestor overflow */}
       {badgePos && activeFilterCount > 0 && createPortal(
         <div 

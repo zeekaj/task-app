@@ -44,6 +44,7 @@ export interface Project {
   returnDate?: Timestamp | Date | string; // Return Date - when project moves to 'post_event'
   // Post-event report (completed by PM)
   postEventReport?: PostEventReport;
+  color?: string; // hex color for calendar display
   createdAt?: Timestamp | FieldValue;
   updatedAt?: Timestamp | FieldValue;
 }
@@ -79,9 +80,11 @@ export interface Task {
   id?: string;
   title: string;
   description?: string;
+  showDescriptionInCard?: boolean; // whether to show description in task line view
   projectId: string | null;
   status: TaskStatus;
   assignee?: string | TaskAssignee; // user ID or object
+  createdBy?: string; // user ID of the person who created the task
   priority: number; // 0..100 scale
   dueDate: string | null; // ISO string or null
   order?: number; // for custom ordering
@@ -108,6 +111,7 @@ export interface Blocker {
   createdAt?: Timestamp;
   clearedAt?: Timestamp;
   clearedReason?: string;
+  clearedBy?: string; // userId of the person who cleared the blocker
   prevStatus?: TaskStatus | ProjectStatus | null;
   capturesPrev?: boolean;
 }

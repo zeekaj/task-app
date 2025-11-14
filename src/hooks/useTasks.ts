@@ -12,7 +12,9 @@ import { mapSnapshotDocs } from "../utils/firestore";
 // QuerySnapshot<T> is imported above
 
 /**
- * Subscribes to the current user's tasks.
+ * Subscribes to tasks for an organization.
+ * @param organizationId - The organization ID (owner's uid)
+ * @param options - Query options for filtering tasks
  */
 export type TasksQueryOptions = {
   projectId?: string | null; // subscribe to tasks for a project only
@@ -21,13 +23,13 @@ export type TasksQueryOptions = {
   orderByCreatedDesc?: boolean; // default true
 };
 
-// Backwards-compatible hook: useTasks(uid) still works. New signature: useTasks(uid, options)
-export function useTasks(uid?: string, options?: TasksQueryOptions) {
+// Updated signature: useTasks(organizationId, options)
+export function useTasks(organizationId?: string, options?: TasksQueryOptions) {
   const [tasks, setTasks] = useState<WithId<Task>[]>([]);
   const optionsKey = `${options?.limit ?? ''}|${options?.orderByCreatedDesc ?? ''}|${options?.projectId ?? ''}|${Array.isArray(options?.status) ? options!.status.join(',') : ''}`;
 
   useEffect(() => {
-    if (!uid) {
+    if (!organizationId) {
       setTasks([]);
       return;
     }
@@ -42,7 +44,7 @@ export function useTasks(uid?: string, options?: TasksQueryOptions) {
       constraints.push(limit(options!.limit));
     }
   const fb = await getFirebase();
-  const collectionRef = fb.colFor(uid, 'tasks');
+  const collectionRef = fb.orgCol(organizationId, 'tasks');
 
         // Build more targeted queries where possible
         let qRef: any = collectionRef;
@@ -68,7 +70,7 @@ export function useTasks(uid?: string, options?: TasksQueryOptions) {
         // Cleanup
         return () => unsub();
       })();
-  }, [uid, optionsKey, options]);
+  }, [organizationId, optionsKey, options]);
 
   return tasks;
 }

@@ -76,6 +76,56 @@ service cloud.firestore {
 }
 ```
 
+## Extended organization collections access
+
+In addition to teamMembers and the membership mirror, the app uses organization-scoped collections for application data. These rules grant read/write access to the org owner (UID matches orgId) and active org members. Apply principle-of-least-privilege as you refine role-based permissions.
+
+```txt
+// Organization-scoped data collections under organizations/{orgId}/...
+match /databases/{database}/documents {
+  match /organizations/{orgId}/tasks/{taskId} {
+    allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+  }
+  match /organizations/{orgId}/projects/{projectId} {
+    allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+  }
+  match /organizations/{orgId}/blockers/{blockerId} {
+    allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+  }
+  match /organizations/{orgId}/activities/{activityId} {
+    allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+  }
+  match /organizations/{orgId}/clients/{clientId} {
+    allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+  }
+  match /organizations/{orgId}/venues/{venueId} {
+    allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+  }
+  match /organizations/{orgId}/shifts/{shiftId} {
+    allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+  }
+  match /organizations/{orgId}/shiftTemplates/{templateId} {
+    allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+  }
+  match /organizations/{orgId}/scheduleEvents/{eventId} {
+    allow read, write: if isSignedIn() && (request.auth.uid == orgId || isOrgMember(orgId));
+  }
+}
+```
+
+## Transitional (legacy) user-scoped paths
+
+If you still have data under `users/{uid}/*` during migration, you can temporarily allow access scoped to the organization owner UID. Remove this block after deprecation:
+
+```txt
+match /databases/{database}/documents {
+  // uid is the organization owner UID. Allow owner and active org members.
+  match /users/{uid}/{document=**} {
+    allow read, write: if isSignedIn() && (request.auth.uid == uid || isOrgMember(uid));
+  }
+}
+```
+
 ## Apply these rules
 
 1. Open Firebase console → Firestore Database → Rules.
@@ -87,3 +137,8 @@ service cloud.firestore {
 - This keeps per-org data isolated. Members only see their org’s documents.
 - The app mirrors role changes to the membership doc when a member’s role is edited.
 - If you later add more org-scoped collections, reuse `isOrgMember/isOrgAdmin` for consistent access control.
+
+### Next hardening steps
+- Replace broad org-member write access with role-based permissions (owner/admin vs technician/freelance/viewer)
+- Write-only service accounts or Cloud Functions can further restrict client writes if needed
+- Add validation rules for required fields on critical collections (e.g., organizationId, createdBy)
