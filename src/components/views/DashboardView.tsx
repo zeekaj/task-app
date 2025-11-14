@@ -47,7 +47,8 @@ interface DashboardViewProps {
 
 const DashboardViewComponent = ({ uid }: DashboardViewProps) => {
   const tasks = useRoleBasedTasks(uid);
-  const projects = useRoleBasedProjects(uid);
+  // Show all projects on the dashboard (skip role-based filtering)
+  const projects = useRoleBasedProjects(uid, undefined, true);
   const teamMembers = useTeamMembers(uid);
   const [recentActivity, setRecentActivity] = useState<Activity[]>([]);
   const [showQuickAddTask, setShowQuickAddTask] = useState(false);

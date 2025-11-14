@@ -2,6 +2,7 @@
 import { getFirebase } from "../firebase";
 import type { Project } from "../types";
 import { logActivity } from "./activityHistory";
+import { generateRandomProjectColor } from "../utils/colors";
 
 /** Create a new project. */
 export async function createProject(organizationId: string, title: string, assignees?: string | string[]) {
@@ -14,6 +15,7 @@ export async function createProject(organizationId: string, title: string, assig
       title,
       status: "not_started" as ProjectStatus,
       statusMode: "auto",
+      color: generateRandomProjectColor(),
       createdAt: _serverTimestamp(),
       updatedAt: _serverTimestamp(),
     };
@@ -47,7 +49,32 @@ export async function createProject(organizationId: string, title: string, assig
 export async function updateProject(
   organizationId: string,
   projectId: string,
-  data: Partial<Pick<Project, "title" | "status" | "statusMode" | "assignee" | "assignees" | "owner" | "projectManager" | "r2Number" | "installDate" | "prepDate" | "returnDate" | "postEventReport" | "clientId" | "venueId">>
+  data: Partial<
+    Pick<
+      Project,
+      | "title"
+      | "status"
+      | "statusMode"
+      | "assignee"
+      | "assignees"
+      | "owner"
+      | "projectManager"
+      | "r2Number"
+      | "installDate"
+      | "prepDate"
+      | "shipDate"
+      | "loadInDate"
+      | "eventBeginDate"
+      | "eventEndDate"
+      | "strikeDate"
+      | "pickupDate"
+      | "returnDate"
+      | "postEventReport"
+      | "clientId"
+      | "venueId"
+      | "color"
+    >
+  >
 ) {
   // Get current project for change tracking
   const { getDoc: _getDoc, doc: _doc, serverTimestamp: _serverTimestamp } = await import('firebase/firestore');
@@ -158,6 +185,62 @@ export async function updateProject(
       };
     }
   }
+
+  // Additional milestone dates
+  const normalizeDate = (date: any): Date | null => {
+    if (!date) return null;
+    if ((date as any)?.toDate) return (date as any).toDate();
+    return new Date(date);
+  };
+
+  if (typeof (data as any).shipDate !== "undefined") {
+    (payload as any).shipDate = (data as any).shipDate;
+    const currentVal = normalizeDate((currentProject as any)?.shipDate);
+    const newVal = normalizeDate((data as any).shipDate);
+    if (currentVal?.getTime() !== newVal?.getTime()) {
+      (changes as any).shipDate = { from: currentVal ? currentVal.toISOString() : null, to: newVal ? newVal.toISOString() : null };
+    }
+  }
+  if (typeof (data as any).loadInDate !== "undefined") {
+    (payload as any).loadInDate = (data as any).loadInDate;
+    const currentVal = normalizeDate((currentProject as any)?.loadInDate);
+    const newVal = normalizeDate((data as any).loadInDate);
+    if (currentVal?.getTime() !== newVal?.getTime()) {
+      (changes as any).loadInDate = { from: currentVal ? currentVal.toISOString() : null, to: newVal ? newVal.toISOString() : null };
+    }
+  }
+  if (typeof (data as any).eventBeginDate !== "undefined") {
+    (payload as any).eventBeginDate = (data as any).eventBeginDate;
+    const currentVal = normalizeDate((currentProject as any)?.eventBeginDate);
+    const newVal = normalizeDate((data as any).eventBeginDate);
+    if (currentVal?.getTime() !== newVal?.getTime()) {
+      (changes as any).eventBeginDate = { from: currentVal ? currentVal.toISOString() : null, to: newVal ? newVal.toISOString() : null };
+    }
+  }
+  if (typeof (data as any).eventEndDate !== "undefined") {
+    (payload as any).eventEndDate = (data as any).eventEndDate;
+    const currentVal = normalizeDate((currentProject as any)?.eventEndDate);
+    const newVal = normalizeDate((data as any).eventEndDate);
+    if (currentVal?.getTime() !== newVal?.getTime()) {
+      (changes as any).eventEndDate = { from: currentVal ? currentVal.toISOString() : null, to: newVal ? newVal.toISOString() : null };
+    }
+  }
+  if (typeof (data as any).strikeDate !== "undefined") {
+    (payload as any).strikeDate = (data as any).strikeDate;
+    const currentVal = normalizeDate((currentProject as any)?.strikeDate);
+    const newVal = normalizeDate((data as any).strikeDate);
+    if (currentVal?.getTime() !== newVal?.getTime()) {
+      (changes as any).strikeDate = { from: currentVal ? currentVal.toISOString() : null, to: newVal ? newVal.toISOString() : null };
+    }
+  }
+  if (typeof (data as any).pickupDate !== "undefined") {
+    (payload as any).pickupDate = (data as any).pickupDate;
+    const currentVal = normalizeDate((currentProject as any)?.pickupDate);
+    const newVal = normalizeDate((data as any).pickupDate);
+    if (currentVal?.getTime() !== newVal?.getTime()) {
+      (changes as any).pickupDate = { from: currentVal ? currentVal.toISOString() : null, to: newVal ? newVal.toISOString() : null };
+    }
+  }
   if (typeof data.returnDate !== "undefined") {
     payload.returnDate = data.returnDate;
     const normalizeDate = (date: any): Date | null => {
@@ -199,6 +282,16 @@ export async function updateProject(
       changes.venueId = { 
         from: currentProject?.venueId || null, 
         to: data.venueId || null 
+      };
+    }
+  }
+  
+  if (typeof data.color !== "undefined") {
+    payload.color = data.color;
+    if (currentProject?.color !== data.color) {
+      changes.color = { 
+        from: currentProject?.color || null, 
+        to: data.color || null 
       };
     }
   }

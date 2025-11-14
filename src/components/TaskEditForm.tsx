@@ -61,6 +61,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   const formRef = useRef<HTMLFormElement>(null);
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description ?? "");
+  const [showDescriptionInCard, setShowDescriptionInCard] = useState(task.showDescriptionInCard ?? false);
   const [priority, setPriority] = useState<number>(task.priority ?? 0);
   const [dueDate, setDueDate] = useState<string>(task.dueDate ?? "");
   const [projectId, setProjectId] = useState<string>(task.projectId ?? "");
@@ -94,6 +95,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     return (
       title !== task.title ||
       description !== (task.description ?? "") ||
+      showDescriptionInCard !== (task.showDescriptionInCard ?? false) ||
       priority !== (task.priority ?? 0) ||
       dueDate !== (task.dueDate ?? "") ||
       projectId !== (task.projectId ?? "") ||
@@ -105,13 +107,29 @@ export const TaskEditForm: React.FC<Props> = (props) => {
       JSON.stringify(attachments) !== JSON.stringify(task.attachments || [])
     );
   }, [
-    title, description, priority, dueDate, projectId, assignee, comments,
+    title, description, showDescriptionInCard, priority, dueDate, projectId, assignee, comments,
     subtasks, dependencies, recurrence, attachments,
-    task.title, task.description, task.priority, task.dueDate, task.projectId,
+    task.title, task.description, task.showDescriptionInCard, task.priority, task.dueDate, task.projectId,
     task.assignee, task.comments, task.subtasks, task.dependencies, task.recurrence,
     task.attachments
   ]);
   
+  // Sync local state when task prop changes (e.g., from real-time updates)
+  useEffect(() => {
+    setTitle(task.title);
+    setDescription(task.description ?? "");
+    setShowDescriptionInCard(task.showDescriptionInCard ?? false);
+    setPriority(task.priority ?? 0);
+    setDueDate(task.dueDate ?? "");
+    setProjectId(task.projectId ?? "");
+    setAssignee(typeof task.assignee === "string" ? task.assignee : (task.assignee?.id ?? ""));
+    setComments(task.comments ?? "");
+    setAttachments(task.attachments || []);
+    setSubtasks(task.subtasks || []);
+    setDependencies(task.dependencies || []);
+    setRecurrence(task.recurrence || { type: "none" });
+  }, [task]);
+
   // Generate assignee suggestions
   const suggestions: AssigneeSuggestion[] = React.useMemo(() => {
     if (!allTasks || !teamMembers) return [];
@@ -131,6 +149,14 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     if (!projectId || !allProjects?.length) return null;
     return allProjects.find(p => p.id === projectId) || null;
   }, [projectId, allProjects]);
+
+  // Resolve creator display name from team members (task.createdBy is usually a uid)
+  const creatorName = React.useMemo(() => {
+    if (!task.createdBy) return '--';
+    if (!teamMembers || teamMembers.length === 0) return task.createdBy;
+    const member = teamMembers.find(m => m.userId === task.createdBy || m.id === task.createdBy);
+    return member ? member.name : task.createdBy;
+  }, [task.createdBy, teamMembers]);
   
   // Position assignee dropdown when it opens
   useEffect(() => {
@@ -266,6 +292,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         {
           title: title.trim(),
           description: description.trim(),
+          showDescriptionInCard,
           comments: comments,
           priority,
           dueDate: dueDate || null,
@@ -308,6 +335,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
         {
           title: title.trim(),
           description: description.trim(),
+          showDescriptionInCard,
           comments: comments,
           priority,
           dueDate: dueDate || null,
@@ -325,7 +353,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
     } finally {
       setTimeout(() => setIsAutosaving(false), 300); // Show briefly for 300ms
     }
-  }, [orgId, uid, task.id, title, description, comments, priority, dueDate, projectId, assignee, recurrence, attachments, subtasks, dependencies]);
+  }, [orgId, uid, task.id, title, description, showDescriptionInCard, comments, priority, dueDate, projectId, assignee, recurrence, attachments, subtasks, dependencies]);
 
   const triggerAutosave = useCallback(() => {
     // Clear existing timeout
@@ -590,7 +618,19 @@ export const TaskEditForm: React.FC<Props> = (props) => {
   return (
     <div className="max-w-4xl mx-auto bg-[rgba(20,20,30,0.95)] backdrop-blur-sm rounded-xl shadow-lg overflow-hidden relative border border-white/10" data-edit-modal-root={task.id}>
       {/* Enhanced Header with Status Indicator */}
-      <div className={`bg-gradient-to-r ${getStatusColor(task.status)} border-b-2 px-4 py-3 relative`}>
+      <div className={`bg-gradient-to-r ${getStatusColor(task.status)} border-b-2 px-4 py-3 pr-12 relative`}>
+        {/* Close button reserved space with padding-right above; place absolute so it sits at far right and pushes content */}
+        <button
+          type="button"
+          onClick={() => onCancel()}
+          className="absolute top-3 right-3 text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/5"
+          aria-label="Close"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 relative" data-status-dropdown-modal>
@@ -743,24 +783,11 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                 {task.status.replace('_', ' ')}
               </span>
             </div>
-            <span className="text-gray-400">•</span>
-            <span className="text-sm text-gray-400">
-              {task.id ? `Task #${task.id.slice(0, 8)}` : 'New Task'}
-            </span>
+            
           </div>
           
           {/* Task Indicators from Task Line */}
           <div className="flex items-center gap-x-2 text-xs text-brand-text relative">
-            {/* Created Date */}
-            <span className="flex items-center justify-center w-[75px]" title="Created date">
-              <svg className="w-3 h-3 mr-1 text-gray-400" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 20 20">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m4 4V3m-7 4h14M5 7v10a2 2 0 002 2h6a2 2 0 002-2V7" />
-              </svg>
-              {task.createdAt && typeof (task.createdAt as any).toDate === "function"
-                ? (task.createdAt as any).toDate().toLocaleDateString(undefined, { month: "short", day: "numeric" })
-                : '--'}
-            </span>
-            <span className="text-gray-300">|</span>
             
             {/* Due Date */}
             <span className="flex items-center justify-center w-[75px]" title="Due date">
@@ -769,7 +796,10 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10 6v4l2 2" />
               </svg>
               {dueDate
-                ? new Date(dueDate).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                ? (() => {
+                    const [year, month, day] = dueDate.split('-').map(Number);
+                    return new Date(year, month - 1, day).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                  })()
                 : '--'}
             </span>
             <span className="text-gray-300">|</span>
@@ -780,7 +810,13 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                 <circle cx="10" cy="7" r="4" stroke="currentColor" strokeWidth="2" />
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4 17v-1a4 4 0 014-4h4a4 4 0 014 4v1" />
               </svg>
-              <span className="truncate">{assignee || '--'}</span>
+                  <span className="truncate">{
+                (() => {
+                  if (!assignee) return '--';
+                  const member = teamMembers?.find(m => m.id === assignee || m.name === assignee);
+                  return member?.name || '--';
+                })()
+              }</span>
             </span>
             
             {/* Priority Badge */}
@@ -799,12 +835,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
               </span>
             )}
             
-            {/* Autosave Indicator - appears after priority badge */}
-            {isAutosaving && (
-              <svg className="w-4 h-4 ml-1 animate-spin text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            )}
+            {/* Autosave Indicator moved to footer */}
           </div>
         </div>
         {/* Title row with persistent notification icons (same as Task line) */}
@@ -819,15 +850,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
             autoFocus
           />
           <div className="flex items-center gap-2 text-xs text-brand-text">
-            {/* Description indicator */}
-            {description && (
-              <span
-                title={typeof description === 'string' ? description : 'Has description'}
-                className="ml-1 flex items-center"
-              >
-                <svg className="w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h13v2H3v-2z"/></svg>
-              </span>
-            )}
+            {/* Description indicator removed per UX request */}
             {/* Notes/comments indicator */}
             {comments && comments.length > 0 && (
               <span title="Has comments/notes" className="ml-1 flex items-center">
@@ -883,201 +906,183 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                 <span>{highlightText(description)}</span>
               </div>
             )}
+            {/* Show Description in Card checkbox */}
+            <label className="flex items-center gap-2 mt-2 text-xs text-brand-text cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showDescriptionInCard}
+                onChange={(e) => {
+                  setShowDescriptionInCard(e.target.checked);
+                  triggerAutosave();
+                }}
+                className="w-4 h-4 rounded border-white/10 bg-gray-800/40 text-brand-cyan focus:ring-2 focus:ring-brand-cyan focus:ring-offset-0"
+              />
+              <span>Show description in card view</span>
+            </label>
           </div>
 
-          {/* Key Fields Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <div className="lg:col-span-2">
-              <label className="block text-xs font-medium text-brand-text mb-1">
-                Priority: {getPriorityLabel(priority)} ({priority})
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={priority}
-                  onChange={(e) => setPriority(Number(e.target.value))}
-                  onMouseUp={triggerAutosave}
-                  onTouchEnd={triggerAutosave}
-                  className="flex-1 h-2 rounded-lg appearance-none cursor-pointer"
-                  style={{
-                    // Brand-aligned gradient: slate → blue → cyan → indigo → violet → red
-                    background: `linear-gradient(to right, 
-                      #64748b 0%, 
-                      #60a5fa 20%, 
-                      #00D0FF 40%, 
-                      #6366f1 60%, 
-                      #A38BFF 80%, 
-                      #ef4444 100%)`,
-                  }}
-                />
-                <span 
-                  className="flex-shrink-0 w-12 h-8 rounded flex items-center justify-center text-xs font-bold text-white shadow-sm text-shadow-sm"
-                  style={{ backgroundColor: getPrioritySliderColor(priority) }}
-                >
-                  {priority}
-                </span>
-              </div>
-            </div>
-
-            <div className="lg:col-span-1">
-              <label className="block text-xs font-medium text-brand-text mb-1">Due Date</label>
+          {/* Key Fields Row - Flex Layout */}
+          <div className="flex flex-row gap-3 w-full">
+            {/* Priority slider and badge */}
+            <div className="flex items-center gap-2 min-w-[180px]">
               <input
-                type="date"
-                className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan"
-                value={dueDate ? dueDate.substring(0, 10) : ""}
-                onChange={(e) => setDueDate(e.target.value)}
-                onBlur={triggerAutosave}
+                type="range"
+                min="0"
+                max="100"
+                value={priority}
+                onChange={(e) => setPriority(Number(e.target.value))}
+                onMouseUp={triggerAutosave}
+                onTouchEnd={triggerAutosave}
+                className="flex-1 h-2 rounded-lg appearance-none cursor-pointer"
+                style={{
+                  background: `linear-gradient(to right, #64748b 0%, #60a5fa 20%, #00D0FF 40%, #6366f1 60%, #A38BFF 80%, #ef4444 100%)`,
+                }}
               />
-            </div>
-
-            <div className="lg:col-span-1">
-              <label className="block text-xs font-medium text-brand-text mb-1">Assignee</label>
-              <button
-                ref={assigneeButtonRef}
-                type="button"
-                className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan text-left flex items-center justify-between hover:bg-gray-800/60 transition-colors"
-                onClick={() => setShowAssigneeDropdown(!showAssigneeDropdown)}
+              <span 
+                className="flex-shrink-0 w-12 h-8 rounded flex items-center justify-center text-xs font-bold text-white shadow-sm text-shadow-sm"
+                style={{ backgroundColor: getPrioritySliderColor(priority) }}
               >
-                <span className="truncate">{assignee || '— Unassigned —'}</span>
-                <svg className="w-4 h-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              
-              {/* Assignee Dropdown with Suggestions - rendered via portal */}
-              {showAssigneeDropdown && createPortal(
-                <div
-                  data-assignee-dropdown={task.id}
-                  className="fixed bg-gray-800/95 border border-brand-cyan/50 rounded-lg shadow-xl py-1 z-[9999] min-w-[280px] max-h-[400px] overflow-y-auto backdrop-blur-xl"
-                  style={{ 
-                    top: assigneeDropdownPos ? `${assigneeDropdownPos.top}px` : '0px',
-                    left: assigneeDropdownPos ? `${assigneeDropdownPos.left}px` : '0px'
-                  }}
-                  onMouseDown={(e) => e.stopPropagation()}
-                  onClick={(e) => e.stopPropagation()}
+                {priority}
+              </span>
+            </div>
+            {/* Due date, Assignee, Project - evenly spaced */}
+            <div className="flex flex-1 gap-3 min-w-0">
+              {/* Due date */}
+              <div className="flex-1 min-w-0 flex flex-col">
+                <label className="block text-xs font-medium text-brand-text mb-1">Due Date</label>
+                <input
+                  type="date"
+                  className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan"
+                  value={dueDate ? dueDate.substring(0, 10) : ""}
+                  onChange={(e) => setDueDate(e.target.value)}
+                  onBlur={triggerAutosave}
+                />
+              </div>
+              {/* Assignee */}
+              <div className="flex-1 min-w-0 flex flex-col">
+                <label className="block text-xs font-medium text-brand-text mb-1">Assignee</label>
+                <button
+                  ref={assigneeButtonRef}
+                  type="button"
+                  className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan text-left flex items-center justify-between hover:bg-gray-800/60 transition-colors"
+                  onClick={() => setShowAssigneeDropdown(!showAssigneeDropdown)}
                 >
-                  {/* Suggestions Section */}
-                  {suggestions.length > 0 && (
-                    <>
-                      <div className="px-3 py-1.5 text-xs font-semibold text-brand-cyan uppercase tracking-wide flex items-center gap-1.5">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                        </svg>
-                        Suggested
-                      </div>
-                      {suggestions.map((suggestion) => (
-                        <button
-                          key={suggestion.memberId}
-                          type="button"
-                          className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex flex-col gap-1 border-l-2 border-brand-cyan/50"
-                          onMouseDown={(e) => e.stopPropagation()}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setAssignee(suggestion.memberName);
-                            setShowAssigneeDropdown(false);
-                            triggerAutosave();
-                          }}
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm font-medium text-brand-text">{suggestion.memberName}</span>
-                            <span className="text-xs px-1.5 py-0.5 rounded bg-brand-cyan/20 text-brand-cyan font-semibold">
-                              {suggestion.confidence}%
-                            </span>
-                          </div>
-                          <span className="text-xs text-brand-text/60">{suggestion.primaryReason}</span>
-                        </button>
-                      ))}
-                      <div className="border-t border-white/10 my-1"></div>
-                    </>
-                  )}
-                  
-                  {/* All Team Members */}
-                  <button
-                    type="button"
-                    className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 text-sm text-brand-text/60"
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setAssignee("");
-                      setShowAssigneeDropdown(false);
-                      triggerAutosave();
+                  <span className="truncate">{
+                    (() => {
+                      if (!assignee) return '— Unassigned —';
+                      const member = teamMembers?.find(m => m.id === assignee || m.name === assignee);
+                      return member?.name || '--';
+                    })()
+                  }</span>
+                  <svg className="w-4 h-4 flex-shrink-0 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                
+                {/* Assignee Dropdown with Suggestions - rendered via portal */}
+                {showAssigneeDropdown && createPortal(
+                  <div
+                    data-assignee-dropdown={task.id}
+                    className="fixed bg-gray-800/95 border border-brand-cyan/50 rounded-lg shadow-xl py-1 z-[9999] min-w-[280px] max-h-[400px] overflow-y-auto backdrop-blur-xl"
+                    style={{ 
+                      top: assigneeDropdownPos ? `${assigneeDropdownPos.top}px` : '0px',
+                      left: assigneeDropdownPos ? `${assigneeDropdownPos.left}px` : '0px'
                     }}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    — Unassigned —
-                  </button>
-                  {teamMembers?.filter(m => m.active).map((member) => (
+                    {/* Suggestions Section */}
+                    {suggestions.length > 0 && (
+                      <>
+                        <div className="px-3 py-1.5 text-xs font-semibold text-brand-cyan uppercase tracking-wide flex items-center gap-1.5">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                          </svg>
+                          Suggested
+                        </div>
+                        {suggestions.map((suggestion) => (
+                          <button
+                            key={suggestion.memberId}
+                            type="button"
+                            className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex flex-col gap-1 border-l-2 border-brand-cyan/50"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAssignee(suggestion.memberName);
+                              setShowAssigneeDropdown(false);
+                              triggerAutosave();
+                            }}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm font-medium text-brand-text">{suggestion.memberName}</span>
+                              <span className="text-xs px-1.5 py-0.5 rounded bg-brand-cyan/20 text-brand-cyan font-semibold">
+                                {suggestion.confidence}%
+                              </span>
+                            </div>
+                            <span className="text-xs text-brand-text/60">{suggestion.primaryReason}</span>
+                          </button>
+                        ))}
+                        <div className="border-t border-white/10 my-1"></div>
+                      </>
+                    )}
+                    
+                    {/* All Team Members */}
                     <button
-                      key={member.id}
                       type="button"
-                      className={`w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center justify-between text-sm text-brand-text ${
-                        assignee === member.name ? 'bg-brand-cyan/20' : ''
-                      }`}
+                      className="w-full px-3 py-2 text-left hover:bg-brand-cyan/10 text-sm text-brand-text/60"
                       onMouseDown={(e) => e.stopPropagation()}
                       onClick={(e) => {
                         e.stopPropagation();
-                        setAssignee(member.name);
+                        setAssignee("");
                         setShowAssigneeDropdown(false);
                         triggerAutosave();
                       }}
                     >
-                      <span>{member.name}</span>
-                      {member.title && <span className="text-xs text-brand-text/60">({member.title})</span>}
+                      — Unassigned —
                     </button>
+                    {teamMembers?.filter(m => m.active).map((member) => (
+                      <button
+                        key={member.id}
+                        type="button"
+                        className={`w-full px-3 py-2 text-left hover:bg-brand-cyan/10 flex items-center justify-between text-sm text-brand-text ${
+                          assignee === member.name ? 'bg-brand-cyan/20' : ''
+                        }`}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setAssignee(member.name);
+                          setShowAssigneeDropdown(false);
+                          triggerAutosave();
+                        }}
+                      >
+                        <span>{member.name}</span>
+                        {member.title && <span className="text-xs text-brand-text/60">({member.title})</span>}
+                      </button>
+                    ))}
+                  </div>,
+                  document.body
+                )}
+              </div>
+              {/* Project */}
+              <div className="flex-1 min-w-0 flex flex-col">
+                <label className="block text-xs font-medium text-brand-text mb-1">Project</label>
+                <select
+                  className="w-full bg-[rgba(20,20,30,0.95)] text-brand-text border border-white/10 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan [&>option]:bg-[rgba(20,20,30,0.95)] [&>option]:text-brand-text"
+                  value={projectId}
+                  onChange={(e) => setProjectId(e.target.value || "")}
+                  onBlur={triggerAutosave}
+                >
+                  <option value="">— No Project —</option>
+                  {allProjects.map((p) => (
+                    <option key={p.id} value={p.id}>{p.title}</option>
                   ))}
-                </div>,
-                document.body
-              )}
-            </div>
-
-            <div className="lg:col-span-1">
-              <label className="block text-xs font-medium text-brand-text mb-1">Project</label>
-              <select
-                className="w-full bg-gray-800/40 text-brand-text border border-white/10 rounded px-2 py-1.5 text-sm focus:ring-2 focus:ring-brand-cyan focus:border-brand-cyan"
-                value={projectId}
-                onChange={(e) => setProjectId(e.target.value || "")}
-                onBlur={triggerAutosave}
-              >
-                <option value="">— No Project —</option>
-                {allProjects.map((p) => (
-                  <option key={p.id} value={p.id}>{p.title}</option>
-                ))}
-              </select>
+                </select>
+              </div>
             </div>
           </div>
           
           {/* Task Conversion Button */}
-          {projectId ? (
-            <div className="mt-2 px-1">
-              <button
-                type="button"
-                onClick={async () => {
-                  if (!orgId) return;
-                  if (!confirm('Convert this task to a general task? It will be unlinked from the current project.')) return;
-                  try {
-                    await updateTask(orgId, task.id, { projectId: null });
-                    await logActivity(uid, "task", task.id, title, "updated", {
-                      description: `Converted from project task to general task (unlinked from ${project?.title || projectId})`,
-                      changes: { projectId: { from: projectId, to: null } }
-                    });
-                    setProjectId("");
-                    alert('Task converted to general task successfully!');
-                  } catch (err) {
-                    logError("Error converting task:", (err as any)?.message ?? err);
-                    alert("Failed to convert task: " + (err instanceof Error ? err.message : String(err)));
-                  }
-                }}
-                className="w-full px-2 py-1.5 bg-purple-500/10 text-purple-400 border border-purple-500/30 text-xs rounded-lg hover:bg-purple-500/20 focus:ring-2 focus:ring-purple-500 transition-all flex items-center justify-center gap-1.5"
-                title="Convert this project task to a general task by unlinking it"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                </svg>
-                Convert to General Task
-              </button>
-            </div>
-          ) : (
+          {!projectId && (
             <div className="mt-2 px-1">
               <button
                 type="button"
@@ -1524,33 +1529,8 @@ export const TaskEditForm: React.FC<Props> = (props) => {
 
         {/* 🎯 Actions Section */}
         <div className="bg-[rgba(15,15,25,0.6)] p-4 border-t border-white/10">
-          <div className="flex flex-wrap gap-2 justify-between">
+          <div className="relative flex items-center justify-between">
             <div className="flex flex-wrap gap-2">
-              <button
-                type="submit"
-                className="px-3 py-1.5 bg-brand-cyan text-black text-sm rounded-lg hover:bg-brand-cyan-light focus:ring-2 focus:ring-brand-cyan font-medium transition-all"
-              >
-                Save Changes
-              </button>
-              <button
-                type="button"
-                onClick={handleCancel}
-                className="px-3 py-1.5 bg-gray-800/40 text-brand-text text-sm rounded-lg hover:bg-gray-800/60 focus:ring-2 focus:ring-gray-500 border border-white/10 transition-all"
-              >
-                Cancel
-              </button>
-            </div>
-            
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setShowBlockerManager(true)}
-                className="px-2 py-1.5 bg-red-500/10 text-red-400 border border-red-500/30 text-xs rounded-lg hover:bg-red-500/20 focus:ring-2 focus:ring-red-500 transition-all"
-                title="View and manage blockers for this task"
-              >
-                View Blockers
-              </button>
-              
               {task.status !== "archived" && onArchive && (
                 <button
                   type="button"
@@ -1560,7 +1540,7 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                   Archive
                 </button>
               )}
-              
+
               {task.status === "archived" && onUnarchive && (
                 <button
                   type="button"
@@ -1570,13 +1550,48 @@ export const TaskEditForm: React.FC<Props> = (props) => {
                   Unarchive
                 </button>
               )}
-              
+
               <button
                 type="button"
                 onClick={onDelete}
                 className="px-2 py-1.5 bg-red-500/10 text-red-400 border border-red-500/30 text-xs rounded-lg hover:bg-red-500/20 focus:ring-2 focus:ring-red-500 transition-all"
               >
                 Delete
+              </button>
+            </div>
+
+            {/* Center: Created date + Created by (single-line, discrete) - absolutely centered so right-side changes don't shift it */}
+            <div className="absolute left-1/2 transform -translate-x-1/2 px-4 pointer-events-none hidden sm:block">
+              <div className="text-xs text-gray-400 truncate max-w-[260px] flex items-center justify-center gap-2">
+                <span className="truncate">Created</span>
+                <span className="truncate">
+                  {task.createdAt && typeof (task.createdAt as any).toDate === "function"
+                    ? (task.createdAt as any).toDate().toLocaleDateString(undefined, { month: "short", day: "numeric" })
+                    : '--'}
+                </span>
+                <span className="text-gray-500">•</span>
+                <span className="truncate">{creatorName}</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+                {isAutosaving && (
+                  <svg className="w-4 h-4 mr-2 animate-spin text-gray-400 self-center" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                )}
+                <button
+                  type="submit"
+                  className="px-3 py-1.5 bg-brand-cyan text-black text-sm rounded-lg hover:bg-brand-cyan-light focus:ring-2 focus:ring-brand-cyan font-medium transition-all"
+                >
+                  Save Changes
+                </button>
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="px-3 py-1.5 bg-gray-800/40 text-brand-text text-sm rounded-lg hover:bg-gray-800/60 focus:ring-2 focus:ring-gray-500 border border-white/10 transition-all"
+              >
+                Cancel
               </button>
             </div>
           </div>

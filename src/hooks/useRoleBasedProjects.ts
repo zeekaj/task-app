@@ -2,6 +2,7 @@
 import { useMemo } from 'react';
 import { useProjects, type ProjectsQueryOptions } from './useProjects';
 import { useUserContext } from './useUserContext';
+import { useTeamMembers } from './useTeamMembers';
 import { filterProjectsByPermission } from '../utils/permissions';
 
 /**
@@ -17,16 +18,18 @@ export function useRoleBasedProjects(
   options?: ProjectsQueryOptions,
   skipRoleFilter: boolean = false
 ) {
-  const { userId, role } = useUserContext();
+  const { teamMemberId, role } = useUserContext();
+  const teamMembers = useTeamMembers(organizationId);
+  const teamMemberName = teamMemberId ? teamMembers?.find(m => m.id === teamMemberId)?.name : undefined;
   const allProjects = useProjects(organizationId, options);
 
   // Apply role-based filtering
   const filteredProjects = useMemo(() => {
-    if (skipRoleFilter || !role || !userId) {
+    if (skipRoleFilter || !role || !teamMemberId) {
       return allProjects;
     }
-    return filterProjectsByPermission(allProjects, role, userId);
-  }, [allProjects, role, userId, skipRoleFilter]);
+    return filterProjectsByPermission(allProjects, role, teamMemberId, teamMemberName);
+  }, [allProjects, role, teamMemberId, teamMemberName, skipRoleFilter]);
 
   return filteredProjects;
 }

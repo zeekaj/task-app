@@ -11,9 +11,10 @@ interface ModalProps {
   children: ReactNode;
   footer?: ReactNode;
   widthClass?: string; // e.g., 'max-w-lg'
+  noFrame?: boolean; // when true, don't render modal background/border so children provide their own frame
 }
 
-export function Modal({ open, title, onClose, children, footer, widthClass = 'max-w-lg' }: ModalProps) {
+export function Modal({ open, title, onClose, children, footer, widthClass = 'max-w-lg', noFrame = false }: ModalProps) {
   // Ignore Escape when focused inside searchable dropdown inputs
   useKeydown({ Escape: onClose }, open, { ignoreSelector: '.searchable-select-input' });
 
@@ -30,8 +31,14 @@ export function Modal({ open, title, onClose, children, footer, widthClass = 'ma
     <div className="fixed inset-0 z-50 overflow-y-auto" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70" />
       <div className="flex min-h-full items-center justify-center p-4">
-        <div className={`relative w-full ${widthClass} max-h-[90vh] bg-[rgba(20,20,30,0.95)] backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl shadow-black/50 flex flex-col`}
-             onClick={(e) => e.stopPropagation()}>
+        <div
+          className={
+            noFrame
+              ? `relative w-full ${widthClass} max-h-[90vh] flex flex-col`
+              : `relative w-full ${widthClass} max-h-[90vh] bg-[rgba(20,20,30,0.95)] backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl shadow-black/50 flex flex-col`
+          }
+          onClick={(e) => e.stopPropagation()}
+        >
         {title && (
           <div className="px-6 py-4 border-b border-white/10 flex items-center justify-between gap-4">
             {typeof title === 'string' ? (

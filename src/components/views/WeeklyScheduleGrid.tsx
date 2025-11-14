@@ -36,6 +36,7 @@ interface ScheduleItem {
   color: string;
   textColor: string;
   data: any;
+  style?: React.CSSProperties;
 }
 
 // Convert 24-hour time to 12-hour AM/PM format
@@ -141,6 +142,13 @@ export function WeeklyScheduleGrid({
         memberMap.set(dateKey, []);
       }
       
+      // Check if shift is published (offered or confirmed status)
+      const isPublished = shift.status === 'offered' || shift.status === 'confirmed';
+      
+      // Get project color if shift is linked to a project
+      const project = shift.projectId ? projects.find(p => p.id === shift.projectId) : null;
+      const projectColor = project?.color || '#14B8A6'; // default teal
+      
       memberMap.get(dateKey)!.push({
         id: shift.id!,
         type: 'shift',
@@ -148,9 +156,13 @@ export function WeeklyScheduleGrid({
         startTime: formatTime(shift.startTime),
         endTime: formatTime(shift.endTime),
         location: shift.location,
-        color: 'bg-teal-600',
+        color: isPublished ? '' : 'border-2 border-dashed',
         textColor: 'text-white',
         data: shift,
+        style: { 
+          backgroundColor: isPublished ? projectColor : `${projectColor}30`,
+          borderColor: isPublished ? 'transparent' : `${projectColor}80`
+        },
       });
     });
     
@@ -416,6 +428,7 @@ export function WeeklyScheduleGrid({
                           <div
                             key={item.id}
                             className={`${item.color} ${item.textColor} rounded px-2 py-1.5 cursor-pointer hover:opacity-90 transition-opacity shadow-sm`}
+                            style={item.style}
                             onClick={() => {
                               if (item.type === 'shift') {
                                 onShiftClick(item.data);

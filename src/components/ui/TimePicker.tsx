@@ -175,7 +175,7 @@ export function TimePicker({ value, onChange, label, className = '' }: TimePicke
               onBlur={handleInputBlur}
               onKeyDown={handleInputKeyDown}
               placeholder="HH:MM AM/PM"
-              className="w-full px-3 py-2 pr-10 bg-white/5 border border-white/10 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
+              className="w-full px-3 py-2 pr-8 bg-white/5 border border-white/10 rounded-lg text-gray-200 placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent"
             />
             <button
               type="button"

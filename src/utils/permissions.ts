@@ -7,6 +7,7 @@ import type { TeamMemberRole, Task, Project } from '../types';
  * @param role The role to normalize
  */
 function normalizeRole(role: TeamMemberRole | string): TeamMemberRole {
+  // Legacy 'member' records were intended to be technicians — normalize accordingly
   return role === 'member' ? 'technician' : role as TeamMemberRole;
 }
 
@@ -28,7 +29,8 @@ function normalizeRole(role: TeamMemberRole | string): TeamMemberRole {
  */
 export function canViewAllTasks(role: TeamMemberRole | string): boolean {
   const normalized = normalizeRole(role);
-  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician' || normalized === 'viewer';
+  // Only owners and admins can view all tasks across the org; technicians see only their own
+  return normalized === 'owner' || normalized === 'admin';
 }
 
 /**
@@ -36,7 +38,8 @@ export function canViewAllTasks(role: TeamMemberRole | string): boolean {
  */
 export function canViewAllProjects(role: TeamMemberRole | string): boolean {
   const normalized = normalizeRole(role);
-  return normalized === 'owner' || normalized === 'admin' || normalized === 'technician' || normalized === 'viewer';
+  // Only owners and admins can view all projects across the org
+  return normalized === 'owner' || normalized === 'admin';
 }
 
 /**
@@ -230,7 +233,8 @@ export function filterTasksByPermission<T extends Task>(
   tasks: T[], 
   _role: TeamMemberRole,
   userId: string,
-  userProjects?: string[]
+  userProjects?: string[],
+  userName?: string
 ): T[] {
   // Everyone sees only:
   // 1. Tasks they created
@@ -241,7 +245,9 @@ export function filterTasksByPermission<T extends Task>(
     if (task.createdBy === userId) return true;
     
     // Can see tasks assigned to them
+    // Support legacy data where assignee may be stored as a display name
     if (task.assignee === userId) return true;
+    if (typeof task.assignee === 'string' && userName && task.assignee === userName) return true;
     
     // Can see tasks in projects they're assigned to
     if (task.projectId && userProjects?.includes(task.projectId)) return true;
@@ -256,7 +262,7 @@ export function filterTasksByPermission<T extends Task>(
  * @param role User's role
  * @param userId Current user's ID
  */
-export function filterProjectsByPermission<T extends Project>(projects: T[], role: TeamMemberRole, userId: string): T[] {
+export function filterProjectsByPermission<T extends Project>(projects: T[], role: TeamMemberRole, userId: string, userName?: string): T[] {
   // If user can view all projects, return everything
   if (canViewAllProjects(role)) {
     return projects;
@@ -265,9 +271,11 @@ export function filterProjectsByPermission<T extends Project>(projects: T[], rol
   // Freelancers can only see projects they're assigned to
   if (role === 'freelance') {
     return projects.filter(project => {
-      return project.projectManager === userId ||
-             project.owner === userId ||
-             project.assignees?.includes(userId);
+      // Match by id or (legacy) display name
+      const pmMatch = project.projectManager === userId || (userName && project.projectManager === userName);
+      const ownerMatch = project.owner === userId || (userName && project.owner === userName);
+      const assigneeMatch = (project.assignees && project.assignees.includes(userId)) || (userName && project.assignees && project.assignees.includes(userName));
+      return pmMatch || ownerMatch || assigneeMatch;
     });
   }
   

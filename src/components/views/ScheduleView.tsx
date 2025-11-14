@@ -14,6 +14,9 @@ import { deleteShift } from '../../services/shifts';
 import { GenericShiftModal } from '../GenericShiftModal';
 import { ProjectShiftModal } from '../ProjectShiftModal';
 import { WeeklyScheduleGrid } from './WeeklyScheduleGrid';
+import { TaskEditForm } from '../TaskEditForm';
+import { Modal } from '../shared/Modal';
+import { removeTask, archiveTask, unarchiveTask, updateTask } from '../../services/tasks';
 
 interface ScheduleViewProps {
   uid: string;
@@ -39,9 +42,10 @@ export function ScheduleView({ uid }: ScheduleViewProps) {
   const [editingShift, setEditingShift] = useState<any>(null);
   const [defaultShiftProjectId, setDefaultShiftProjectId] = useState<string>('');
   const [defaultShiftMemberId, setDefaultShiftMemberId] = useState<string>('');
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   
-  // Calculate date range based on view mode
-  const getDateRange = () => {
+  // Calculate date range based on view mode - memoize to prevent infinite loops
+  const { start, end } = useMemo(() => {
     const start = new Date(selectedDate);
     const end = new Date(selectedDate);
     
@@ -63,9 +67,7 @@ export function ScheduleView({ uid }: ScheduleViewProps) {
     }
     
     return { start, end };
-  };
-  
-  const { start, end } = getDateRange();
+  }, [selectedDate, viewMode]);
   const { shifts, loading: shiftsLoading } = useShifts(uid, {
     startDate: start,
     endDate: end,
@@ -158,6 +160,7 @@ export function ScheduleView({ uid }: ScheduleViewProps) {
     return shifts;
   }, [shifts, isFreelance, selfMemberId]);
 
+  const editingTask = editingTaskId ? allTasks.find((t) => t.id === editingTaskId) : null;
   const clearBanner = () => setBanner(null);
   
   const goToPrevious = () => {
@@ -361,8 +364,7 @@ export function ScheduleView({ uid }: ScheduleViewProps) {
               console.log('Event clicked:', event);
             }}
             onTaskClick={(task) => {
-              // TODO: Open task edit modal
-              console.log('Task clicked:', task);
+              setEditingTaskId(task.id);
             }}
             onProjectClick={(project) => {
               // TODO: Open project detail modal
@@ -555,7 +557,6 @@ export function ScheduleView({ uid }: ScheduleViewProps) {
           setEditingShift(null);
           setDefaultShiftProjectId('');
           setDefaultShiftMemberId('');
-          setBanner({ type: 'success', message: editingShift ? 'Shift updated successfully' : 'Shift created successfully' });
         }}
         defaultDate={selectedDate.toISOString().split('T')[0]}
         defaultMemberId={defaultShiftMemberId}
@@ -575,10 +576,42 @@ export function ScheduleView({ uid }: ScheduleViewProps) {
           setShiftModalOpen(false);
           setEditingShift(null);
           setDefaultShiftProjectId('');
-          setBanner({ type: 'success', message: editingShift ? 'Shift updated successfully' : 'Shift created successfully' });
         }}
         defaultDate={selectedDate.toISOString().split('T')[0]}
       />
+      
+      {/* Task Edit Modal */}
+      {editingTask && (
+        <Modal
+          open={true}
+          onClose={() => setEditingTaskId(null)}
+          title=""
+          widthClass="max-w-4xl"
+          noFrame={true}
+        >
+          <TaskEditForm
+            uid={uid}
+            task={editingTask}
+            allProjects={projects}
+            onSave={() => setEditingTaskId(null)}
+            onCancel={() => setEditingTaskId(null)}
+            onDelete={async () => {
+              if (!window.confirm('Delete this task?')) return;
+              await removeTask(uid, editingTaskId!);
+              setEditingTaskId(null);
+            }}
+            onArchive={async () => {
+              await archiveTask(uid, editingTaskId!);
+            }}
+            onUnarchive={async () => {
+              await unarchiveTask(uid, editingTaskId!);
+            }}
+            onStatusChange={async (newStatus) => {
+              await updateTask(uid, editingTaskId!, { status: newStatus });
+            }}
+          />
+        </Modal>
+      )}
     </div>
   );
 }

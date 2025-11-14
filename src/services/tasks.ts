@@ -58,7 +58,7 @@ export async function createTask(
 export async function updateTask(
   organizationId: string,
   taskId: string,
-  data: Partial<Pick<Task, "title" | "description" | "priority" | "dueDate" | "projectId" | "status" | "order" | "assignee" | "recurrence" | "attachments" | "comments" | "subtasks" | "dependencies">>
+  data: Partial<Pick<Task, "title" | "description" | "priority" | "dueDate" | "projectId" | "status" | "order" | "assignee" | "recurrence" | "attachments" | "comments" | "subtasks" | "dependencies" | "showDescriptionInCard">>
 ) {
   const fb = await getFirebase();
   const { serverTimestamp: _serverTimestamp, doc: _doc, getDoc: _getDoc, updateDoc: _updateDoc } = await import('firebase/firestore');
@@ -75,6 +75,7 @@ export async function updateTask(
   if (typeof data.assignee !== "undefined") payload.assignee = data.assignee;
   if (typeof data.recurrence !== "undefined") payload.recurrence = data.recurrence;
   if (typeof data.attachments !== "undefined") payload.attachments = data.attachments;
+  if (typeof data.showDescriptionInCard !== "undefined") payload.showDescriptionInCard = data.showDescriptionInCard;
   if (typeof data.subtasks !== "undefined") payload.subtasks = data.subtasks;
   if (typeof data.dependencies !== "undefined") payload.dependencies = data.dependencies;
 
@@ -106,6 +107,9 @@ export async function updateTask(
       type: 'string'
     };
     console.log('Change recorded as:', changes.description);
+  }
+  if (typeof data.showDescriptionInCard !== "undefined" && currentTask?.showDescriptionInCard !== data.showDescriptionInCard) {
+    changes.showDescriptionInCard = { from: typeof currentTask?.showDescriptionInCard === 'undefined' ? false : currentTask?.showDescriptionInCard, to: !!data.showDescriptionInCard };
   }
   if (typeof data.status !== "undefined" && currentTask?.status !== data.status) {
     console.log('Status change detected:', {

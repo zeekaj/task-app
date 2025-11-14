@@ -80,6 +80,7 @@ export interface Task {
   id?: string;
   title: string;
   description?: string;
+  showDescriptionInCard?: boolean; // whether to show description in task line view
   projectId: string | null;
   status: TaskStatus;
   assignee?: string | TaskAssignee; // user ID or object
